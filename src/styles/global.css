@@ -30,6 +30,10 @@
 
   --warn: #b3412e;
 
+  /* Your place: the return-to-place ribbon and the "you were here" mark. Never used for diagram roles. */
+  --place: #b8336a;
+  --place-wash: #f7dde8;
+
   --font-body: 'Literata Variable', Georgia, serif;
   --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -127,6 +131,248 @@ a.wikilink {
 a.wikilink.is-stub {
   text-decoration-style: dotted;
   color: var(--ink-soft);
+}
+
+/* ---------- Return to place (src/scripts/trail.ts, principle keep-place) ---------- */
+
+/* "You were here": a wash that fades, plus a ribbon notch that stays a few seconds. */
+.place-here:not(svg *) {
+  position: relative;
+  background-color: var(--place-wash);
+  box-shadow: 0 0 0 3px var(--place-wash);
+  border-radius: 2px;
+  text-decoration-color: var(--place) !important;
+  animation: place-fade 2.2s ease-out 1.4s forwards;
+}
+.place-here:not(svg *)::before {
+  content: '';
+  position: absolute;
+  left: -0.75em;
+  top: 0.1em;
+  bottom: 0.1em;
+  width: 3px;
+  border-radius: 1px;
+  background: var(--place);
+}
+svg .place-here > :first-child {
+  stroke: var(--place) !important;
+  stroke-width: 3px !important;
+}
+svg .place-here text {
+  fill: var(--place) !important;
+  font-weight: 600;
+}
+@keyframes place-fade {
+  to {
+    background-color: transparent;
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+.trail {
+  position: fixed;
+  z-index: 30;
+  left: clamp(0.5rem, 2vw, 1.25rem);
+  bottom: clamp(0.5rem, 2vw, 1.25rem);
+  width: min(27rem, calc(100vw - 1rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: var(--step--1);
+}
+.trail[hidden] {
+  display: none;
+}
+.trail button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.trail-bar {
+  display: flex;
+  align-items: stretch;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 22px -12px rgb(20 33 61 / 0.45);
+  overflow: hidden;
+}
+.trail-back {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem 0.6rem;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0.55rem 0.7rem 0.6rem 1.55rem;
+}
+.trail-back:hover {
+  background: var(--paper);
+}
+/* A bookmark ribbon down the left edge: the visual name for "your place". */
+.trail-ribbon {
+  position: absolute;
+  left: 0.55rem;
+  top: 0;
+  width: 0.5rem;
+  height: 2.1rem;
+  background: var(--place);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 0.3rem), 0 100%);
+}
+.trail-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-soft);
+}
+.trail-label strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.trail-where {
+  color: var(--ink-faint);
+}
+.trail-where::before {
+  content: ', in ';
+}
+.trail-key {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  color: var(--ink-faint);
+  background: var(--paper);
+}
+.trail-quote {
+  grid-column: 1 / -1;
+  font-family: var(--font-body);
+  color: var(--ink-soft);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.trail-quote:empty {
+  display: none;
+}
+.trail-quote mark {
+  color: var(--ink);
+  background: var(--place-wash);
+  border-radius: 2px;
+  padding: 0 0.15em;
+  box-decoration-break: clone;
+  text-decoration: underline var(--place) 1.5px;
+  text-underline-offset: 0.18em;
+}
+.trail-more,
+.trail-clear {
+  flex: none;
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--rule-soft);
+  padding: 0 0.7rem;
+  color: var(--ink-faint);
+}
+.trail-more:hover,
+.trail-clear:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+.trail-clear {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+/* One dot per earlier stop, stacked like pages behind the current one. */
+.trail-dots {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.trail-dots i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+.trail-more[aria-expanded='true'] .trail-dots i {
+  background: var(--place);
+}
+.trail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0.4rem 0.5rem 0.9rem;
+  max-height: min(50vh, 24rem);
+  overflow-y: auto;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 22px -12px rgb(20 33 61 / 0.45);
+}
+/* The trail as a thread: newest at the top, each stop a knot on the line. */
+.trail-list li {
+  position: relative;
+  border-left: 1px solid var(--rule);
+  padding-left: 0.85rem;
+}
+.trail-list li::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 0.85rem;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--paper-raised);
+  border: 1.5px solid var(--ink-faint);
+}
+.trail-list li:first-child::before {
+  border-color: var(--place);
+  background: var(--place);
+}
+.trail-stop {
+  display: grid;
+  gap: 0.1rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 0.45rem 0.5rem;
+}
+.trail-stop:hover {
+  background: var(--paper);
+}
+.trail-stop strong {
+  font-weight: 600;
+}
+.trail-stop .trail-where::before {
+  content: 'in ';
+}
+@media (max-width: 560px) {
+  .trail {
+    left: 0.5rem;
+    right: 0.5rem;
+    width: auto;
+  }
+  .trail-key {
+    display: none;
+  }
+}
+@media print {
+  .trail {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

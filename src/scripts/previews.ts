@@ -63,4 +63,7 @@ export function initPreviews() {
   });
   document.addEventListener('focusout', hide);
   document.addEventListener('keydown', (e) => e.key === 'Escape' && hide());
+  // A page restored from the back/forward cache would otherwise come back with the card still open.
+  document.addEventListener('click', hide);
+  addEventListener('pageshow', hide);
 }

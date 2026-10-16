@@ -45,7 +45,7 @@ const linkTypeText: Record<string, string> = {
 
 <Base title={d.title} description={d.summary}>
   <div class="note-layout">
-    <aside class="left" aria-label="All notes">
+    <aside class="left" aria-label="All notes" data-keep-scroll>
       <details class="index-toggle">
         <summary class="ui">All notes</summary>
         <NoteIndex current={note.id} />
@@ -131,7 +131,7 @@ const linkTypeText: Record<string, string> = {
       }
     </article>
 
-    <aside class="right ui" aria-label="Connections">
+    <aside class="right ui" aria-label="Connections" data-keep-scroll>
       {
         first.length > 0 && (
           <section>

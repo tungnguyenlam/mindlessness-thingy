@@ -6,7 +6,7 @@ interface Props {
 const { title } = Astro.props;
 ---
 
-<x-stepper class="stepper">
+<x-stepper class="stepper" data-restorable>
   <div class="head ui">
     <p class="title">{title}</p>
     <div class="controls" hidden>
@@ -21,15 +21,23 @@ const { title } = Astro.props;
 </x-stepper>
 
 <script>
+  // Restorable (src/scripts/trail.ts): returning to this page reopens the step the reader was on.
   class XStepper extends HTMLElement {
     i = 0;
+    show: (i: number) => void = (i) => (this.i = i);
+    snapshot() {
+      return this.i || null;
+    }
+    restore(state: unknown) {
+      if (typeof state === 'number') this.show(state);
+    }
     connectedCallback() {
       const steps = [...this.querySelectorAll<HTMLElement>(':scope > .steps > .step')];
       if (steps.length < 2) return;
       const controls = this.querySelector<HTMLElement>('.controls')!;
       const count = this.querySelector('.count')!;
       const [back, next] = controls.querySelectorAll('button');
-      const show = (i: number) => {
+      this.show = (i: number) => {
         this.i = Math.max(0, Math.min(steps.length - 1, i));
         steps.forEach((s, k) => (s.hidden = k !== this.i));
         count.textContent = `Step ${this.i + 1} of ${steps.length}`;
@@ -39,13 +47,13 @@ const { title } = Astro.props;
       controls.hidden = false;
       controls.addEventListener('click', (e) => {
         const dir = (e.target as HTMLElement).closest('button')?.dataset.dir;
-        if (dir) show(this.i + Number(dir));
+        if (dir) this.show(this.i + Number(dir));
       });
       this.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowRight') show(this.i + 1);
-        if (e.key === 'ArrowLeft') show(this.i - 1);
+        if (e.key === 'ArrowRight') this.show(this.i + 1);
+        if (e.key === 'ArrowLeft') this.show(this.i - 1);
       });
-      show(0);
+      this.show(this.i);
     }
   }
   customElements.define('x-stepper', XStepper);

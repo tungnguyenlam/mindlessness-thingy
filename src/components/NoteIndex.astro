@@ -18,7 +18,7 @@ const byKind = (kind: string) =>
   [...g.notes.values()].filter((n) => n.data.kind === kind).sort((a, b) => a.data.title.localeCompare(b.data.title));
 ---
 
-<x-note-index class="note-index ui">
+<x-note-index class="note-index ui" data-restorable>
   {
     filter && (
       <label class="filter">
@@ -52,7 +52,17 @@ const byKind = (kind: string) =>
 </x-note-index>
 
 <script>
+  // Restorable (src/scripts/trail.ts): a filtered list stays filtered after a round trip.
   class XNoteIndex extends HTMLElement {
+    snapshot() {
+      return this.querySelector('input')?.value || null;
+    }
+    restore(state: unknown) {
+      const input = this.querySelector('input');
+      if (!input || typeof state !== 'string') return;
+      input.value = state;
+      input.dispatchEvent(new Event('input'));
+    }
     connectedCallback() {
       const input = this.querySelector('input');
       const items = [...this.querySelectorAll<HTMLElement>('li')];

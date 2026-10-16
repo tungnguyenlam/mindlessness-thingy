@@ -25,7 +25,7 @@ const nav = [
     <link rel="icon" type="image/svg+xml" href={url('/favicon.svg')} />
     <title>{title ? `${title} | ${siteName}` : siteName}</title>
   </head>
-  <body data-base={url('')}>
+  <body data-base={url('')} data-page-title={title ?? 'the map'}>
     <a class="skip ui" href="#main">Skip to content</a>
     <header class="site-header ui">
       <a class="wordmark" href={url('/')}>
@@ -51,9 +51,13 @@ const nav = [
       <slot />
     </main>
     <div id="preview-card" class="preview-card ui" role="tooltip" hidden></div>
+    {/* Return-to-place ribbon (principle keep-place). Filled in by src/scripts/trail.ts. */}
+    <section id="trail" class="trail ui" aria-label="Your trail" hidden></section>
     <script>
       import { initPreviews } from '../scripts/previews';
+      import { initTrail } from '../scripts/trail';
       initPreviews();
+      initTrail();
     </script>
   </body>
 </html>

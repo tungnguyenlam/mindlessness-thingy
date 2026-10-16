@@ -2,7 +2,7 @@
 import { url } from '../lib/url';
 ---
 
-<x-graph class="global-graph ui" data-src={url('/graph.json')} data-base={url('')}>
+<x-graph class="global-graph ui" data-src={url('/graph.json')} data-base={url('')} data-restorable>
   <svg role="img" aria-label="Map of every note and how they link"></svg>
   <div class="legend" aria-hidden="true">
     <span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.2" /></svg>Concept</span>
@@ -46,7 +46,23 @@ import { url } from '../lib/url';
   };
   const strong = new Set(['prerequisite', 'builds_on', 'step']);
 
+  // Restorable (src/scripts/trail.ts): coming back to the map keeps the reader's pan and zoom,
+  // and whenReady() tells the trail when node links exist so it can mark the one that was clicked.
   class XGraph extends HTMLElement {
+    view: { get(): unknown; set(s: unknown): void } | null = null;
+    pending: unknown = null;
+    markReady = () => {};
+    ready = new Promise<void>((r) => (this.markReady = r));
+    snapshot() {
+      return this.view?.get() ?? null;
+    }
+    restore(state: unknown) {
+      if (this.view) this.view.set(state);
+      else this.pending = state;
+    }
+    whenReady() {
+      return this.ready;
+    }
     async connectedCallback() {
       const svg = this.querySelector('svg')!;
       const base = this.dataset.base!;
@@ -197,6 +213,18 @@ import { url } from '../lib/url';
       let ty = 0;
       const apply = () => world.setAttribute('transform', `translate(${tx},${ty}) scale(${k})`);
       draw();
+      this.view = {
+        get: () => (userMoved ? { k, tx, ty } : null),
+        set: (s) => {
+          const v = s as { k?: number; tx?: number; ty?: number } | null;
+          if (!v || typeof v.k !== 'number') return;
+          ({ k, tx = 0, ty = 0 } = v as { k: number; tx: number; ty: number });
+          userMoved = true;
+          apply();
+        },
+      };
+      if (this.pending) this.view.set(this.pending);
+      this.markReady();
       svg.addEventListener(
         'wheel',
         (e) => {
