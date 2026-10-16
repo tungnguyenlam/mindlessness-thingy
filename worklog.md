@@ -36,3 +36,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: first visual within 120 words, max 400-word prose runs, every 150+ word section has a visual (errors; existing violations baselined); prose measured with components masked; MHA gets a one-head diagram and a KV-per-token calculator; system template starts from the model card; layout ties lean to centre
 - files: scripts/checks/visual.mjs scripts/baseline.json src/content/notes/concepts/mha.mdx templates/notes/system.mdx
 - open: baseline still lists hybrid-ssm-attention, latent-moe, nemotron-3-super, stablehand (other agent's drafts)
+
+## 2026-10-17 · feat(hooks): run guardrails in Claude Code, check commit tree
+- did: claude.mjs adapts Claude Code hook payloads and transcripts to the existing agent hooks (session start, guardrail after edits, git safety, stop gate); pre-commit also checks the index in a clean temp checkout, which reproduces the earlier CI no-dangling failure locally
+- files: .claude/settings.json scripts/agent-hooks/claude.mjs scripts/check-commit.mjs .githooks/pre-commit
+- open: hooks take effect in new Claude Code sessions (or after /hooks reload)

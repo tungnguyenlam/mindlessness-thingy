@@ -34,6 +34,7 @@ Each rule has an id. When `pnpm run check`, a test, a git hook or an agent hook 
 - At session start, a hook tells you the current check status and which files were already changed before you began.
 - Before each of your turns, a hook may add a **Guardrail** message listing problems in files you touched. Fix them before moving on.
 - When you try to finish, a stop hook blocks once if checks fail in your files, a note was promoted past `draft`, `pnpm run check` hasn't run since your last edit, or your files aren't committed. If you're intentionally stopping (for example to ask the owner a question), say so and stop again; the same reminder isn't repeated.
+- `pre-commit` also checks the commit as it will land, in a clean temp checkout. A commit that only passes because it leans on someone's uncommitted files (say, a link to their draft note) is refused there instead of failing in CI.
 - Some commands are refused outright: `git add -A`/`.`, `git commit -a`, `--no-verify`, `git stash`, `git reset --hard`, `git clean`, `git push --force`, `git config --global`. They either sweep up other people's work or skip the checks.
 - Don't silence a check to get past it (editing `scripts/checks/`, deleting a test, lowering a threshold) unless changing that check *is* the task, and then say so in the commit message.
 

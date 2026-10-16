@@ -33,8 +33,8 @@ Every message the system sends back names a rule id from `scripts/rules.mjs`, an
 | Behaviour test | `scripts/test-place.mjs` | `pnpm run check` | Drives Chrome through a link round trip in bfcache and reload modes. |
 | Render test | `scripts/test-visual.mjs` | `pnpm run check` | Loads every page at 1280 and 390 px and inspects the real rendering (overflow, clipped or colliding text, KaTeX and script errors). |
 | Baseline | `scripts/baseline.json` | every check | Grandfathers problems that predate a rule (by file and code) as warnings, so a new rule can be strict without editing other people's files. Only shrinks. |
-| Agent hooks | `.agents/hooks.json`, `scripts/agent-hooks/` | session start, every turn, every command, stop | Orient, notify, refuse, gate. |
-| Git hooks | `.githooks/` (installed by `pnpm install`) | every commit | Scoped checks on staged files; commit message format. |
+| Agent hooks | `.agents/hooks.json` and `.claude/settings.json` (via `scripts/agent-hooks/claude.mjs`), `scripts/agent-hooks/` | session start, every turn, every command, stop | Orient, notify, refuse, gate. |
+| Git hooks | `.githooks/` (installed by `pnpm install`) | every commit | Scoped checks on staged files, then `scripts/check-commit.mjs` checks the commit tree itself in a temp checkout (catches links to uncommitted notes that pass locally and fail in CI); commit message format. |
 | CI | `.github/workflows/deploy.yml` | push to main | `pnpm run check` before deploy. |
 
 ### Agent hooks in detail
@@ -45,6 +45,19 @@ Every message the system sends back names a rule id from `scripts/rules.mjs`, an
 | `guardrail-notify` | `PreInvocation` | Runs the checks scoped to files you changed this session; if any fail, or a note was promoted past `draft`, injects a transient "Guardrail:" message before your next turn. Silent when clean. |
 | `git-safety` | `PreToolUse` on `run_command` | Refuses `git add -A/./-u`, `commit -a`, `--no-verify`, `stash`, `reset --hard`, `clean -f`, `checkout .`, `restore .`, `push --force`, `config --global`, and overriding `core.hooksPath`. No opinion on anything else. |
 | `definition-of-done` | `Stop` | Blocks stopping if your files fail checks, a note was promoted, `pnpm run check` hasn't run since your last edit, or your files are uncommitted. Each distinct problem set is raised once, so an agent that is deliberately pausing can stop on the second try. |
+
+### Claude Code
+
+Claude Code reads `.claude/settings.json`, not `.agents/hooks.json`. `scripts/agent-hooks/claude.mjs <event>` adapts its payloads (and its transcript format) to the same hook scripts, so both harnesses share one implementation:
+
+| Claude Code event | Adapter event | Hook |
+| --- | --- | --- |
+| `SessionStart` | `session-start` | `orient` (also points at `tail -n 40 worklog.md`) |
+| `PostToolUse` on Write/Edit/MultiEdit/NotebookEdit, `UserPromptSubmit` | `guardrail` | `guardrail-notify`, injected as additional context |
+| `PreToolUse` on Bash | `pre-tool-use` | `git-safety`, as a permission deny |
+| `Stop` | `stop` | `definition-of-done`, as a block with the reason |
+
+Shell commands that write files (redirects, `sed -i`, scripts) count as edits for the "check ran after your last edit" rule. Test by hand: `echo '{"session_id":"t","tool_input":{"command":"git add -A"}}' | node scripts/agent-hooks/claude.mjs pre-tool-use`.
 
 "Files you changed" means files that differ from the session-start snapshot, plus files the transcript shows you writing. Hooks fail open: an internal error is logged to `.agents/.state/hook-errors.log` and the agent keeps working.
 

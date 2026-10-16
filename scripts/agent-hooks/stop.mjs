@@ -22,7 +22,7 @@ await hook('stop', async (input) => {
   if (promoted.length) items.push(`[agent-status] You promoted ${promoted.map((p) => `${p.file} (${p.from} -> ${p.to})`).join(', ')}. Set them back to draft.`);
 
   if (files.some((f) => NEEDS_FULL_CHECK.test(f)) && transcript.lastWrite > transcript.lastCheck) {
-    items.push('`pnpm run check` has not run since your last edit. Run it (graph checks + build + keep-place browser test) and fix what it reports.');
+    items.push('`pnpm run check` has not run since your last edit. Run it (graph checks, build, keep-place and render-clean browser tests) and fix what it reports.');
   }
 
   items.push(`[commit-when-done] Uncommitted files you changed: ${list(files, 12)}. Stage them by path and commit with a conventional message (.agents/skills/finish-task/SKILL.md).`);

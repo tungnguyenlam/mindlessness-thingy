@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/agent-hooks/claude.mjs session-start", "timeout": 20 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/agent-hooks/claude.mjs guardrail", "timeout": 15 }] }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/agent-hooks/claude.mjs guardrail", "timeout": 15 }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/agent-hooks/claude.mjs pre-tool-use", "timeout": 5 }]
+      }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/agent-hooks/claude.mjs stop", "timeout": 30 }] }
+    ]
+  }
+}

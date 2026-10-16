@@ -144,7 +144,7 @@ Each phase ends with `pnpm run check` passing and existing notes migrated or exp
 | 3 | Automatic placement (longest-path rows, parent-mean columns; chosen over ELK to stay on the grid the lint checks and add no dependency), groups by block id, `<ModelDiagram>`, `<LayerStrip>` | done 2026-10-17 |
 | 4 | `scripts/test-visual.mjs` (rule `render-clean`) in `pnpm run check`, with `--selftest` | done 2026-10-17: every page at 1280 and 390 px, about 40 s |
 | 5 | Structure rules (errors for new work, existing violations in `scripts/baseline.json`), model-card system template, MHA migrated | done 2026-10-17; baseline lists the remaining notes to migrate |
-| 6 | Claude Code hooks: wire `scripts/agent-hooks/*` through `.claude/settings.json` (today they're only in `.agents/hooks.json`, a different harness format) | session-start, guardrail and stop hooks fire in Claude Code |
+| 6 | Claude Code hooks through `.claude/settings.json` + `scripts/agent-hooks/claude.mjs` adapter; pre-commit checks the commit tree in a clean checkout | done 2026-10-17 |
 | 7 | `<ShapeFlow>`, `<MaskGrid>`, `<Timeline>` | each in the catalog with a lint |
 
 Phase 1 is the best first step: it catches the existing bugs now, with no content migration.

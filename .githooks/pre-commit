@@ -1,5 +1,5 @@
 #!/bin/sh
-# Re-runs the fast checks before every commit. Only errors in the files being committed block it;
-# problems in other people's uncommitted files are listed but don't. Installed by `pnpm install`
-# (package.json "prepare" sets core.hooksPath). Don't bypass with --no-verify: fix the cause.
-exec node scripts/check.mjs --staged
+# Re-runs the fast checks before every commit: errors in the files being committed block, and so
+# does a commit that would fail in a clean checkout (see scripts/check-commit.mjs). Installed by
+# `pnpm install` (package.json "prepare" sets core.hooksPath). Don't bypass with --no-verify.
+exec node scripts/check-commit.mjs
