@@ -54,6 +54,10 @@ export const RULES = {
     title: 'Diagrams lay out cleanly: no overlaps, no edges through blocks, labels fit, not too wide',
     doc: 'AGENTS.md#rules',
   },
+  'render-clean': {
+    title: 'Pages render cleanly at desktop and phone width: no sideways scroll, clipped or colliding text, math or script errors',
+    doc: 'AGENTS.md#rules',
+  },
   'commit-when-done': {
     title: 'Finish every task with a passing check and a commit of only your files',
     doc: 'AGENTS.md#task-lifecycle',

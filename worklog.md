@@ -26,3 +26,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: ModelDiagram builds a system's layer block from model data (lint-checked at build); LayerStrip shows layer order; groups can name blocks; DeepSeek-V3 diagram now auto-placed with symbols instead of numbers; four LFM2.5 notes use generated diagrams
 - files: src/components/viz/{ModelDiagram,LayerStrip}.astro src/lib/diagram/geometry.mjs scripts/checks/visual.mjs
 - open: thinking and 2.6B notes keep their hand diagrams (they show post-training, not the block)
+
+## 2026-10-17 · test(render): browser test for clean rendering at two widths
+- did: render-clean rule; test-visual loads every page at 1280/390 px and fails on sideways scroll, text overflow/collision, tiny labels, KaTeX and script errors; --selftest plants faults; wired into pnpm run check
+- files: scripts/test-visual.mjs package.json
+- open: none

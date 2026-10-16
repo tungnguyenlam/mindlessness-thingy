@@ -26,7 +26,8 @@ Each rule has an id. When `pnpm run check`, a test, a git hook or an agent hook 
 8. `keep-place`: **Never break the return trail.** Pages render inside `Base`, interactive components are restorable, navigation uses real links. See the contract in `PRINCIPLES.md#keep-place`.
 9. `template-complete`: **No `{/* TODO */}` markers left in a written note.** Templates use them as fill-in prompts; the check fails until each one is replaced.
 10. `diagram-geometry`: **Diagrams must lay out cleanly.** The fast check runs the same layout code as `<ArchDiagram>` and fails on overlapping blocks, edges through blocks, edges drawn on top of each other, labels wider than their box and diagrams too wide for the column. Edges are routed around blocks automatically and blocks without `col`/`row` are placed for you, so prefer leaving positions out. Numbers in diagram labels get a `sourced-numbers` warning: use symbols in pictures and put values in `<Spec>`.
-11. `commit-when-done`: **Finish every task with `pnpm run check` passing and a commit of only your own files.** See the task lifecycle below.
+11. `render-clean`: **What renders must be clean at 1280 px and 390 px.** `scripts/test-visual.mjs` (part of `pnpm run check`) loads every page with real fonts and fails on sideways page scroll, diagram text wider than its block, colliding labels, labels rendered too small, KaTeX errors and script errors. Wide content scrolls inside its own figure, never the page.
+12. `commit-when-done`: **Finish every task with `pnpm run check` passing and a commit of only your own files.** See the task lifecycle below.
 
 ### When the system corrects you
 
@@ -42,7 +43,7 @@ How all of this fits together, and how to add a new rule, is in `docs/guardrails
 
 1. **Orient.** `git status`; `tail -n 40 worklog.md`; read `PRINCIPLES.md` and the skill for the job.
 2. **Build** with the skill, using the templates in `templates/notes/` for new notes.
-3. **Check.** `pnpm run check` must pass: graph checks, full build, then the keep-place browser test.
+3. **Check.** `pnpm run check` must pass: graph checks, full build, then the keep-place and render-clean browser tests.
 4. **Look.** `pnpm run shot /notes/<slug>/` and open the PNG for anything visual you changed.
 5. **Log.** Append one entry to `worklog.md` with the shell (format and command in `docs/workflow.md#the-worklog`) and stage it with your files.
 6. **Commit.** Stage your files by path and commit with a conventional message (`content(mla): ...`, `feat(trail): ...`). The `commit-msg` hook enforces the format and `pre-commit` reruns the checks on staged files. Details in `.agents/skills/finish-task/SKILL.md`.
@@ -52,11 +53,12 @@ How all of this fits together, and how to add a new rule, is in `docs/guardrails
 
 | Command | What it does |
 | --- | --- |
-| `pnpm run check` | Everything: graph checks, `astro build`, keep-place browser test. Must pass before committing. |
+| `pnpm run check` | Everything: graph checks, `astro build`, keep-place browser test, render-clean browser test. Must pass before committing. |
 | `pnpm run check:graph` | Fast content and contract checks only (well under a second). Add `--files a,b` to scope, `--json` for tools. |
 | `pnpm run new <kind> <slug> "Title"` | New stub. Add `--draft` to scaffold a full note from `templates/notes/<kind>.mdx`. |
 | `pnpm run shot <path>` | Screenshot a page to `.scratch/shots/`. Options: `--select <css>` (crop to each match, e.g. `figure.arch`; cheapest to look at), `--full`, `--width`, `--click <selector>`, `--out <file>`. |
 | `pnpm run test:place` | Just the keep-place browser test (`--shots` saves screenshots). |
+| `pnpm run test:visual` | Just the render-clean browser test; pass page paths to limit it (`/notes/mla/`), `--selftest` after editing it. |
 | `pnpm run dev` | Local site at http://localhost:4321/mindlessness-thingy/ |
 
 ## Layout

@@ -142,7 +142,7 @@ Each phase ends with `pnpm run check` passing and existing notes migrated or exp
 | 1 | `diagram-geometry` lint in `check:graph` sharing the component's layout code; obstacle-avoiding edge router, residual lanes, auto column width; `scripts/baseline.json` ratchet; `shot --select` | done 2026-10-17 |
 | 2 | `models` collection, `src/lib/models/fields.mjs`, `<ModelSpec>` (+ `diff`), `<Compare>`, `/compare/`, layer pattern strips; DeepSeek V2/V3/V3.2 and LFM2.5 migrated | done 2026-10-17; Nemotron and StableHand wait for their uncommitted drafts |
 | 3 | Automatic placement (longest-path rows, parent-mean columns; chosen over ELK to stay on the grid the lint checks and add no dependency), groups by block id, `<ModelDiagram>`, `<LayerStrip>` | done 2026-10-17 |
-| 4 | `scripts/test-visual.mjs` in `pnpm run check` | runs on every note with a visual, 1280 and 390 px |
+| 4 | `scripts/test-visual.mjs` (rule `render-clean`) in `pnpm run check`, with `--selftest` | done 2026-10-17: every page at 1280 and 390 px, about 40 s |
 | 5 | Structure rules, new system template, migrate notes | warnings promoted to errors |
 | 6 | Claude Code hooks: wire `scripts/agent-hooks/*` through `.claude/settings.json` (today they're only in `.agents/hooks.json`, a different harness format) | session-start, guardrail and stop hooks fire in Claude Code |
 | 7 | `<ShapeFlow>`, `<MaskGrid>`, `<Timeline>` | each in the catalog with a lint |
