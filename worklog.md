@@ -11,3 +11,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: diagram-geometry rule; layout shared by ArchDiagram and check:graph; edges avoid blocks, residuals get lanes, columns fit labels; baseline ratchet; shot --select
 - files: src/lib/diagram/* scripts/checks/diagram.mjs scripts/baseline.json scripts/check.mjs
 - open: nemotron-3-5-super-vl edge label baselined (other agent's file); numbers in diagram labels are warnings until model data lands
+
+## 2026-10-17 · content(stubs): add mamba-2 and hybrid-ssm-attention stubs
+- did: CI failed: committed LFM notes link to notes that only existed as uncommitted drafts; committed stubs so a clean checkout passes
+- files: src/content/notes/concepts/mamba-2.mdx src/content/notes/concepts/hybrid-ssm-attention.mdx
+- open: the other agent's full drafts of both notes are still staged and will replace the stubs when committed
