@@ -35,9 +35,16 @@ export function splitFrontmatter(raw) {
   return { data: YAML.parse(m[1]) ?? {}, body: m[2] };
 }
 
-/** Strip fenced code, inline code and JSX expression strings that may contain brackets. */
+/** Replace MDX comments with blank lines (keeping line numbers), since they never render. */
+export function blankComments(body) {
+  return body.replace(/\{\/\*[\s\S]*?\*\/\}/g, (c) => '\n'.repeat(c.split('\n').length - 1));
+}
+
+/** Strip comments, fenced code, inline code and JSX expression strings that may contain brackets. */
 function proseOnly(body) {
-  return body.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  return blankComments(body)
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`\n]*`/g, '');
 }
 
 export function extractWikilinks(body) {
@@ -56,6 +63,10 @@ export function loadNotes() {
       dir: path.basename(path.dirname(file)),
       data: data ?? {},
       body,
+      /** `body` with MDX comments blanked out: what actually renders. Use this to look for content. */
+      text: blankComments(body),
+      /** 1-based line in the file where `body` starts, for error messages. */
+      bodyLine: raw.slice(0, raw.length - body.length).split('\n').length,
       wikilinks: extractWikilinks(body),
     };
   });

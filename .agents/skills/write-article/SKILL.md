@@ -5,13 +5,14 @@ description: Write or expand a note in this visual learning notebook (concepts, 
 
 # Write an article
 
-Read `AGENTS.md` first for the rules, frontmatter fields and component catalog.
+Read `AGENTS.md` first for the rules, frontmatter fields and component catalog, and `PRINCIPLES.md` for why they exist. This notebook is **visual first**: plan the pictures before the prose.
 
 ## 1. Find what already exists
 
 - List notes: `ls src/content/notes/*/` and run `pnpm run check:graph`. Its last lines list stubs waiting to be written.
 - Search for the idea under other names: `rg -i "<term>" src/content/notes`.
 - If a note for the idea exists, extend it instead of creating a second one. If it's a stub, fill it in place and keep the slug.
+- Run `git status` and note files that were already changed. Those belong to someone else.
 
 ## 2. Decide the shape
 
@@ -37,27 +38,49 @@ For every idea a reader needs first that has no note yet:
 pnpm run new concept <slug> "Title"
 ```
 
-Then edit the stub: give it a real one-sentence `summary` and its own `prerequisites`/`builds_on` so it lands in the right place on the map. Leave the body as the placeholder and `status: stub`.
+Then edit the stub: give it a real one-sentence `summary` and its own `prerequisites`/`builds_on` so it lands in the right place on the map. Leave the body as the placeholder and `status: stub`. The check fails while a summary still says TODO.
 
-## 5. Write
+## 5. Plan the visuals
+
+Before writing paragraphs, list the note's main ideas (usually two to four) and pick one visual for each:
+
+| The reader's question | Visual |
+| --- | --- |
+| What connects to what? What is stored? | `<ArchDiagram>` |
+| How does this grow or compare? | `<Calc>` |
+| What happens, in what order? | `<Stepper>` + `<Step>` |
+| What are the numbers? | `<Spec>` (every row sourced) |
+
+Use the fixed roles (activation, weight, cache, route, op) and link diagram blocks to their notes.
+
+## 6. Write
+
+For a new note, start from the template instead of a blank file:
+
+```sh
+pnpm run new concept <slug> "Title" --draft     # or system / path
+```
+
+It scaffolds the sections with `{/* TODO */}` prompts in the right order, picture before prose. Replace each prompt with the real thing and delete the comment; `pnpm run check` fails while any are left. For an existing stub, copy the section layout from `templates/notes/<kind>.mdx`.
 
 - Open with the problem, in two or three sentences, linking back to whatever left that problem open.
-- Prefer one good visual per main idea: `<ArchDiagram>` for structure, `<Calc>` for "how does this scale", `<Stepper>` for procedures.
+- Put each idea's visual **before** its explanation. A reader skimming only the visuals should get the shape of the note.
 - Give the intuition in plain words before the equation, then the equation, then what it implies.
 - Use `<Callout type="pitfall">` for the specific mistake people make with this idea, if there is one.
-- Use `[[slug]]` for every mention of another note's idea on first use in a section. `[[slug|custom text]]` changes the link text.
+- Use `[[slug]]` for every mention of another note's idea on first use in a section. `[[slug|custom text]]` changes the link text. Never link with a raw URL.
 - Set `status: draft` and `updated:` to today.
 
 Style: short paragraphs, plain verbs, no hype. Write for a reader who knows basic linear algebra and what a transformer is, but not this specific idea.
 
-## 6. Check
+## 7. Check and look
 
 ```sh
 pnpm run check
+pnpm run shot /notes/<slug>/ --full
 ```
 
-Fix every error. Warnings about orphans or uncited sources are fine for stubs but should be resolved for drafts. Then run `pnpm run dev` and open the note to look at the diagrams if you can.
+Fix every error; each names the rule it breaks and how to fix it. Warnings about orphans or uncited sources are fine for stubs but should be resolved for drafts. Open the screenshot and look at every diagram: overlapping labels, blocks off the grid and wrong role colours are easy to see in the picture and invisible in the MDX.
 
-## 7. Report back
+## 8. Finish
 
-Say which notes you created or changed, which stubs you added, and list any numbers you could not verify or sources that disagreed.
+Follow `.agents/skills/finish-task/SKILL.md`: commit only your files (`content(<slug>): ...`) and report which notes you created or changed, which stubs you added, and any numbers you could not verify or sources that disagreed.

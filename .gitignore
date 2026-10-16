@@ -2,4 +2,5 @@ node_modules/
 dist/
 .astro/
 .scratch/
+.agents/.state/
 .DS_Store

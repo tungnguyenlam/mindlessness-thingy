@@ -1,0 +1,25 @@
+{
+  "orient": {
+    "SessionStart": [
+      { "type": "command", "command": "node ../scripts/agent-hooks/session-start.mjs", "timeout": 20 }
+    ]
+  },
+  "guardrail-notify": {
+    "PreInvocation": [
+      { "type": "command", "command": "node ../scripts/agent-hooks/pre-invocation.mjs", "timeout": 15 }
+    ]
+  },
+  "git-safety": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [{ "type": "command", "command": "node ../scripts/agent-hooks/pre-tool-use.mjs", "timeout": 5 }]
+      }
+    ]
+  },
+  "definition-of-done": {
+    "Stop": [
+      { "type": "command", "command": "node ../scripts/agent-hooks/stop.mjs", "timeout": 30 }
+    ]
+  }
+}

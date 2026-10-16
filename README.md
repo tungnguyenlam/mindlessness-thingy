@@ -5,12 +5,19 @@ A visual notebook for learning how ML models are built, one linked idea at a tim
 ## Run it
 
 ```sh
-pnpm install
+pnpm install       # also installs the git hooks in .githooks/
 pnpm run dev       # http://localhost:4321/mindlessness-thingy/
-pnpm run check     # graph checks, then a full build
+pnpm run check     # graph checks, full build, then the keep-place browser test (needs Chrome)
 ```
 
 Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`. In the repo settings, set Pages to deploy from GitHub Actions.
+
+## What reading it should feel like
+
+`PRINCIPLES.md` is the short version. The two that shape the site most:
+
+- **Never lose your place.** Click a link mid-paragraph and a ribbon in the corner shows where you came from, quoting the sentence. Click it, press `B` or use Back, and you land on the same sentence at the same height on screen, with steppers, sliders and the map as you left them.
+- **Visual first.** Every idea gets a diagram, calculator or stepper before its paragraph.
 
 ## How the content is organised
 
@@ -22,8 +29,11 @@ Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`. In
 
 ## Adding content with an agent
 
-Ask an agent something like "write the DeepSeek-V3 note" or "fill in the RoPE stub". The agent should follow `AGENTS.md` and `.agents/skills/write-article/SKILL.md`. To start a note by hand:
+Ask an agent something like "write the DeepSeek-V3 note" or "fill in the RoPE stub". The agent follows `AGENTS.md` and the skills in `.agents/skills/` (`write-article`, `site-feature`, and `finish-task`, which ends every task with a commit). If it drifts, checks and agent hooks tell it which rule it broke; `docs/guardrails.md` explains how that works and how to add rules.
+
+To start a note by hand:
 
 ```sh
-pnpm run new concept rope "Rotary position embedding"
+pnpm run new concept rope "Rotary position embedding"           # stub
+pnpm run new concept rope "Rotary position embedding" --draft   # full scaffold from templates/notes/
 ```
