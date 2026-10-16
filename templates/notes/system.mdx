@@ -17,23 +17,30 @@ updated: {{today}}
     written: `pnpm run check` fails while any are left. Numbers come from research/ fact sheets or primary
     sources only (rule sourced-numbers). */}
 
-{/* TODO: two or three sentences: what this model is, which model it builds on ([[slug]]), and the one or
-    two changes that matter. */}
-
-## At a glance
-
-{/* TODO: <Spec> with the headline numbers (layers, hidden size, experts, context, parameters). Every row
-    needs source: "<id>" pointing at src/content/sources/. Leave a number out rather than guess it. */}
+{/* TODO: two or three sentences (under 120 words, the check enforces it): what this model is, which
+    model it builds on ([[slug]]), and the one or two changes that matter. */}
 
 ## The block
 
-{/* TODO: <ArchDiagram> of one layer or the overall stack. Blocks for reused ideas link to their notes
-    (link: "mla"). Highlight what is new; keep roles fixed: activation, weight, cache, route, op. */}
+{/* TODO: first write src/content/models/{{slug}}.yaml (docs/workflow.md#writing-a-model-system-note):
+    every value { v, source, where }, `extends` the parent model, a layer_pattern from the config. Then:
+
+    <ModelDiagram model="{{slug}}" caption="..." />
+    <LayerStrip model="{{slug}}" />
+
+    Hand-draw an <ArchDiagram> only for what the generated block can't show (routing detail, a new
+    mixer); leave out col/row and let it lay itself out. */}
+
+## At a glance
+
+{/* TODO: <ModelSpec model="{{slug}}" />, plus <ModelSpec model="{{slug}}" diff /> for what changed from
+    the parent. Numbers that aren't model fields (benchmarks, training compute) go in a small <Spec>. */}
 
 ## What is new
 
-{/* TODO: one subsection (###) per new idea. Each one: the problem it solves, a visual or <Calc>, and a
-    link to the concept note if the idea is reusable (create a stub with `pnpm run new concept <slug>`). */}
+{/* TODO: one subsection (###) per new idea. Each opens with its visual (diagram, <Stepper>, <Calc>,
+    <Compare>), then the prose, and links the concept note if the idea is reusable (create a stub with
+    `pnpm run new concept <slug>`). A section over ~150 words without a visual fails the check. */}
 
 ## What it reuses
 

@@ -31,3 +31,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: render-clean rule; test-visual loads every page at 1280/390 px and fails on sideways scroll, text overflow/collision, tiny labels, KaTeX and script errors; --selftest plants faults; wired into pnpm run check
 - files: scripts/test-visual.mjs package.json
 - open: none
+
+## 2026-10-17 · feat(checks): enforce visual-first note structure
+- did: first visual within 120 words, max 400-word prose runs, every 150+ word section has a visual (errors; existing violations baselined); prose measured with components masked; MHA gets a one-head diagram and a KV-per-token calculator; system template starts from the model card; layout ties lean to centre
+- files: scripts/checks/visual.mjs scripts/baseline.json src/content/notes/concepts/mha.mdx templates/notes/system.mdx
+- open: baseline still lists hybrid-ssm-attention, latent-moe, nemotron-3-super, stablehand (other agent's drafts)

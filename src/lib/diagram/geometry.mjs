@@ -89,7 +89,9 @@ export function place(blocks, edges = []) {
       // Two siblings straddle the parent (leaving its column free for a merge below); more sit side by side.
       const offsets = n === 2 ? [-1, 1] : [...Array(n).keys()].map((i) => i - (n - 1) / 2);
       group.forEach((b, i) => {
-        let c = Math.round(w + offsets[i]);
+        // On a tie (x.5) lean toward the centre column so merges stay on the main axis.
+        const x = w + offsets[i];
+        let c = Math.abs(x % 1) === 0.5 ? (x < center ? Math.ceil(x) : Math.floor(x)) : Math.round(x);
         while ([...Array(b.span ?? 1).keys()].some((k) => taken.has(c + k))) c++;
         b.col = c;
         for (const k of cells(b)) taken.add(k);

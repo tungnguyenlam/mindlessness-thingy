@@ -70,7 +70,28 @@ export function findComponents(text, names) {
         break;
       }
     }
+    // Where the usage ends: after "/>", or after the matching closing tag for components with children.
+    if (masked.startsWith('/>', i)) use.end = i + 2;
+    else if (masked[i] === '>') {
+      const close = masked.indexOf(`</${m[1]}>`, i);
+      use.end = close < 0 ? i + 1 : close + m[1].length + 3;
+    } else use.end = i;
+    use.start = m.index;
     out.push(use);
+  }
+  return out;
+}
+
+/**
+ * The note's text with every listed component replaced by a one-line marker, so prose can be
+ * measured without counting captions and table rows. Line count is preserved.
+ */
+export function maskComponents(text, names, marker = '\u0000VISUAL\u0000') {
+  const uses = findComponents(text, names).filter((u) => u.end).sort((a, b) => b.start - a.start);
+  let out = text;
+  for (const u of uses) {
+    const chunk = out.slice(u.start, u.end);
+    out = out.slice(0, u.start) + marker + '\n'.repeat(chunk.split('\n').length - 1) + out.slice(u.end);
   }
   return out;
 }

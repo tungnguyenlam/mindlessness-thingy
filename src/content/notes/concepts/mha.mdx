@@ -7,14 +7,36 @@ prerequisites: [transformer-block]
 builds_on: []
 contrasts_with: []
 related: [kv-cache]
-sources: [attention-is-all-you-need]
+sources: [attention-is-all-you-need, deepseek-v2-report]
 status: draft
-updated: 2026-10-16
+updated: 2026-10-17
 ---
 
 Attention lets every token look at every earlier token and pull in a weighted mix of their information. Multi-head attention (MHA) does this several times in parallel with different learned projections, then stitches the results together. It is the baseline that [[mqa]], [[gqa]] and [[mla]] all modify.
 
 ## One head
+
+<ArchDiagram
+  title="One attention head for token t"
+  caption="The query of token t is scored against the key of every earlier token; the scores become weights for a sum of their values."
+  blocks={[
+    { id: 'h', label: 'Hidden state h_t', sub: 'd', role: 'activation' },
+    { id: 'q', label: 'Query q_t', sub: 'what t looks for', role: 'activation' },
+    { id: 'k', label: 'Keys k_j, j ≤ t', sub: 'what each token has', role: 'cache', link: 'kv-cache' },
+    { id: 'v', label: 'Values v_j, j ≤ t', sub: 'what each hands over', role: 'cache', link: 'kv-cache' },
+    { id: 's', label: 'softmax(q·k / √d_h)', sub: 'one weight per j', role: 'op' },
+    { id: 'o', label: 'Weighted sum of v_j', sub: 'output o_t', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'h', to: 'q' },
+    { from: 'h', to: 'k' },
+    { from: 'h', to: 'v' },
+    { from: 'q', to: 's' },
+    { from: 'k', to: 's' },
+    { from: 's', to: 'o' },
+    { from: 'v', to: 'o' },
+  ]}
+/>
 
 Each token's hidden vector $h_t \in \mathbb{R}^d$ is projected three ways: a query (what am I looking for?), a key (what do I contain?), and a value (what do I hand over if picked?).
 
@@ -74,6 +96,27 @@ One head might learn to attend to the previous token, another to the subject of 
 The compute in MHA is fine on modern hardware. The problem shows up during generation: every key and value vector for every head, layer and past token has to stay in memory so the next token can attend to it. That store is the [[kv-cache]], and for MHA it grows with $2 \cdot n_h \cdot d_h$ numbers per token per layer.
 
 Every variant on the path from here to [[mla]] is an answer to the same question: how few numbers per token can we keep while attention still works as well?
+
+<Calc
+  title="Numbers cached per token per layer"
+  inputs={[
+    { id: 'nh', label: 'Query heads n_h', min: 1, max: 128, value: 128 },
+    { id: 'dh', label: 'Head dimension d_h', min: 32, max: 256, step: 32, value: 128 },
+    { id: 'ng', label: 'GQA groups n_g', min: 1, max: 64, value: 8 },
+    { id: 'dc', label: 'MLA latent width d_c', min: 64, max: 1024, step: 64, value: 512 },
+    { id: 'dr', label: 'MLA RoPE key width d_h^R', min: 0, max: 128, step: 32, value: 64 },
+  ]}
+  outputs={[
+    { label: 'MHA: every head keeps K and V', expr: '2 * nh * dh', format: 'number', role: 'cache' },
+    { label: 'GQA: one K and V per group', expr: '2 * ng * dh', format: 'number', role: 'cache' },
+    { label: 'MQA: one K and V for all heads', expr: '2 * dh', format: 'number', role: 'cache' },
+    { label: 'MLA: one latent plus a RoPE key', expr: 'dc + dr', format: 'number', role: 'cache' },
+  ]}
+  bars
+  note="Defaults use DeepSeek-V2's attention shape: 128 heads of dimension 128, latent width 512, RoPE key width 64 (DeepSeek-V2 report, §3.1.2). The GQA group count is illustrative. Multiply by layers and by bytes per element for the full cache."
+/>
+
+With DeepSeek-V2's shape, MLA stores what GQA with 2.25 groups would <Cite id="deepseek-v2-report" where="§2.1.4, Table 1" />.
 
 | Variant | What is stored per token per layer | Idea |
 | --- | --- | --- |
