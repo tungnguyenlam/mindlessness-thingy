@@ -1,0 +1,10 @@
+title: LFM2.5-1.2B-Thinking
+family: lfm2-5
+extends: lfm2-5-1-2b-instruct
+params_total: { v: 1.17e9, source: lfm2-5-1-2b-thinking-card, where: Number of parameters }
+layers: { v: 16, source: lfm2-5-1-2b-thinking-config, where: num_hidden_layers }
+conv_layers: { v: 10, source: lfm2-5-1-2b-thinking-card, where: Number of layers }
+hidden_size: { v: 2048, source: lfm2-5-1-2b-thinking-config, where: hidden_size }
+ffn_hidden: { v: 12288, source: lfm2-5-1-2b-thinking-config, where: intermediate_size }
+context_length: { v: 32768, source: lfm2-5-1-2b-thinking-card, where: Context length }
+training_tokens: { v: 28e12, source: lfm2-5-1-2b-thinking-card, where: Training budget }

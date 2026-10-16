@@ -1,0 +1,69 @@
+---
+// A layer pattern drawn as a strip: one column per layer, one cell per sublayer, coloured by the
+// fixed sublayer → role mapping in src/lib/models/fields.mjs (attention = cache, MoE = route,
+// dense FFN = weight, conv = op, Mamba = activation). `mini` fits in a table cell.
+import { parsePattern } from '../../lib/models/data.mjs';
+import { SUBLAYERS } from '../../lib/models/fields.mjs';
+
+interface Props {
+  pattern: string;
+  mini?: boolean;
+  /** Label for the attention sublayer, e.g. "Multi-head latent attention". */
+  attentionLabel?: string;
+}
+const { pattern, mini = false, attentionLabel } = Astro.props;
+const layers = parsePattern(pattern);
+const depth = Math.max(...layers.map((l) => l.length));
+const W = mini ? Math.max(1.6, Math.min(6, 150 / layers.length)) : Math.max(6, Math.min(18, 640 / layers.length));
+const H = mini ? 7 : 22;
+const GAP = mini ? (W > 3 ? 0.8 : 0.4) : 2;
+const width = layers.length * W;
+const height = depth * H + (depth - 1) * (mini ? 1 : 3);
+const name = (c: string) => (c === 'A' && attentionLabel ? attentionLabel : SUBLAYERS[c as keyof typeof SUBLAYERS].label);
+const desc = layers.map((l, i) => `Layer ${i + 1}: ${l.map(name).join(' + ')}`).join('\n');
+---
+
+<svg class:list={['strip', { mini }]} viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={`${layers.length} layers: ${pattern}`}>
+  <title>{mini ? `${pattern}\n${desc}` : pattern}</title>
+  {
+    layers.map((l, i) =>
+      l.map((c, j) => (
+        <rect
+          class={`r-${SUBLAYERS[c as keyof typeof SUBLAYERS].role}`}
+          x={i * W}
+          y={j * (H + (mini ? 1 : 3))}
+          width={W - GAP}
+          height={H}
+          rx={mini ? 0.5 : 2}
+        >
+          {!mini && <title>{`Layer ${i + 1}: ${l.map(name).join(' + ')}`}</title>}
+        </rect>
+      )),
+    )
+  }
+</svg>
+
+<style>
+  .strip {
+    display: block;
+    overflow: visible;
+  }
+  .strip.mini {
+    display: inline-block;
+    vertical-align: middle;
+  }
+  rect {
+    stroke-width: 0.8;
+  }
+  .mini rect {
+    stroke-width: 0;
+  }
+  .r-activation { fill: var(--role-activation); }
+  .r-weight { fill: var(--role-weight-wash); stroke: var(--role-weight); }
+  .r-cache { fill: var(--role-cache); }
+  .r-route { fill: var(--role-route-wash); stroke: var(--role-route); }
+  .r-op { fill: var(--role-op-wash); stroke: var(--role-op); }
+  .mini .r-weight { fill: var(--role-weight); opacity: 0.45; }
+  .mini .r-route { fill: var(--role-route); opacity: 0.6; }
+  .mini .r-op { fill: var(--role-op); opacity: 0.5; }
+</style>

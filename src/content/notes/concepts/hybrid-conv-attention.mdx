@@ -86,4 +86,10 @@ LFM2.5 cards still quote a 32,768-token context for the 350M and 1.2B models eve
 
 [[mla]] keeps attention in every layer and shrinks what each token stores. [[hybrid-ssm-attention]] replaces most attention with a recurrent SSM. This hybrid replaces most attention with a kernel-3 convolution and keeps a few full GQA layers as the global path. LFM2's hardware-in-the-loop search found that adding SSM or linear-attention branches on top of this mix did not improve the quality–latency–memory frontier they measured on device <Cite id="lfm2-report" where="§2.1" />.
 
-Models built this way include [[lfm2-5-350m]], [[lfm2-5-230m]], [[lfm2-5-1-2b-instruct]] and [[lfm2-5-2-6b-base]].
+Models built this way include [[lfm2-5-350m]], [[lfm2-5-230m]], [[lfm2-5-1-2b-instruct]] and [[lfm2-5-2-6b-base]]. Across the family, only the attention layers count toward the cache:
+
+<Compare
+  title="Where the cache comes from across LFM2.5 sizes"
+  models={['lfm2-5-230m', 'lfm2-5-350m', 'lfm2-5-1-2b-instruct', 'lfm2-5-2-6b-base']}
+  fields={['layers', 'layer_pattern', 'conv_layers', 'attention_layers', 'kv_heads', 'head_dim', 'context_length', 'kv_bytes_per_token', 'kv_bytes_at_context']}
+/>

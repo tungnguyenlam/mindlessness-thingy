@@ -32,16 +32,11 @@ LFM2.5-1.2B-Thinking is [[lfm2-5-1-2b-instruct]] with a reasoning post-train. Th
   ]}
 />
 
+<ModelSpec model="lfm2-5-1-2b-thinking" />
+
 <Spec
-  title="LFM2.5-1.2B-Thinking at a glance"
+  title="Benchmarks against Instruct"
   rows={[
-    { label: 'Parameters', value: '1.17B', source: 'lfm2-5-1-2b-thinking-card', where: 'Number of parameters' },
-    { label: 'Layers', value: 16, source: 'lfm2-5-1-2b-thinking-config', where: 'num_hidden_layers' },
-    { label: 'Conv / attention layers', value: '10 / 6', source: 'lfm2-5-1-2b-thinking-card', where: 'Number of layers' },
-    { label: 'Hidden size', value: 2048, source: 'lfm2-5-1-2b-thinking-config', where: 'hidden_size' },
-    { label: 'FFN intermediate', value: 12288, source: 'lfm2-5-1-2b-thinking-config', where: 'intermediate_size' },
-    { label: 'Training tokens', value: '28T', source: 'lfm2-5-1-2b-thinking-card', where: 'Training budget' },
-    { label: 'Context length', value: 32768, source: 'lfm2-5-1-2b-thinking-card', where: 'Context length' },
     { label: 'MATH-500', value: '87.96 vs Instruct 63.20', source: 'lfm2-5-1-2b-thinking-blog' },
     { label: 'AIME25', value: '31.73 vs Instruct 14.00', source: 'lfm2-5-1-2b-thinking-blog' },
   ]}

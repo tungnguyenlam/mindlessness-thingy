@@ -45,7 +45,9 @@ interface Entry {
   offset: number;
   scrollY: number;
   state: Record<string, unknown>;
+  /** scrollTop per [data-keep-scroll] panel; scrollsX holds scrollLeft for sideways panels (tables, wide diagrams). */
   scrolls: number[];
+  scrollsX?: number[];
   details: boolean[];
   samePage: boolean;
   /** pathname of the destination, so the ribbon can show where you are coming from. */
@@ -165,9 +167,11 @@ function collectState() {
     const s = typeof el.snapshot === 'function' ? el.snapshot() : null;
     if (s !== null && s !== undefined) state[key] = s;
   }
-  const scrolls = [...document.querySelectorAll<HTMLElement>('[data-keep-scroll]')].map((el) => el.scrollTop);
+  const panels = [...document.querySelectorAll<HTMLElement>('[data-keep-scroll]')];
+  const scrolls = panels.map((el) => el.scrollTop);
+  const scrollsX = panels.map((el) => el.scrollLeft);
   const details = [...document.querySelectorAll<HTMLDetailsElement>('main details')].map((d) => d.open);
-  return { state, scrolls, details };
+  return { state, scrolls, scrollsX, details };
 }
 
 async function applyState(e: Entry) {
@@ -185,6 +189,7 @@ async function applyState(e: Entry) {
   });
   document.querySelectorAll<HTMLElement>('[data-keep-scroll]').forEach((el, i) => {
     if (e.scrolls[i]) el.scrollTop = e.scrolls[i];
+    if (e.scrollsX?.[i]) el.scrollLeft = e.scrollsX[i];
   });
 }
 

@@ -140,7 +140,7 @@ Each phase ends with `pnpm run check` passing and existing notes migrated or exp
 | --- | --- | --- |
 | 0 | This doc, `docs/workflow.md`, `worklog.md`, `CLAUDE.md` symlink | done 2026-10-17 |
 | 1 | `diagram-geometry` lint in `check:graph` sharing the component's layout code; obstacle-avoiding edge router, residual lanes, auto column width; `scripts/baseline.json` ratchet; `shot --select` | done 2026-10-17 |
-| 2 | `models` collection, `fields.ts`, `<ModelSpec>`, `<Compare>`, `/compare/`; migrate DeepSeek, Nemotron, LFM2.5 | system notes use `<ModelSpec>`; no hand `<Spec>` in system notes |
+| 2 | `models` collection, `src/lib/models/fields.mjs`, `<ModelSpec>` (+ `diff`), `<Compare>`, `/compare/`, layer pattern strips; DeepSeek V2/V3/V3.2 and LFM2.5 migrated | done 2026-10-17; Nemotron and StableHand wait for their uncommitted drafts |
 | 3 | ELK auto-layout, `<ModelDiagram>`, `<LayerStrip>` | system diagrams have no coordinates |
 | 4 | `scripts/test-visual.mjs` in `pnpm run check` | runs on every note with a visual, 1280 and 390 px |
 | 5 | Structure rules, new system template, migrate notes | warnings promoted to errors |

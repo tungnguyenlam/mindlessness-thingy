@@ -98,3 +98,13 @@ export function noteLookup() {
   }
   return cache.notes;
 }
+
+export const MODELS_DIR = path.join(root, 'src/content/models');
+
+export function loadModels() {
+  return walk(MODELS_DIR, '.yaml').map((file) => ({
+    id: path.basename(file, '.yaml'),
+    file: path.relative(root, file),
+    data: YAML.parse(fs.readFileSync(file, 'utf8')) ?? {},
+  }));
+}

@@ -48,22 +48,7 @@ LFM2.5-350M is the 350M LFM2 hybrid trained further. The block recipe is still [
   groups={[{ label: '16 layers; layer_types interleaves conv and full_attention', from: [0, 1], to: [2, 7] }]}
 />
 
-<Spec
-  title="LFM2.5-350M at a glance"
-  rows={[
-    { label: 'Parameters', value: '350M', source: 'lfm2-5-350m-card', where: 'Number of parameters' },
-    { label: 'Layers', value: 16, source: 'lfm2-5-350m-config', where: 'num_hidden_layers' },
-    { label: 'Conv / attention layers', value: '10 / 6', source: 'lfm2-5-350m-card', where: 'Number of layers' },
-    { label: 'Hidden size', value: 1024, source: 'lfm2-5-350m-config', where: 'hidden_size' },
-    { label: 'FFN intermediate', value: 6656, source: 'lfm2-5-350m-config', where: 'intermediate_size' },
-    { label: 'Query / KV heads', value: '16 / 8', source: 'lfm2-5-350m-config', where: 'num_attention_heads / num_key_value_heads' },
-    { label: 'Conv window', value: 3, source: 'lfm2-5-350m-config', where: 'conv_L_cache' },
-    { label: 'Vocabulary', value: 65536, source: 'lfm2-5-350m-config', where: 'vocab_size' },
-    { label: 'Training tokens', value: '28T', source: 'lfm2-5-350m-card', where: 'Training budget' },
-    { label: 'Context length', value: 32768, source: 'lfm2-5-350m-card', where: 'Context length' },
-    { label: 'Knowledge cutoff', value: 'Mid-2024', source: 'lfm2-5-350m-card' },
-  ]}
-/>
+<ModelSpec model="lfm2-5-350m" />
 
 <Callout type="pitfall">
 The LFM2 report lists feed-forward width 4608 for LFM2-350M <Cite id="lfm2-report" where="Table 1" />. The released LFM2.5-350M config has `intermediate_size: 6656`. Use the config for this checkpoint. The same config sets `max_position_embeddings` to 128000; the card's supported context is 32,768.

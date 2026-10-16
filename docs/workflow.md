@@ -32,7 +32,7 @@ flowchart TD
 
 1. **Facts.** Check `research/` for a fact sheet. If none, write `research/<family>-facts.md`: every number with source id and section or config key.
 2. **Sources.** One YAML per source in `src/content/sources/`.
-3. **Model data** *(planned, phase 2)*. Write `src/content/models/<slug>.yaml` using fields from `src/lib/fields.ts`, `extends` the parent model, every value `{ v, source, where }`. Until then, numbers go in `<Spec>` rows.
+3. **Model data.** Write `src/content/models/<slug>.yaml` with keys from `src/lib/models/fields.mjs`; `extends` the parent model and state only what you sourced; every value is `{ v, source, where }` (add `display` when the source writes it differently, e.g. `128K`). Layer patterns use sublayer codes (`AD*3 AE*58`, `CD*2 AD ...`); the check verifies the count against `layers`. Show it in the note with `<ModelSpec model="<slug>" />`, and `<ModelSpec model="<slug>" diff />` for what changed from the parent.
 4. **Stubs.** `pnpm run new concept <slug> "Title"` for each missing concept, with a real summary.
 5. **Note.** `pnpm run new system <slug> "Title" --draft`. Put the model card first, then one section per thing that is new, each with its visual before its prose. Link everything reused.
 6. **Fast check** after each edit: `pnpm run check:graph --files <your files>`.
@@ -42,11 +42,12 @@ flowchart TD
 
 Same as above without model data. Plan two to four visuals before writing (`<ArchDiagram>` structure, `<Calc>` scaling, `<Stepper>` procedure), then write the prose around them. Don't put numbers in diagram labels; cite them in prose or a `<Spec>`.
 
-## Comparing models *(planned, phase 2)*
+## Comparing models
 
 - In a note: `<Compare models={["deepseek-v3", "nemotron-3-super"]} />`.
 - Ad hoc: `/compare/?m=deepseek-v3,nemotron-3-super`.
 - A field missing from a model shows as "not reported" rather than a guess.
+- Derived rows (head dim, attention layers, KV cache per token and at full context, active share) are computed in `src/lib/models/data.mjs` from sourced values; hover shows the formula. Never type a derived number by hand.
 
 ## Keeping costs down
 

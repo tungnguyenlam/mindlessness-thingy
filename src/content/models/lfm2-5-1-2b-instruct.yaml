@@ -1,0 +1,17 @@
+title: LFM2.5-1.2B-Instruct
+family: lfm2-5
+params_total: { v: 1.17e9, source: lfm2-5-1-2b-instruct-card, where: Number of parameters }
+layers: { v: 16, source: lfm2-5-1-2b-instruct-config, where: num_hidden_layers }
+layer_pattern: { v: "CD*2 AD CD*2 AD CD*2 AD CD AD CD AD CD AD CD", source: lfm2-5-1-2b-instruct-config, where: layer_types }
+hidden_size: { v: 2048, source: lfm2-5-1-2b-instruct-config, where: hidden_size }
+vocab_size: { v: 65536, source: lfm2-5-1-2b-instruct-config, where: vocab_size }
+attention: { v: gqa, source: lfm2-report, where: "§2.2" }
+heads: { v: 32, source: lfm2-5-1-2b-instruct-config, where: num_attention_heads }
+kv_heads: { v: 8, source: lfm2-5-1-2b-instruct-config, where: num_key_value_heads }
+conv_layers: { v: 10, source: lfm2-5-1-2b-instruct-card, where: Number of layers }
+conv_window: { v: 3, source: lfm2-5-1-2b-instruct-config, where: conv_L_cache }
+ffn: { v: dense, source: lfm2-report, where: "§2.2" }
+ffn_hidden: { v: 12288, source: lfm2-5-1-2b-instruct-config, where: intermediate_size }
+context_length: { v: 32768, source: lfm2-5-1-2b-instruct-card, where: Context length }
+training_tokens: { v: 28e12, source: lfm2-5-1-2b-instruct-card, where: Training budget }
+knowledge_cutoff: { v: Mid-2024, source: lfm2-5-1-2b-instruct-card, where: Knowledge cutoff }

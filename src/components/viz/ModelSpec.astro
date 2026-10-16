@@ -1,0 +1,183 @@
+---
+// The numbers of one model, straight from src/content/models/<model>.yaml. Nothing is typed in the
+// note, so the table can't drift from the data and every row carries its source.
+//   <ModelSpec model="deepseek-v3" />                 all fields, grouped, plus derived rows
+//   <ModelSpec model="deepseek-v3-2" diff />          only what changed vs the model it extends
+//   <ModelSpec model="x" fields={["layers", "hidden_size"]} />
+import { modelData, requireModel } from '../../lib/models/load';
+import { ROWS, GROUP_ORDER, cell, conceptHref } from '../../lib/models/cells';
+import { diffFromParent } from '../../lib/models/data.mjs';
+import { noteUrl } from '../../lib/url';
+import PatternStrip from '../models/PatternStrip.astro';
+
+interface Props {
+  model: string;
+  diff?: boolean;
+  fields?: string[];
+  title?: string;
+}
+const { model: id, diff = false, fields, title } = Astro.props;
+const d = await modelData();
+const m = await requireModel(id, '<ModelSpec>');
+const parent = m.extends ? d.models.get(m.extends) : null;
+
+let keys: Set<string> | null = fields ? new Set(fields) : null;
+if (diff) {
+  if (!parent) throw new Error(`<ModelSpec model="${id}" diff>: the model has no "extends" to compare with`);
+  keys = new Set(diffFromParent(m, d.models));
+}
+const rows = ROWS.filter((r) => (keys ? keys.has(r.key) && !r.derived : true))
+  // In diff mode only stated values count; a derived fallback isn't a change.
+  .map((r) => ({ r, c: cell(d, m, r), p: diff && parent ? cell(d, parent, r) : null }))
+  .filter((x) => x.c);
+const groups = GROUP_ORDER.map((g) => ({ ...g, rows: rows.filter((x) => x.r.group === g.id) })).filter((g) => g.rows.length);
+const heading = title ?? (diff ? `What changed from ${parent!.title}` : `${m.title} at a glance`);
+---
+
+<figure class="mspec ui">
+  <table>
+    <caption>{heading}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Field</th>
+        {diff && <th scope="col">{parent!.title}</th>}
+        <th scope="col">{diff ? m.title : 'Value'}</th>
+        <th scope="col">Source</th>
+      </tr>
+    </thead>
+    {
+      groups.map((g) => (
+        <tbody>
+          {!diff && (
+            <tr class="group">
+              <th colspan="3" scope="rowgroup">{g.label}</th>
+            </tr>
+          )}
+          {g.rows.map(({ r, c, p }) => (
+            <tr class:list={{ derived: c!.derived }}>
+              <th scope="row">{conceptHref(d, r.concept) ? <a href={conceptHref(d, r.concept)} data-slug={r.concept}>{r.label}</a> : r.label}</th>
+              {diff && <td class="value old">{p ? (r.key === 'layer_pattern' ? <PatternStrip pattern={p.raw} mini /> : p.text) : '—'}</td>}
+              <td class="value" title={c!.formula ? `derived: ${c!.formula}` : undefined}>
+                {r.key === 'layer_pattern' ? <PatternStrip pattern={c!.raw} mini /> : c!.href ? <a href={c!.href} data-slug={c!.raw}>{c!.text}</a> : c!.text}
+              </td>
+              <td class="src">
+                {c!.formula && <span class="tag">derived</span>}
+                {c!.sources.map((s, i) => (
+                  <>
+                    {i > 0 && ', '}
+                    <a href={s.url} title={s.title} rel="noopener">{s.short}</a>
+                    {s.where && <span class="where">{s.where}</span>}
+                  </>
+                ))}
+                {c!.inheritedFrom && (
+                  <span class="via">
+                    via <a href={noteUrl(d.models.get(c!.inheritedFrom)?.note ?? c!.inheritedFrom)}>{d.models.get(c!.inheritedFrom)?.title}</a>
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      ))
+    }
+    {
+      diff && !rows.length && (
+        <tbody>
+          <tr>
+            <td colspan="4" class="same">Same architecture as {parent!.title}: no field differs.</td>
+          </tr>
+        </tbody>
+      )
+    }
+  </table>
+  <figcaption>
+    From <code>src/content/models/{id}.yaml</code>. <a href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/compare/?m=${[m.extends, id].filter(Boolean).join(',')}`}>Compare with other models</a>
+  </figcaption>
+</figure>
+
+<style>
+  .mspec {
+    margin: 2rem 0;
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--step--1);
+  }
+  caption {
+    text-align: left;
+    font-weight: 600;
+    font-size: var(--step-0);
+    padding-bottom: 0.5rem;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 0.4rem 0.8rem 0.4rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: baseline;
+  }
+  thead th {
+    font-weight: 500;
+    color: var(--ink-soft);
+    border-bottom-color: var(--rule);
+  }
+  tbody th {
+    font-weight: 500;
+    width: 38%;
+  }
+  .src a {
+    white-space: nowrap;
+  }
+  tr.group th {
+    padding-top: 0.9rem;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 600;
+  }
+  .value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .old {
+    color: var(--ink-faint);
+  }
+  .derived th,
+  .derived .value,
+  td.derived {
+    font-style: italic;
+  }
+  .src {
+    color: var(--ink-soft);
+  }
+  .where {
+    margin-left: 0.4rem;
+    color: var(--ink-faint);
+  }
+  .tag,
+  .via {
+    color: var(--ink-faint);
+  }
+  .tag {
+    margin-right: 0.4rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .via {
+    margin-left: 0.4rem;
+  }
+  .same {
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+  figcaption {
+    margin-top: 0.5rem;
+    font-size: var(--step--1);
+    color: var(--ink-faint);
+  }
+</style>

@@ -1,6 +1,7 @@
 import { defineCollection } from 'astro:content';
 import { glob } from 'astro/loaders';
 import { z } from 'astro/zod';
+import { FIELDS } from './lib/models/fields.mjs';
 
 const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slugs are kebab-case');
 const slugs = z.array(slug).default([]);
@@ -47,4 +48,29 @@ const sources = defineCollection({
   }),
 });
 
-export const collections = { notes, sources };
+// One file per model. Every value is { v, source, where }: a number without a source can't be
+// written down (sourced-numbers). Field keys come from src/lib/models/fields.mjs.
+const sourced = z
+  .object({
+    v: z.union([z.number(), z.string()]),
+    source: slug,
+    where: z.string().min(1),
+    /** Show this instead of the formatted number, e.g. "128K" when that is what the source says. */
+    display: z.string().optional(),
+    note: z.string().optional(),
+  })
+  .strict();
+const models = defineCollection({
+  loader: glob({ base: './src/content/models', pattern: '*.yaml' }),
+  schema: z
+    .object({
+      title: z.string(),
+      note: slug.optional(),
+      family: z.string(),
+      extends: slug.optional(),
+      ...Object.fromEntries(FIELDS.map((f) => [f.key, sourced.optional()])),
+    })
+    .strict(),
+});
+
+export const collections = { notes, sources, models };

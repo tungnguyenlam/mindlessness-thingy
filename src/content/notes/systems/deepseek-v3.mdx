@@ -48,22 +48,13 @@ Each of the 61 layers is a standard pre-norm [[transformer-block]]: attention, t
   groups={[{ label: '61 layers; the first 3 use a dense FFN', from: [0, 1], to: [2, 7] }]}
 />
 
+<ModelSpec model="deepseek-v3" />
+
+<ModelSpec model="deepseek-v3" diff />
+
 <Spec
-  title="DeepSeek-V3 at a glance"
+  title="Training compute"
   rows={[
-    { label: 'Total parameters', value: '671B', source: 'deepseek-v3-report', where: 'Abstract' },
-    { label: 'Active per token', value: '37B', source: 'deepseek-v3-report', where: 'Abstract' },
-    { label: 'Layers', value: 61, source: 'deepseek-v3-config', where: 'num_hidden_layers' },
-    { label: 'Hidden size', value: 7168, source: 'deepseek-v3-config', where: 'hidden_size' },
-    { label: 'Attention heads', value: 128, source: 'deepseek-v3-config', where: 'num_attention_heads' },
-    { label: 'KV latent width d_c', value: 512, source: 'deepseek-v3-config', where: 'kv_lora_rank' },
-    { label: 'Shared experts', value: 1, source: 'deepseek-v3-config', where: 'n_shared_experts' },
-    { label: 'Routed experts', value: 256, source: 'deepseek-v3-config', where: 'n_routed_experts' },
-    { label: 'Routed experts per token', value: 8, source: 'deepseek-v3-config', where: 'num_experts_per_tok' },
-    { label: 'Expert hidden size', value: 2048, source: 'deepseek-v3-config', where: 'moe_intermediate_size' },
-    { label: 'Dense layers before MoE', value: 3, source: 'deepseek-v3-config', where: 'first_k_dense_replace' },
-    { label: 'Context length', value: '128K', source: 'deepseek-v3-report', where: '§4.3' },
-    { label: 'Training tokens', value: '14.8T', source: 'deepseek-v3-report', where: 'Abstract' },
     { label: 'Total H800 GPU hours', value: '2.788M', source: 'deepseek-v3-report', where: 'Table 1' },
   ]}
 />

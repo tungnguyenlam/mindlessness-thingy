@@ -1,0 +1,18 @@
+---
+// Models side by side in a note, from src/content/models/. The first model is the baseline;
+// cells that differ from it are marked.
+//   <Compare models={["deepseek-v2", "deepseek-v3"]} />
+//   <Compare models={[...]} fields={["layers", "kv_bytes_per_token"]} onlyDiff />
+import ModelTable from '../models/ModelTable.astro';
+
+interface Props {
+  models: string[];
+  fields?: string[];
+  title?: string;
+  onlyDiff?: boolean;
+}
+const props = Astro.props;
+if (!props.models || props.models.length < 2) throw new Error('<Compare> needs at least two models');
+---
+
+<ModelTable {...props} />

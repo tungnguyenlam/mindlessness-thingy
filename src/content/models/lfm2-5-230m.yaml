@@ -1,0 +1,17 @@
+title: LFM2.5-230M
+family: lfm2-5
+params_total: { v: 230e6, source: lfm2-5-230m-card, where: Number of parameters }
+layers: { v: 14, source: lfm2-5-230m-config, where: num_hidden_layers }
+layer_pattern: { v: "CD CD AD CD AD CD AD CD AD CD AD CD AD CD", source: lfm2-5-230m-config, where: layer_types }
+hidden_size: { v: 1024, source: lfm2-5-230m-config, where: hidden_size }
+vocab_size: { v: 65536, source: lfm2-5-230m-config, where: vocab_size }
+attention: { v: gqa, source: lfm2-report, where: "§2.2" }
+heads: { v: 16, source: lfm2-5-230m-config, where: num_attention_heads }
+kv_heads: { v: 8, source: lfm2-5-230m-config, where: num_key_value_heads }
+conv_layers: { v: 8, source: lfm2-5-230m-card, where: Number of layers }
+conv_window: { v: 3, source: lfm2-5-230m-config, where: conv_L_cache }
+ffn: { v: dense, source: lfm2-report, where: "§2.2" }
+ffn_hidden: { v: 2560, source: lfm2-5-230m-config, where: intermediate_size }
+context_length: { v: 32768, source: lfm2-5-230m-card, where: Context length }
+training_tokens: { v: 19e12, source: lfm2-5-230m-card, where: Training budget }
+knowledge_cutoff: { v: Mid-2024, source: lfm2-5-230m-card, where: Knowledge cutoff }

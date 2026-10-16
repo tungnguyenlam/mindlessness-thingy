@@ -1,0 +1,192 @@
+---
+// Models side by side: one column per model, one row per field any of them reports. Cells that
+// differ from the first column are marked; every value has a numbered source note under the table.
+// Shared by <Compare> (in notes) and the /compare/ page. Static; the page adds column toggling.
+import { modelData } from '../../lib/models/load';
+import { ROWS, GROUP_ORDER, cell, conceptHref, type Cell } from '../../lib/models/cells';
+import { noteUrl } from '../../lib/url';
+import PatternStrip from './PatternStrip.astro';
+
+interface Props {
+  models: string[];
+  fields?: string[];
+  title?: string;
+  /** Hide rows where every model has the same value. */
+  onlyDiff?: boolean;
+}
+const { models: ids, fields, title, onlyDiff = false } = Astro.props;
+const d = await modelData();
+const models = ids.map((id) => {
+  const m = d.models.get(id);
+  if (!m) throw new Error(`<Compare>: unknown model "${id}" (add src/content/models/${id}.yaml)`);
+  return m;
+});
+
+const rows = ROWS.filter((r) => !fields || fields.includes(r.key))
+  .map((r) => {
+    const cells = models.map((m) => cell(d, m, r));
+    const present = cells.filter(Boolean);
+    const same = present.length === cells.length && present.every((c) => c!.raw === present[0]!.raw);
+    return { r, cells, same };
+  })
+  .filter((x) => x.cells.some(Boolean) && !(onlyDiff && x.same));
+const groups = GROUP_ORDER.map((g) => ({ ...g, rows: rows.filter((x) => x.r.group === g.id) })).filter((g) => g.rows.length);
+const provenance = (c: Cell) =>
+  [
+    c.formula && `derived: ${c.formula}`,
+    ...c.sources.map((s) => `${s.short}${s.where ? `, ${s.where}` : ''}`),
+    c.inheritedFrom && `inherited from ${d.models.get(c.inheritedFrom)?.title}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+---
+
+<figure class="mtable ui">
+  <div class="scroll" data-keep-scroll>
+    <table>
+      {title && <caption>{title}</caption>}
+      <thead>
+        <tr>
+          <th scope="col"></th>
+          {
+            models.map((m, i) => (
+              <th scope="col" data-model={m.id}>
+                <a href={noteUrl(m.note)} data-slug={m.note}>{m.title}</a>
+                {i === 0 && models.length > 1 && <span class="base">baseline</span>}
+              </th>
+            ))
+          }
+        </tr>
+      </thead>
+      {
+        groups.map((g) => (
+          <tbody>
+            <tr class="group">
+              <th scope="rowgroup" colspan={models.length + 1}>{g.label}</th>
+            </tr>
+            {g.rows.map(({ r, cells, same }) => (
+              <tr class:list={{ same }}>
+                <th scope="row">{conceptHref(d, r.concept) ? <a href={conceptHref(d, r.concept)} data-slug={r.concept}>{r.label}</a> : r.label}</th>
+                {cells.map((c, i) => (
+                  <td
+                    data-model={models[i].id}
+                    data-raw={c?.raw ?? ''}
+                    class:list={['value', { derived: c?.derived, differs: i > 0 && c && cells[0] && c.raw !== cells[0].raw, missing: !c }]}
+                    title={c ? provenance(c) : undefined}
+                  >
+                    {c ? (
+                      r.key === 'layer_pattern' ? (
+                        <a class="srcv" href={c.sources[0].url} rel="noopener"><PatternStrip pattern={c.raw} mini /></a>
+                      ) : c.href ? (
+                        <a href={c.href} data-slug={c.raw}>{c.text}</a>
+                      ) : (
+                        <a class="srcv" href={c.sources[0]?.url} rel="noopener">{c.text}</a>
+                      )
+                    ) : (
+                      <span class="na">not reported</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        ))
+      }
+    </table>
+  </div>
+  <p class="legend">Marked cells differ from the baseline column. Hover a value for its source (click to open it); italic values are derived from sourced ones.</p>
+</figure>
+
+<style>
+  .mtable {
+    margin: 2rem 0;
+  }
+  .scroll {
+    overflow-x: auto;
+  }
+  table {
+    border-collapse: collapse;
+    font-size: var(--step--1);
+    min-width: 100%;
+  }
+  caption {
+    text-align: left;
+    font-weight: 600;
+    font-size: var(--step-0);
+    padding-bottom: 0.5rem;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 0.35rem 0.9rem 0.35rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: baseline;
+    white-space: nowrap;
+  }
+  thead th {
+    font-weight: 600;
+    border-bottom-color: var(--rule);
+    vertical-align: bottom;
+  }
+  thead a {
+    color: var(--ink);
+  }
+  .mtable :global(.base) {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--ink-faint);
+  }
+  tbody th {
+    font-weight: 500;
+    position: sticky;
+    left: 0;
+    background: var(--paper);
+  }
+  tr.group th {
+    padding-top: 0.9rem;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 600;
+  }
+  .value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Neutral ink mark: role colours keep their diagram meanings. */
+  .differs {
+    font-weight: 600;
+    color: var(--ink);
+    box-shadow: inset 2px 0 0 var(--ink);
+    padding-left: 0.5rem;
+  }
+  .same .value {
+    color: var(--ink-soft);
+  }
+  .derived th,
+  .derived .value,
+  td.derived {
+    font-style: italic;
+  }
+  .na {
+    color: var(--ink-faint);
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+  }
+  /* A value is a link to its source: quiet until hovered. */
+  .srcv {
+    color: inherit;
+    text-decoration: underline dotted var(--ink-faint);
+    text-underline-offset: 3px;
+  }
+  .srcv:hover {
+    text-decoration-color: var(--ink);
+  }
+  .legend {
+    margin: 0.4rem 0 0;
+    font-size: 0.75rem;
+    color: var(--ink-faint);
+  }
+</style>

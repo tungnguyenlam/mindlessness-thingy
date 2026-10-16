@@ -47,22 +47,7 @@ LFM2.5-1.2B-Instruct is the general-purpose chat checkpoint in the 1.2B LFM2.5 f
   ]}
 />
 
-<Spec
-  title="LFM2.5-1.2B-Instruct at a glance"
-  rows={[
-    { label: 'Parameters', value: '1.17B', source: 'lfm2-5-1-2b-instruct-card', where: 'Number of parameters' },
-    { label: 'Layers', value: 16, source: 'lfm2-5-1-2b-instruct-config', where: 'num_hidden_layers' },
-    { label: 'Conv / attention layers', value: '10 / 6', source: 'lfm2-5-1-2b-instruct-card', where: 'Number of layers' },
-    { label: 'Hidden size', value: 2048, source: 'lfm2-5-1-2b-instruct-config', where: 'hidden_size' },
-    { label: 'FFN intermediate', value: 12288, source: 'lfm2-5-1-2b-instruct-config', where: 'intermediate_size' },
-    { label: 'Query / KV heads', value: '32 / 8', source: 'lfm2-5-1-2b-instruct-config', where: 'num_attention_heads / num_key_value_heads' },
-    { label: 'Conv window', value: 3, source: 'lfm2-5-1-2b-instruct-config', where: 'conv_L_cache' },
-    { label: 'Vocabulary', value: 65536, source: 'lfm2-5-1-2b-instruct-config', where: 'vocab_size' },
-    { label: 'Training tokens', value: '28T', source: 'lfm2-5-1-2b-instruct-card', where: 'Training budget' },
-    { label: 'Context length', value: 32768, source: 'lfm2-5-1-2b-instruct-card', where: 'Context length' },
-    { label: 'Knowledge cutoff', value: 'Mid-2024', source: 'lfm2-5-1-2b-instruct-card' },
-  ]}
-/>
+<ModelSpec model="lfm2-5-1-2b-instruct" />
 
 <Callout type="pitfall">
 The LFM2 report lists feed-forward width 8192 for LFM2-1.2B <Cite id="lfm2-report" where="Table 1" />. This checkpoint's config has `intermediate_size: 12288`. Use the config. `max_position_embeddings` is 128000; the card's supported context is 32,768.

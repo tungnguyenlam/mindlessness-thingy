@@ -48,22 +48,7 @@ LFM2.5-2.6B-Base is the pretrained 2.6B hybrid that [[lfm2-5-2-6b]] is post-trai
   groups={[{ label: '30 layers; attention every few convolutions, not in one cluster', from: [0, 1], to: [2, 7] }]}
 />
 
-<Spec
-  title="LFM2.5-2.6B-Base at a glance"
-  rows={[
-    { label: 'Parameters', value: '2.69B', source: 'lfm2-5-2-6b-base-card', where: 'Total parameters' },
-    { label: 'Layers', value: 30, source: 'lfm2-5-2-6b-base-config', where: 'num_hidden_layers' },
-    { label: 'Conv / attention layers', value: '22 / 8', source: 'lfm2-5-2-6b-base-card', where: 'Number of layers' },
-    { label: 'Hidden size', value: 2048, source: 'lfm2-5-2-6b-base-config', where: 'hidden_size' },
-    { label: 'FFN intermediate', value: 10752, source: 'lfm2-5-2-6b-base-config', where: 'intermediate_size' },
-    { label: 'Query / KV heads', value: '32 / 8', source: 'lfm2-5-2-6b-base-config', where: 'num_attention_heads / num_key_value_heads' },
-    { label: 'Conv window', value: 3, source: 'lfm2-5-2-6b-base-config', where: 'conv_L_cache' },
-    { label: 'RoPE θ', value: '10,000,000', source: 'lfm2-5-2-6b-base-config', where: 'rope_parameters.rope_theta' },
-    { label: 'Vocabulary', value: 128000, source: 'lfm2-5-2-6b-base-config', where: 'vocab_size' },
-    { label: 'Training tokens', value: '34T', source: 'lfm2-5-2-6b-base-card', where: 'Training budget' },
-    { label: 'Context length', value: 131072, source: 'lfm2-5-2-6b-base-card', where: 'Context length' },
-  ]}
-/>
+<ModelSpec model="lfm2-5-2-6b-base" />
 
 `layer_types` places the 8 attention layers at indices 2, 5, 9, 13, 17, 21, 24, 27 — every two or three convolutions, not a block of attention at the end <Cite id="lfm2-5-2-6b-base-config" where="layer_types" />. Feed-forward width 10752 matches LFM2-2.6B in the original report <Cite id="lfm2-report" where="Table 1" />.
 

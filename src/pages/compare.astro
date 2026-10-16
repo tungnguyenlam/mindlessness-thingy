@@ -1,0 +1,159 @@
+---
+// Compare any models from src/content/models/. The selection lives in the URL (?m=a,b&diff=1), so
+// a comparison is a link you can share, and in snapshot()/restore() for the return trail.
+import Base from '../layouts/Base.astro';
+import ModelTable from '../components/models/ModelTable.astro';
+import { modelData } from '../lib/models/load';
+
+const d = await modelData();
+const all = [...d.models.values()].sort((a, b) => a.family.localeCompare(b.family) || a.title.localeCompare(b.title, 'en', { numeric: true }));
+const families = [...new Set(all.map((m) => m.family))].map((f) => ({ f, models: all.filter((m) => m.family === f) }));
+---
+
+<Base title="Compare models" description="Any models side by side, every number sourced." wide>
+  <div class="compare-page">
+    <h1 class="ui">Compare models</h1>
+    <p class="lede">
+      Pick models to put side by side. The first one picked is the baseline; marked cells differ from it. Every value
+      comes from a model's data file and cites its source; italic rows are derived from those values.
+    </p>
+    <x-compare data-restorable>
+      <fieldset class="picker ui">
+        <legend>Models</legend>
+        {
+          families.map(({ f, models }) => (
+            <div class="family">
+              <span class="fam">{f}</span>
+              {models.map((m) => (
+                <label>
+                  <input type="checkbox" value={m.id} />
+                  {m.title}
+                </label>
+              ))}
+            </div>
+          ))
+        }
+        <label class="only"><input type="checkbox" name="diff" /> Only rows that differ</label>
+      </fieldset>
+      <p class="empty ui" hidden>Pick at least one model.</p>
+      <ModelTable models={all.map((m) => m.id)} />
+    </x-compare>
+  </div>
+</Base>
+
+<script>
+  // Restorable (src/scripts/trail.ts): the picked models and the diff toggle come back on return.
+  type State = { m: string[]; diff: boolean };
+  const DEFAULT = ['deepseek-v3', 'deepseek-v3-2', 'lfm2-5-2-6b-base'];
+
+  class XCompare extends HTMLElement {
+    picked: string[] = [];
+    diff = false;
+    snapshot(): State {
+      return { m: this.picked, diff: this.diff };
+    }
+    restore(s: unknown) {
+      const st = s as State;
+      if (st && Array.isArray(st.m)) this.apply(st.m, !!st.diff);
+    }
+    connectedCallback() {
+      const q = new URLSearchParams(location.search);
+      const known = new Set([...this.querySelectorAll<HTMLInputElement>('.family input')].map((i) => i.value));
+      const fromUrl = (q.get('m') ?? '').split(',').filter((id) => known.has(id));
+      this.apply(fromUrl.length ? fromUrl : DEFAULT.filter((id) => known.has(id)), q.get('diff') === '1');
+      this.querySelector('.picker')!.addEventListener('change', (e) => {
+        const t = e.target as HTMLInputElement;
+        if (t.name === 'diff') return this.apply(this.picked, t.checked);
+        const next = t.checked ? [...this.picked, t.value] : this.picked.filter((id) => id !== t.value);
+        this.apply(next, this.diff);
+      });
+    }
+    apply(ids: string[], diff: boolean) {
+      this.picked = ids;
+      this.diff = diff;
+      this.querySelectorAll<HTMLInputElement>('.family input').forEach((i) => (i.checked = ids.includes(i.value)));
+      this.querySelector<HTMLInputElement>('input[name=diff]')!.checked = diff;
+      const table = this.querySelector('table')!;
+      // Column order follows the pick order, so the first pick is the baseline.
+      for (const tr of table.querySelectorAll('tr')) {
+        const cells = [...tr.querySelectorAll<HTMLElement>('[data-model]')];
+        for (const c of cells) c.hidden = !ids.includes(c.dataset.model!);
+        for (const id of ids) {
+          const c = cells.find((x) => x.dataset.model === id);
+          if (c) tr.appendChild(c);
+        }
+      }
+      for (const tr of table.querySelectorAll<HTMLTableRowElement>('tbody tr:not(.group)')) {
+        const shown = ids.map((id) => tr.querySelector<HTMLElement>(`[data-model="${id}"]`)!).filter(Boolean);
+        const raws = shown.map((c) => c.dataset.raw ?? '');
+        shown.forEach((c, i) => c.classList.toggle('differs', i > 0 && raws[i] !== '' && raws[0] !== '' && raws[i] !== raws[0]));
+        const allEmpty = raws.every((r) => r === '');
+        const same = raws.every((r) => r === raws[0]);
+        tr.hidden = allEmpty || (diff && same);
+      }
+      for (const g of table.querySelectorAll<HTMLTableRowElement>('tr.group')) {
+        g.querySelector('th')!.colSpan = ids.length + 1;
+        g.hidden = [...g.parentElement!.querySelectorAll<HTMLTableRowElement>('tr:not(.group)')].every((r) => r.hidden);
+      }
+      table.querySelectorAll('.base').forEach((b) => b.remove());
+      const first = table.querySelector<HTMLElement>(`thead [data-model="${ids[0]}"]`);
+      if (first && ids.length > 1) first.insertAdjacentHTML('beforeend', '<span class="base">baseline</span>');
+      this.querySelector<HTMLElement>('.empty')!.hidden = ids.length > 0;
+      table.hidden = ids.length === 0;
+      const url = new URL(location.href);
+      url.searchParams.set('m', ids.join(','));
+      if (diff) url.searchParams.set('diff', '1');
+      else url.searchParams.delete('diff');
+      history.replaceState(history.state, '', url);
+    }
+  }
+  customElements.define('x-compare', XCompare);
+</script>
+
+<style>
+  .compare-page {
+    max-width: 72rem;
+  }
+  .lede {
+    color: var(--ink-soft);
+    max-width: 60ch;
+  }
+  .picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 2rem;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+    background: var(--paper-raised);
+    padding: 0.8rem 1rem;
+    font-size: var(--step--1);
+  }
+  legend {
+    font-weight: 600;
+    padding: 0 0.3rem;
+  }
+  .family {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .fam {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
+    font-weight: 600;
+  }
+  label {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    cursor: pointer;
+  }
+  .only {
+    align-self: flex-end;
+  }
+  .empty {
+    color: var(--ink-soft);
+  }
+</style>

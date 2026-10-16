@@ -1,0 +1,23 @@
+title: DeepSeek-V2
+family: deepseek
+params_total: { v: 236e9, source: deepseek-v2-report, where: Abstract }
+params_active: { v: 21e9, source: deepseek-v2-report, where: Abstract }
+layers: { v: 60, source: deepseek-v2-config, where: num_hidden_layers }
+layer_pattern: { v: "AD AE*59", source: deepseek-v2-config, where: "num_hidden_layers, first_k_dense_replace" }
+hidden_size: { v: 5120, source: deepseek-v2-config, where: hidden_size }
+vocab_size: { v: 102400, source: deepseek-v2-config, where: vocab_size }
+attention: { v: mla, source: deepseek-v2-report, where: "§2.1" }
+heads: { v: 128, source: deepseek-v2-config, where: num_attention_heads }
+head_dim: { v: 128, source: deepseek-v2-report, where: "§3.1.2" }
+kv_lora_rank: { v: 512, source: deepseek-v2-config, where: kv_lora_rank }
+q_lora_rank: { v: 1536, source: deepseek-v2-config, where: q_lora_rank }
+rope_head_dim: { v: 64, source: deepseek-v2-config, where: qk_rope_head_dim }
+ffn: { v: moe, source: deepseek-v2-report, where: "§2.2" }
+ffn_hidden: { v: 12288, source: deepseek-v2-config, where: intermediate_size }
+dense_layers: { v: 1, source: deepseek-v2-config, where: first_k_dense_replace }
+routed_experts: { v: 160, source: deepseek-v2-config, where: n_routed_experts }
+active_experts: { v: 6, source: deepseek-v2-config, where: num_experts_per_tok }
+shared_experts: { v: 2, source: deepseek-v2-config, where: n_shared_experts }
+expert_hidden: { v: 1536, source: deepseek-v2-config, where: moe_intermediate_size }
+context_length: { v: 128000, display: 128K, source: deepseek-v2-report, where: Abstract }
+training_tokens: { v: 8.1e12, source: deepseek-v2-report, where: Abstract }

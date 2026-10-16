@@ -47,22 +47,7 @@ LFM2.5-230M is a compressed [[lfm2-5-350m]]. It keeps the [[hybrid-conv-attentio
   ]}
 />
 
-<Spec
-  title="LFM2.5-230M at a glance"
-  rows={[
-    { label: 'Parameters', value: '230M', source: 'lfm2-5-230m-card', where: 'Number of parameters' },
-    { label: 'Layers', value: 14, source: 'lfm2-5-230m-config', where: 'num_hidden_layers' },
-    { label: 'Conv / attention layers', value: '8 / 6', source: 'lfm2-5-230m-card', where: 'Number of layers' },
-    { label: 'Hidden size', value: 1024, source: 'lfm2-5-230m-config', where: 'hidden_size' },
-    { label: 'FFN intermediate', value: 2560, source: 'lfm2-5-230m-config', where: 'intermediate_size' },
-    { label: 'Query / KV heads', value: '16 / 8', source: 'lfm2-5-230m-config', where: 'num_attention_heads / num_key_value_heads' },
-    { label: 'Conv window', value: 3, source: 'lfm2-5-230m-config', where: 'conv_L_cache' },
-    { label: 'Vocabulary', value: 65536, source: 'lfm2-5-230m-config', where: 'vocab_size' },
-    { label: 'Training tokens', value: '19T', source: 'lfm2-5-230m-card', where: 'Training budget' },
-    { label: 'Context length', value: 32768, source: 'lfm2-5-230m-card', where: 'Context length' },
-    { label: 'Knowledge cutoff', value: 'Mid-2024', source: 'lfm2-5-230m-card' },
-  ]}
-/>
+<ModelSpec model="lfm2-5-230m" />
 
 The 14-layer pattern in `layer_types` is two convolutions, then attention and convolution alternating, ending on a convolution <Cite id="lfm2-5-230m-config" where="layer_types" />. Attention layer count stays 6, the same as the 350M, so the [[kv-cache]] still grows with six GQA blocks.
 
