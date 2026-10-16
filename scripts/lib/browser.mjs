@@ -176,9 +176,15 @@ export async function withPage({ width = 1280, height = 900, flags = [] } = {}, 
     const key = async (k) => {
       for (const type of ['keyDown', 'keyUp']) await page.send('Input.dispatchKeyEvent', { type, key: k, text: type === 'keyDown' ? k : undefined });
     };
-    const shot = async (out, { full = false } = {}) => {
+    const shot = async (out, { full = false, select = null, index = 0 } = {}) => {
       let clip;
-      if (full) {
+      if (select) {
+        const r = await evaluate(`(() => { const el = document.querySelectorAll(${JSON.stringify(select)})[${index}]; if (!el) return null;
+          const b = el.getBoundingClientRect(); return { x: b.left + scrollX, y: b.top + scrollY, width: b.width, height: b.height }; })()`);
+        if (!r) throw new Error(`no element matches ${select} (index ${index})`);
+        clip = { x: Math.max(0, r.x - 8), y: Math.max(0, r.y - 8), width: r.width + 16, height: r.height + 16, scale: 1 };
+        full = true;
+      } else if (full) {
         const { cssContentSize: s } = await page.send('Page.getLayoutMetrics');
         clip = { x: 0, y: 0, width: s.width, height: Math.min(s.height, 12000), scale: 1 };
       }

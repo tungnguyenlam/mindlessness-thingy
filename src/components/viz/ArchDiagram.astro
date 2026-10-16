@@ -1,6 +1,7 @@
 ---
 import { getEntry } from 'astro:content';
 import { noteUrl } from '../../lib/url';
+import { layout } from '../../lib/diagram/geometry.mjs';
 
 type Role = 'activation' | 'weight' | 'cache' | 'route' | 'op';
 
@@ -10,8 +11,9 @@ interface Block {
   /** Second line, usually a tensor shape like "n × d_c". */
   sub?: string;
   role?: Role;
-  col: number;
-  row: number;
+  /** Grid position. Leave both out to let the layout place the block. */
+  col?: number;
+  row?: number;
   /** Columns spanned, default 1. */
   span?: number;
   /** Slug of the note that explains this block. */
@@ -41,70 +43,29 @@ interface Props {
 
 const { title, blocks, edges = [], groups = [], caption } = Astro.props;
 
-const CW = 150; // cell width
-const CH = 50; // cell height
-const GX = 34; // gap between columns
-const GY = 40; // gap between rows
-const PAD = 28;
-
-const byId = new Map(blocks.map((b) => [b.id, b]));
+// All geometry lives in src/lib/diagram/geometry.mjs, shared with the diagram-geometry check, so
+// what the check approves is exactly what renders. Blocks without col/row are placed automatically.
+const L = layout({ blocks, edges, groups });
+const { width, height } = L;
+const boxes = blocks.map((b) => L.boxes.get(b.id)!);
+const edgeIndex = new Map(blocks.map((b) => [b.id, true]));
+for (const e of edges) {
+  for (const id of [e.from, e.to]) {
+    if (!edgeIndex.has(id)) throw new Error(`<ArchDiagram title="${title}">: edge refers to unknown block "${id}"`);
+  }
+}
 for (const b of blocks) {
   if (b.link && !(await getEntry('notes', b.link))) throw new Error(`<ArchDiagram title="${title}">: block "${b.id}" links to unknown note "${b.link}"`);
 }
-for (const e of edges) {
-  for (const id of [e.from, e.to]) {
-    if (!byId.has(id)) throw new Error(`<ArchDiagram title="${title}">: edge refers to unknown block "${id}"`);
-  }
-}
-
-const cols = Math.max(...blocks.map((b) => b.col + (b.span ?? 1)));
-const rows = Math.max(...blocks.map((b) => b.row + 1));
-const width = PAD * 2 + cols * CW + (cols - 1) * GX;
-const height = PAD * 2 + rows * CH + (rows - 1) * GY;
-
-const box = (b: Block) => {
-  const span = b.span ?? 1;
-  const x = PAD + b.col * (CW + GX);
-  const y = PAD + b.row * (CH + GY);
-  const w = span * CW + (span - 1) * GX;
-  return { x, y, w, h: CH, cx: x + w / 2, cy: y + CH / 2 };
-};
-
-function route(e: Edge) {
-  const a = box(byId.get(e.from)!);
-  const b = box(byId.get(e.to)!);
-  if (e.side) {
-    const out = e.side === 'left' ? Math.min(a.x, b.x) - PAD * 0.6 : Math.max(a.x + a.w, b.x + b.w) + PAD * 0.6;
-    const ax = e.side === 'left' ? a.x : a.x + a.w;
-    const bx = e.side === 'left' ? b.x : b.x + b.w;
-    return { d: `M${ax},${a.cy} H${out} V${b.cy} H${bx}`, lx: out, ly: (a.cy + b.cy) / 2 };
-  }
-  if (a.y === b.y) {
-    const [x1, x2] = a.cx < b.cx ? [a.x + a.w, b.x] : [a.x, b.x + b.w];
-    return { d: `M${x1},${a.cy} H${x2}`, lx: (x1 + x2) / 2, ly: a.cy - 6 };
-  }
-  const down = b.y > a.y;
-  const y1 = down ? a.y + a.h : a.y;
-  const y2 = down ? b.y : b.y + b.h;
-  if (Math.abs(a.cx - b.cx) < 1) return { d: `M${a.cx},${y1} V${y2}`, lx: a.cx + 6, ly: (y1 + y2) / 2 };
-  const mid = down ? y2 - GY / 2 : y2 + GY / 2;
-  return { d: `M${a.cx},${y1} V${mid} H${b.cx} V${y2}`, lx: b.cx + 6, ly: (mid + y2) / 2 };
-}
-
-const groupBoxes = groups.map((g) => {
-  const x = PAD + g.from[0] * (CW + GX) - 12;
-  const y = PAD + g.from[1] * (CH + GY) - 12;
-  const x2 = PAD + g.to[0] * (CW + GX) + CW + 12;
-  const y2 = PAD + g.to[1] * (CH + GY) + CH + 12;
-  return { label: g.label, x, y, w: x2 - x, h: y2 - y };
-});
+// Below this width the SVG scrolls sideways instead of shrinking text past readability (mobile).
+const minWidth = Math.round(width * 0.72);
 
 const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 ---
 
 <figure class="arch ui">
-  <div class="scroll">
-    <svg viewBox={`0 0 ${width} ${height}`} width={width} role="img" aria-labelledby={`${markerId}-t`}>
+  <div class="scroll" data-keep-scroll>
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} style={`min-width:${minWidth}px`} role="img" aria-labelledby={`${markerId}-t`}>
       <title id={`${markerId}-t`}>{title}</title>
       <defs>
         <marker id={markerId} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -112,18 +73,18 @@ const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
         </marker>
       </defs>
       {
-        groupBoxes.map((g) => (
+        L.groupBoxes.map((g) => (
           <g class="group">
             <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="6" />
-            <text x={g.x + g.w - 8} y={g.y + g.h - 7} text-anchor="end">
+            <text x={g.x + g.w - 12} y={g.y + g.h} text-anchor="end" dominant-baseline="middle">
               {g.label}
             </text>
           </g>
         ))
       }
       {
-        edges.map((e) => {
-          const r = route(e);
+        L.routes.map((r) => {
+          const e = r.edge;
           return (
             <g class:list={['edge', { dashed: e.dashed }]}>
               <path d={r.d} marker-end={`url(#${markerId})`} />
@@ -137,8 +98,8 @@ const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
         })
       }
       {
-        blocks.map((b) => {
-          const r = box(b);
+        boxes.map((b) => {
+          const r = b;
           const inner = (
             <g class:list={['block', `role-${b.role ?? 'op'}`]}>
               <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="3" />
@@ -213,6 +174,9 @@ const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   .group text {
     font-size: 11px;
     fill: var(--ink-soft);
+    paint-order: stroke;
+    stroke: var(--paper-raised);
+    stroke-width: 5px;
   }
   .edge path {
     fill: none;

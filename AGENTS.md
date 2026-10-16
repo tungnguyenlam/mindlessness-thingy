@@ -25,7 +25,8 @@ Each rule has an id. When `pnpm run check`, a test, a git hook or an agent hook 
 7. `visual-first`: **Every written concept or system note has a visual**, placed before the prose it illustrates. See `PRINCIPLES.md#visual-first`.
 8. `keep-place`: **Never break the return trail.** Pages render inside `Base`, interactive components are restorable, navigation uses real links. See the contract in `PRINCIPLES.md#keep-place`.
 9. `template-complete`: **No `{/* TODO */}` markers left in a written note.** Templates use them as fill-in prompts; the check fails until each one is replaced.
-10. `commit-when-done`: **Finish every task with `pnpm run check` passing and a commit of only your own files.** See the task lifecycle below.
+10. `diagram-geometry`: **Diagrams must lay out cleanly.** The fast check runs the same layout code as `<ArchDiagram>` and fails on overlapping blocks, edges through blocks, edges drawn on top of each other, labels wider than their box and diagrams too wide for the column. Edges are routed around blocks automatically and blocks without `col`/`row` are placed for you, so prefer leaving positions out. Numbers in diagram labels get a `sourced-numbers` warning: use symbols in pictures and put values in `<Spec>`.
+11. `commit-when-done`: **Finish every task with `pnpm run check` passing and a commit of only your own files.** See the task lifecycle below.
 
 ### When the system corrects you
 
@@ -54,7 +55,7 @@ How all of this fits together, and how to add a new rule, is in `docs/guardrails
 | `pnpm run check` | Everything: graph checks, `astro build`, keep-place browser test. Must pass before committing. |
 | `pnpm run check:graph` | Fast content and contract checks only (well under a second). Add `--files a,b` to scope, `--json` for tools. |
 | `pnpm run new <kind> <slug> "Title"` | New stub. Add `--draft` to scaffold a full note from `templates/notes/<kind>.mdx`. |
-| `pnpm run shot <path>` | Screenshot a page to `.scratch/shots/`. Options: `--full`, `--width`, `--click <selector>`, `--out <file>`. |
+| `pnpm run shot <path>` | Screenshot a page to `.scratch/shots/`. Options: `--select <css>` (crop to each match, e.g. `figure.arch`; cheapest to look at), `--full`, `--width`, `--click <selector>`, `--out <file>`. |
 | `pnpm run test:place` | Just the keep-place browser test (`--shots` saves screenshots). |
 | `pnpm run dev` | Local site at http://localhost:4321/mindlessness-thingy/ |
 

@@ -76,6 +76,7 @@ Style: short paragraphs, plain verbs, no hype. Write for a reader who knows basi
 
 ```sh
 pnpm run check
+pnpm run shot /notes/<slug>/ --select figure.arch   # each diagram, cropped
 pnpm run shot /notes/<slug>/ --full
 ```
 

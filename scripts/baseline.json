@@ -1,0 +1,8 @@
+{
+  "_why": "Ratchet for rules added after these files were written. Each entry downgrades one kind of error (by code) in one file to a warning. Never add entries to get a check passing; fix the file. Remove an entry when the file is fixed (the check warns when one is stale).",
+  "entries": {
+    "src/content/notes/systems/nemotron-3-5-super-vl.mdx": [
+      "edge-label-overlap"
+    ]
+  }
+}

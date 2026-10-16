@@ -32,10 +32,22 @@ if (flag('--staged')) {
   scope = new Set(out.split('\n').filter(Boolean));
 }
 
+// The ratchet (scripts/baseline.json): problems that existed when a rule was introduced are
+// listed by file and code and reported as warnings; anything new is an error. Entries are removed
+// as files get fixed; a stale entry is itself reported so the baseline only shrinks.
+const baselinePath = path.join(root, 'scripts/baseline.json');
+const baseline = fs.existsSync(baselinePath) ? JSON.parse(fs.readFileSync(baselinePath, 'utf8')).entries ?? {} : {};
+const usedBaseline = new Set();
+
 const problems = [];
-const report = (level) => (rule, file, msg, fix) => {
+const report = (level) => (rule, file, msg, fix, { code } = {}) => {
   if (!RULES[rule]) throw new Error(`check reported unknown rule "${rule}"; add it to scripts/rules.mjs`);
-  problems.push({ level, rule, file, msg, fix });
+  if (level === 'error' && code && baseline[file]?.includes(code)) {
+    usedBaseline.add(`${file}::${code}`);
+    problems.push({ level: 'warn', rule, file, msg: `${msg} (baselined, fix when you edit this file)`, fix, code });
+    return;
+  }
+  problems.push({ level, rule, file, msg, fix, code });
 };
 const ctx = {
   root,
@@ -60,6 +72,14 @@ const checksDir = path.join(root, 'scripts/checks');
 for (const f of fs.readdirSync(checksDir).filter((f) => f.endsWith('.mjs')).sort()) {
   const mod = await import(path.join(checksDir, f));
   mod.default(ctx, { error: report('error'), warn: report('warn') });
+}
+
+for (const [file, codes] of Object.entries(baseline)) {
+  for (const code of codes) {
+    if (!usedBaseline.has(`${file}::${code}`)) {
+      problems.push({ level: 'warn', rule: 'catalog-sync', file: 'scripts/baseline.json', msg: `stale entry ${file} → ${code}: that problem is fixed`, fix: 'delete the entry so the baseline only shrinks' });
+    }
+  }
 }
 
 const inScope = (p) => !scope || scope.has(p.file);

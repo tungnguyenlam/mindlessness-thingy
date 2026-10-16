@@ -20,6 +20,7 @@ This runs the graph checks, a full build, and the keep-place browser test. Every
 For anything visual you touched (a note with diagrams, a component, styles):
 
 ```sh
+pnpm run shot /notes/<slug>/ --select figure.arch   # each diagram, cropped
 pnpm run shot /notes/<slug>/ --full
 pnpm run shot /notes/<slug>/ --width 390     # mobile
 ```

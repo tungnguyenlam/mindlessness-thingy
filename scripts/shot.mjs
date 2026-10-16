@@ -5,6 +5,8 @@
 //   pnpm run shot /notes/mla/ --full               whole page
 //   pnpm run shot /notes/mla/ --click "x-stepper button[data-dir='1']" --click "..."   interact first
 //   pnpm run shot / --width 390 --out .scratch/shots/home-mobile.png
+//   pnpm run shot /notes/mla/ --select figure.arch      every match, cropped: notes-mla-figure-arch-1.png ...
+//                                                        (cheaper to look at than a full page)
 //
 // Rebuilds dist/ first when anything under src/ is newer than the last build.
 import { execFileSync } from 'node:child_process';
@@ -38,10 +40,18 @@ if (newest('src') > built) {
   execFileSync('pnpm', ['exec', 'astro', 'build', '--silent'], { stdio: 'inherit' });
 }
 
-await withPage({ width, height }, async ({ goto, click, wait, shot }) => {
+await withPage({ width, height }, async ({ goto, click, wait, shot, evaluate }) => {
   await goto(page);
   await wait(Number(opt('--wait', 400)));
   for (const sel of all('--click')) await click(sel);
+  const select = opt('--select');
+  if (select) {
+    const n = await evaluate(`document.querySelectorAll(${JSON.stringify(select)}).length`);
+    if (!n) throw new Error(`no element matches ${select}`);
+    const stem = out.replace(/\.png$/, `-${select.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')}`);
+    for (let i = 0; i < n; i++) console.log(`saved ${await shot(`${stem}-${i + 1}.png`, { select, index: i })}`);
+    return;
+  }
   await shot(out, { full: args.includes('--full') });
+  console.log(`saved ${out}`);
 });
-console.log(`saved ${out}`);
