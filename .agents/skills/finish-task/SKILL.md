@@ -34,12 +34,24 @@ git status --short
 
 Your files are the ones you created or edited in this task. Anything that was already modified when you started (the session-start message lists those) is someone else's. Don't stage it, revert it or stash it, even if it looks unfinished.
 
-## 4. Commit
+## 4. Log
+
+Append one entry to `worklog.md` (append-only, newest at the bottom), then stage it with your files in the next step:
+
+```sh
+printf '\n## %s · %s\n- did: %s\n- files: %s\n- open: %s\n' \
+  "$(date +%F)" "<the commit subject you are about to use>" \
+  "what changed, one line" "main files or globs" "unverified numbers, follow-ups, or none" >> worklog.md
+```
+
+Don't read the whole file and don't edit old entries. See `docs/workflow.md#the-worklog`.
+
+## 5. Commit
 
 Stage by path, never with `-A`, `.` or `commit -a` (the hooks refuse those):
 
 ```sh
-git add src/content/notes/concepts/rope.mdx src/content/sources/roformer-paper.yaml
+git add worklog.md src/content/notes/concepts/rope.mdx src/content/sources/roformer-paper.yaml
 git commit -m "content(rope): write draft with rotation stepper"
 ```
 
@@ -67,7 +79,7 @@ git -c user.name="$(git log -1 --format=%an)" -c user.email="$(git log -1 --form
 
 Don't push unless the owner asked you to.
 
-## 5. Report
+## 6. Report
 
 Tell the owner, briefly:
 

@@ -5,8 +5,9 @@ This repo is a visual notebook for learning how ML systems are built. It is an A
 ## Start here, every task
 
 1. Read `PRINCIPLES.md`. It is short and it explains *why* the rules below exist. The two principles that shape most work are `keep-place` (a reader can always return to the exact spot a link was clicked) and `visual-first` (show the idea before explaining it).
-2. Run `git status` and note which changes already exist. **Those aren't yours**: another agent or the owner may be mid-task. Don't edit, stage, stash or revert them.
-3. Pick the workflow skill for the job and follow it step by step:
+2. Read the end of the worklog: `tail -n 40 worklog.md`. **Never open the whole file**; it grows forever. Newest entries are at the bottom, so read upward and stop once you have enough context.
+3. Run `git status` and note which changes already exist. **Those aren't yours**: another agent or the owner may be mid-task. Don't edit, stage, stash or revert them.
+4. Pick the workflow skill for the job and follow it step by step:
    - `.agents/skills/write-article/SKILL.md`: write or extend a note, stub or learning path.
    - `.agents/skills/site-feature/SKILL.md`: change the site itself (components, layout, scripts, styles).
    - `.agents/skills/finish-task/SKILL.md`: **always the last step.** Check, look, commit, report.
@@ -38,12 +39,13 @@ How all of this fits together, and how to add a new rule, is in `docs/guardrails
 
 ## Task lifecycle
 
-1. **Orient.** `git status`; read `PRINCIPLES.md` and the skill for the job.
+1. **Orient.** `git status`; `tail -n 40 worklog.md`; read `PRINCIPLES.md` and the skill for the job.
 2. **Build** with the skill, using the templates in `templates/notes/` for new notes.
 3. **Check.** `pnpm run check` must pass: graph checks, full build, then the keep-place browser test.
 4. **Look.** `pnpm run shot /notes/<slug>/` and open the PNG for anything visual you changed.
-5. **Commit.** Stage your files by path and commit with a conventional message (`content(mla): ...`, `feat(trail): ...`). The `commit-msg` hook enforces the format and `pre-commit` reruns the checks on staged files. Details in `.agents/skills/finish-task/SKILL.md`.
-6. **Report** what changed, what you committed, and anything unverified.
+5. **Log.** Append one entry to `worklog.md` with the shell (format and command in `docs/workflow.md#the-worklog`) and stage it with your files.
+6. **Commit.** Stage your files by path and commit with a conventional message (`content(mla): ...`, `feat(trail): ...`). The `commit-msg` hook enforces the format and `pre-commit` reruns the checks on staged files. Details in `.agents/skills/finish-task/SKILL.md`.
+7. **Report** what changed, what you committed, and anything unverified.
 
 ## Commands
 
@@ -60,6 +62,8 @@ How all of this fits together, and how to add a new rule, is in `docs/guardrails
 
 ```
 PRINCIPLES.md                 what reading here should feel like; ids cited by checks
+CLAUDE.md                     symlink to this file, so Claude Code loads the same rules
+worklog.md                    append-only task log, newest at the bottom; read with tail only
 src/content/notes/concepts/   one idea each: mla.mdx, kv-cache.mdx
 src/content/notes/systems/    a specific model or system: deepseek-v3.mdx
 src/content/notes/paths/      ordered reading lists: deepseek-lineage.mdx
@@ -73,6 +77,8 @@ scripts/rules.mjs             rule ids, titles and where each is documented
 scripts/agent-hooks/          agent lifecycle hooks, wired up in .agents/hooks.json
 .githooks/                    pre-commit and commit-msg (installed by pnpm install)
 docs/guardrails.md            how rules, checks and hooks fit together
+docs/workflow.md              the end-to-end workflow, cost habits, worklog format
+docs/visual-system.md         proposal and roadmap for data-driven visuals and model comparison
 ```
 
 The filename is the note's ID (slug). Slugs are kebab-case and never change once other notes link to them. Folders only reflect `kind`; moving a note between folders doesn't break links.
