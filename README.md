@@ -5,9 +5,9 @@ A visual notebook for learning how ML models are built, one linked idea at a tim
 ## Run it
 
 ```sh
-npm install
-npm run dev        # http://localhost:4321/mindlessness-thingy/
-npm run check      # graph checks, then a full build
+pnpm install
+pnpm run dev       # http://localhost:4321/mindlessness-thingy/
+pnpm run check     # graph checks, then a full build
 ```
 
 Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`. In the repo settings, set Pages to deploy from GitHub Actions.
@@ -25,5 +25,5 @@ Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`. In
 Ask an agent something like "write the DeepSeek-V3 note" or "fill in the RoPE stub". The agent should follow `AGENTS.md` and `.agents/skills/write-article/SKILL.md`. To start a note by hand:
 
 ```sh
-npm run new -- concept rope "Rotary position embedding"
+pnpm run new concept rope "Rotary position embedding"
 ```

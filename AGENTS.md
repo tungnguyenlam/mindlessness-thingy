@@ -9,8 +9,8 @@ Before writing or editing a note, read `.agents/skills/write-article/SKILL.md`. 
 1. **One idea per note.** If an explanation already exists in another note, link to it with `[[slug]]` and don't re-explain it. A system note (a model) explains what it combines and what is new, not the ideas it reuses.
 2. **No unsourced numbers.** Every architecture number (layers, hidden size, expert count, head dims, token counts, speedups) comes from a paper, tech report or `config.json`, never from memory. Put numbers in `<Spec>` rows with a `source`, or cite inline with `<Cite id="..." where="§x" />`. If you can't find a primary source, leave the number out and say it's unverified.
 3. **Never mark a note `reviewed` or `verified`.** Agents write `stub` or `draft`. Only the human owner promotes status.
-4. **Create stubs, don't leave dangling links.** If you need to link to an idea that has no note, create a stub with `npm run new -- concept <slug> "Title"`, give it a real one-sentence `summary` and its typed links, and leave the body as a placeholder.
-5. **`npm run check` must pass** before you finish. It validates frontmatter, links, sources, prerequisite cycles and component props, then builds the site.
+4. **Create stubs, don't leave dangling links.** If you need to link to an idea that has no note, create a stub with `pnpm run new concept <slug> "Title"`, give it a real one-sentence `summary` and its typed links, and leave the body as a placeholder.
+5. **`pnpm run check` must pass** before you finish. It validates frontmatter, links, sources, prerequisite cycles and component props, then builds the site.
 
 ## Layout
 
@@ -21,7 +21,7 @@ src/content/notes/paths/      ordered reading lists: deepseek-lineage.mdx
 src/content/sources/          one YAML file per paper, report or config
 research/                     sourced fact sheets gathered before writing (input, not published)
 src/components/viz/           the only components notes may use
-scripts/check.mjs             graph checks (run via npm run check)
+scripts/check.mjs             graph checks (run via pnpm run check)
 ```
 
 The filename is the note's ID (slug). Slugs are kebab-case and never change once other notes link to them. Folders only reflect `kind`; moving a note between folders doesn't break links.

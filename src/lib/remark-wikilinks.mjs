@@ -17,7 +17,7 @@ export default function remarkWikilinks({ base = '' } = {}) {
         const slug = m[1].trim();
         const target = notes.get(slug);
         if (!target) {
-          file.fail(`Unknown wikilink [[${slug}]]. Create it with: npm run new -- concept ${slug} "Title"`, node);
+          file.fail(`Unknown wikilink [[${slug}]]. Create it with: pnpm run new concept ${slug} "Title"`, node);
         }
         if (m.index > last) parts.push({ type: 'text', value: node.value.slice(last, m.index) });
         const classes = ['wikilink'];

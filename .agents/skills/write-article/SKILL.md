@@ -9,7 +9,7 @@ Read `AGENTS.md` first for the rules, frontmatter fields and component catalog.
 
 ## 1. Find what already exists
 
-- List notes: `ls src/content/notes/*/` and run `npm run check:graph`. Its last lines list stubs waiting to be written.
+- List notes: `ls src/content/notes/*/` and run `pnpm run check:graph`. Its last lines list stubs waiting to be written.
 - Search for the idea under other names: `rg -i "<term>" src/content/notes`.
 - If a note for the idea exists, extend it instead of creating a second one. If it's a stub, fill it in place and keep the slug.
 
@@ -34,7 +34,7 @@ Split it into several notes if you find yourself explaining two ideas, and link 
 For every idea a reader needs first that has no note yet:
 
 ```sh
-npm run new -- concept <slug> "Title"
+pnpm run new concept <slug> "Title"
 ```
 
 Then edit the stub: give it a real one-sentence `summary` and its own `prerequisites`/`builds_on` so it lands in the right place on the map. Leave the body as the placeholder and `status: stub`.
@@ -53,10 +53,10 @@ Style: short paragraphs, plain verbs, no hype. Write for a reader who knows basi
 ## 6. Check
 
 ```sh
-npm run check
+pnpm run check
 ```
 
-Fix every error. Warnings about orphans or uncited sources are fine for stubs but should be resolved for drafts. Then run `npm run dev` and open the note to look at the diagrams if you can.
+Fix every error. Warnings about orphans or uncited sources are fine for stubs but should be resolved for drafts. Then run `pnpm run dev` and open the note to look at the diagrams if you can.
 
 ## 7. Report back
 

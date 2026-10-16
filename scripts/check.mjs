@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Graph-level checks that the Zod schema can't express. Run with `npm run check`
+// Graph-level checks that the Zod schema can't express. Run with `pnpm run check`
 // (this script, then a full `astro build` for schema and component checks).
 import {
   KINDS,

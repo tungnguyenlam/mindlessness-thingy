@@ -1,14 +1,16 @@
 #!/usr/bin/env node
-// Usage: npm run new -- <concept|system|path> <slug> "Title"
+// Usage: pnpm run new <concept|system|path> <slug> "Title"
 import fs from 'node:fs';
 import path from 'node:path';
 import { KINDS, KIND_DIRS, NOTES_DIR, SLUG_RE, loadNotes } from '../src/lib/content-index.mjs';
 
-const [kind, slug, ...titleParts] = process.argv.slice(2);
+// pnpm passes a literal `--` through to the script; ignore it.
+const args = process.argv.slice(2).filter((a, i) => !(i === 0 && a === '--'));
+const [kind, slug, ...titleParts] = args;
 const title = titleParts.join(' ') || slug;
 
 if (!KINDS.includes(kind) || !slug) {
-  console.error('Usage: npm run new -- <concept|system|path> <slug> "Title"');
+  console.error('Usage: pnpm run new <concept|system|path> <slug> "Title"');
   process.exit(1);
 }
 if (!SLUG_RE.test(slug)) {
