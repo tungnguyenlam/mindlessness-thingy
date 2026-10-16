@@ -1,0 +1,100 @@
+---
+// A model's layer block, generated from src/content/models/<model>.yaml: one column per kind of
+// mixer in its layer pattern (with the cache each keeps between decoding steps), one per kind of
+// FFN, and the residual adds. Every number comes from the data, so the diagram can't disagree with
+// <ModelSpec>, and the layout is checked by the same lint as hand-drawn diagrams.
+//   <ModelDiagram model="lfm2-5-350m" caption="..." />
+import ArchDiagram from './ArchDiagram.astro';
+import { requireModel, modelData } from '../../lib/models/load';
+import { parsePattern } from '../../lib/models/data.mjs';
+import { lintDiagram } from '../../lib/diagram/geometry.mjs';
+
+interface Props {
+  model: string;
+  title?: string;
+  caption?: string;
+}
+const { model: id, title, caption } = Astro.props;
+const d = await modelData();
+const m = await requireModel(id, '<ModelDiagram>');
+const v = (k: string) => m.values[k]?.v ?? m.derived[k]?.v;
+if (!m.values.layer_pattern) throw new Error(`<ModelDiagram model="${id}">: the model needs a layer_pattern`);
+const layers = parsePattern(m.values.layer_pattern.v);
+const count = (c: string) => layers.filter((l) => l.includes(c)).length;
+const present = (codes: string) => [...codes].filter((c) => count(c) > 0);
+const mixers = present('ACM');
+const ffns = present('DE');
+const n = (x: unknown) => (typeof x === 'number' ? x.toLocaleString('en-US') : String(x));
+const times = (c: string, list: string[]) => (list.length > 1 ? `× ${count(c)}` : null);
+const join = (...parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(' · ');
+
+const attn = String(v('attention') ?? '');
+const ATTN_LABEL: Record<string, string> = { mla: 'Latent attention (MLA)', gqa: 'Grouped-query attn', mha: 'Multi-head attn', mqa: 'Multi-query attn' };
+const MIXER = {
+  A: {
+    label: ATTN_LABEL[attn] ?? 'Attention',
+    sub: join(times('A', mixers), attn === 'gqa' || attn === 'mqa' ? v('kv_heads') && `${v('heads')} Q / ${v('kv_heads')} KV` : v('heads') && `${v('heads')} heads`),
+    link: d.notes.has(attn) ? attn : undefined,
+    cache: { label: 'KV cache', sub: 'grows with context', link: 'kv-cache' },
+  },
+  C: {
+    label: 'Gated short conv',
+    sub: join(times('C', mixers), v('conv_window') && `k = ${v('conv_window')}`),
+    link: 'gated-short-conv',
+    cache: { label: 'Conv window', sub: 'fixed size', link: undefined },
+  },
+  M: { label: 'Mamba-2', sub: times('M', mixers), link: 'mamba-2', cache: { label: 'SSM state', sub: 'fixed size', link: undefined } },
+} as const;
+const moeNote = v('shared_experts') ? 'deepseek-moe' : 'moe';
+const FFN = {
+  D: { label: 'Dense FFN', sub: join(times('D', ffns), v('ffn_hidden') && `width ${n(v('ffn_hidden'))}`), link: undefined, role: 'weight' },
+  E: {
+    label: 'MoE FFN',
+    sub: join(times('E', ffns), v('active_experts') && v('routed_experts') && `${v('active_experts')} of ${v('routed_experts')}`, v('shared_experts') && `+ ${v('shared_experts')} shared`),
+    link: d.notes.has(moeNote) ? moeNote : undefined,
+    role: 'route',
+  },
+} as const;
+
+// Columns: spread each row's variants around a centre column.
+const width = Math.max(mixers.length, ffns.length, 1) === 1 ? 1 : 3;
+const center = width === 1 ? 0 : 1;
+const spread = (k: number) => (k === 1 ? [center] : k === 2 ? [0, 2] : [0, 1, 2]);
+const hasCache = mixers.length > 0;
+const R = { in: 0, n1: 1, mix: 2, cache: 3, add1: hasCache ? 4 : 3 };
+const R2 = { n2: R.add1 + 1, ffn: R.add1 + 2, add2: R.add1 + 3 };
+
+const hidden = v('hidden_size');
+const blocks: any[] = [
+  { id: 'in', label: 'Hidden state', sub: hidden ? `d = ${n(hidden)}` : undefined, role: 'activation', col: center, row: R.in },
+  { id: 'n1', label: 'RMSNorm', role: 'op', col: center, row: R.n1 },
+  { id: 'add1', label: 'Add', role: 'op', col: center, row: R.add1 },
+  { id: 'n2', label: 'RMSNorm', role: 'op', col: center, row: R2.n2 },
+  { id: 'add2', label: 'Add', role: 'op', col: center, row: R2.add2 },
+];
+const edges: any[] = [
+  { from: 'in', to: 'n1' },
+  { from: 'in', to: 'add1', side: 'left' },
+  { from: 'add1', to: 'n2' },
+  { from: 'add1', to: 'add2', side: 'left' },
+];
+mixers.forEach((c, i) => {
+  const spec = MIXER[c as keyof typeof MIXER];
+  const col = spread(mixers.length)[i];
+  blocks.push({ id: `mix-${c}`, label: spec.label, sub: spec.sub || undefined, role: 'op', col, row: R.mix, link: spec.link });
+  blocks.push({ id: `cache-${c}`, label: spec.cache.label, sub: spec.cache.sub, role: 'cache', col, row: R.cache, link: spec.cache.link });
+  edges.push({ from: 'n1', to: `mix-${c}` }, { from: `mix-${c}`, to: `cache-${c}`, dashed: true }, { from: `mix-${c}`, to: 'add1' });
+});
+ffns.forEach((c, i) => {
+  const spec = FFN[c as keyof typeof FFN];
+  blocks.push({ id: `ffn-${c}`, label: spec.label, sub: spec.sub || undefined, role: spec.role, col: spread(ffns.length)[i], row: R2.ffn, link: spec.link });
+  edges.push({ from: 'n2', to: `ffn-${c}` }, { from: `ffn-${c}`, to: 'add2' });
+});
+const groups = [{ label: `${n(layers.length)} layers`, blocks: blocks.filter((b) => b.row >= R.n1).map((b) => b.id) }];
+const props = { title: title ?? `A ${m.title} layer`, caption, blocks, edges, groups };
+
+const errors = lintDiagram(props).filter((p) => p.level === 'error');
+if (errors.length) throw new Error(`<ModelDiagram model="${id}"> generated a diagram that fails diagram-geometry:\n${errors.map((e) => `  ${e.msg}`).join('\n')}`);
+---
+
+<ArchDiagram {...props} caption={caption ?? `Generated from ${m.title}'s model data. Counts come from its layer pattern; click a block for its note.`} />

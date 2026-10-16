@@ -29,9 +29,11 @@ interface Edge {
 }
 interface Group {
   label: string;
-  /** Top-left and bottom-right cells, inclusive, as [col, row]. */
-  from: [number, number];
-  to: [number, number];
+  /** Block ids the group covers (preferred: works with automatic placement)... */
+  blocks?: string[];
+  /** ...or top-left and bottom-right cells, inclusive, as [col, row]. */
+  from?: [number, number];
+  to?: [number, number];
 }
 interface Props {
   title: string;

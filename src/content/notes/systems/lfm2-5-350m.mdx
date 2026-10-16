@@ -16,37 +16,12 @@ LFM2.5-350M is the 350M LFM2 hybrid trained further. The block recipe is still [
 
 ## The block
 
-<ArchDiagram
-  title="An LFM2.5-350M layer"
+<ModelDiagram
+  model="lfm2-5-350m"
   caption="Sixteen layers, each pre-norm residual. Ten of them mix with a kernel-3 gated convolution; six mix with grouped-query attention. Only the attention layers add to the KV cache."
-  blocks={[
-    { id: 'in', label: 'Hidden state', sub: '1024', role: 'activation', col: 1, row: 0 },
-    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
-    { id: 'conv', label: 'Gated short conv', sub: '× 10 · k = 3', role: 'op', col: 0, row: 2, link: 'gated-short-conv' },
-    { id: 'attn', label: 'GQA', sub: '× 6 · 16 Q / 8 KV', role: 'op', col: 2, row: 2, link: 'gqa' },
-    { id: 'cwin', label: 'Conv window', sub: 'fixed', role: 'cache', col: 0, row: 3 },
-    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
-    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 4 },
-    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 5 },
-    { id: 'ffn', label: 'SwiGLU', sub: '6656', role: 'weight', col: 1, row: 6 },
-    { id: 'add2', label: 'Add', role: 'op', col: 1, row: 7 },
-  ]}
-  edges={[
-    { from: 'in', to: 'n1' },
-    { from: 'n1', to: 'conv' },
-    { from: 'n1', to: 'attn' },
-    { from: 'conv', to: 'cwin', dashed: true },
-    { from: 'attn', to: 'kv', dashed: true },
-    { from: 'conv', to: 'add1' },
-    { from: 'attn', to: 'add1' },
-    { from: 'in', to: 'add1', side: 'left' },
-    { from: 'add1', to: 'n2' },
-    { from: 'n2', to: 'ffn' },
-    { from: 'ffn', to: 'add2' },
-    { from: 'add1', to: 'add2', side: 'left' },
-  ]}
-  groups={[{ label: '16 layers; layer_types interleaves conv and full_attention', from: [0, 1], to: [2, 7] }]}
 />
+
+<LayerStrip model="lfm2-5-350m" />
 
 <ModelSpec model="lfm2-5-350m" />
 

@@ -21,3 +21,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: models collection (every value {v, source, where}); field vocabulary; derived KV cache/head dim/active share; ModelSpec (+diff), Compare, /compare/ page, layer pattern strips; system notes migrated off retyped Spec; trail restores horizontal panel scroll
 - files: src/content/models/*.yaml src/lib/models/* src/components/viz/{ModelSpec,Compare}.astro src/pages/compare.astro scripts/checks/models.mjs
 - open: Nemotron and StableHand have no model data yet (their notes are another agent's uncommitted drafts); DeepSeek-V4 and V4.1-Flash not modelled; V3.2 KV cache not derived because the DSA indexer keys aren't in the formula
+
+## 2026-10-17 · feat(viz): generate model diagrams and layer strips from data
+- did: ModelDiagram builds a system's layer block from model data (lint-checked at build); LayerStrip shows layer order; groups can name blocks; DeepSeek-V3 diagram now auto-placed with symbols instead of numbers; four LFM2.5 notes use generated diagrams
+- files: src/components/viz/{ModelDiagram,LayerStrip}.astro src/lib/diagram/geometry.mjs scripts/checks/visual.mjs
+- open: thinking and 2.6B notes keep their hand diagrams (they show post-training, not the block)

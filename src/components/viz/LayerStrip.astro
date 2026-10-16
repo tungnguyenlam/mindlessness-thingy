@@ -1,0 +1,150 @@
+---
+// Where each kind of layer sits in a model, from its layer_pattern: one column per layer, one cell
+// per sublayer. Answers "how are the layer types interleaved?" at a glance, which matters most for
+// hybrids (conv/attention, Mamba/attention) and for dense-then-MoE stacks.
+//   <LayerStrip model="lfm2-5-2-6b-base" />
+//   <LayerStrip models={["lfm2-5-350m", "lfm2-5-2-6b-base"]} />   stacked, same scale
+import { modelData } from '../../lib/models/load';
+import { parsePattern } from '../../lib/models/data.mjs';
+import { SUBLAYERS } from '../../lib/models/fields.mjs';
+import { noteUrl } from '../../lib/url';
+import PatternStrip from '../models/PatternStrip.astro';
+
+interface Props {
+  model?: string;
+  models?: string[];
+  caption?: string;
+}
+const { model, models: list, caption } = Astro.props;
+const ids = list ?? (model ? [model] : []);
+if (!ids.length) throw new Error('<LayerStrip> needs model="..." or models={[...]}');
+const d = await modelData();
+const rows = ids.map((id) => {
+  const m = d.models.get(id);
+  if (!m) throw new Error(`<LayerStrip>: unknown model "${id}"`);
+  const p = m.values.layer_pattern;
+  if (!p) throw new Error(`<LayerStrip>: model "${id}" has no layer_pattern`);
+  const layers = parsePattern(p.v);
+  const attn = String(m.values.attention?.v ?? '');
+  return { m, p, layers, attnLabel: d.notes.get(attn)?.title, attn };
+});
+const ORDER = Object.keys(SUBLAYERS);
+const codes = [...new Set(rows.flatMap((r) => r.layers.flat()))].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+const legend = codes.map((c) => {
+  const s = SUBLAYERS[c as keyof typeof SUBLAYERS];
+  const attnSlugs = [...new Set(rows.map((r) => r.attn).filter((a) => d.notes.has(a)))];
+  const link = c === 'A' ? (attnSlugs.length === 1 ? attnSlugs[0] : undefined) : s.concept && d.notes.has(s.concept) ? s.concept : undefined;
+  const label = c === 'A' && attnSlugs.length === 1 ? (d.notes.get(attnSlugs[0])?.title ?? s.label) : s.label;
+  return { c, role: s.role, label, link };
+});
+const counts = (r: (typeof rows)[number]) =>
+  codes
+    .filter((c) => r.layers.some((l) => l.includes(c)))
+    .map((c) => `${r.layers.filter((l) => l.includes(c)).length} ${SUBLAYERS[c as keyof typeof SUBLAYERS].label.toLowerCase()}`)
+    .join(', ');
+---
+
+<figure class="lstrip ui">
+  <div class="scroll" data-keep-scroll>
+    {
+      rows.map((r) => (
+        <div class="row">
+          {rows.length > 1 && (
+            <a class="name" href={noteUrl(r.m.note)} data-slug={r.m.note}>
+              {r.m.title}
+            </a>
+          )}
+          <a class="strip-link" href={d.sources.get(r.p.source)?.url} rel="noopener" title={`${d.sources.get(r.p.source)?.short}, ${r.p.where}`}>
+            <PatternStrip pattern={r.p.v} attentionLabel={r.attnLabel} />
+          </a>
+          <span class="counts">
+            {r.layers.length} layers: {counts(r)}
+          </span>
+        </div>
+      ))
+    }
+  </div>
+  <figcaption>
+    <span class="caption">{caption ?? `Layer pattern of ${rows.map((r) => r.m.title).join(' and ')}, first layer on the left. Hover a cell for its layer.`}</span>
+    <span class="legend">
+      {
+        legend.map((l) => (
+          <span class={`key r-${l.role}`}>
+            <i />
+            {l.link ? (
+              <a href={noteUrl(l.link)} data-slug={l.link}>
+                {l.label}
+              </a>
+            ) : (
+              l.label
+            )}
+          </span>
+        ))
+      }
+    </span>
+  </figcaption>
+</figure>
+
+<style>
+  .lstrip {
+    margin: 2rem 0;
+  }
+  .scroll {
+    overflow-x: auto;
+    padding: 1rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .row {
+    display: grid;
+    gap: 0.35rem;
+    margin-bottom: 0.9rem;
+  }
+  .row:last-child {
+    margin-bottom: 0;
+  }
+  .name {
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .strip-link {
+    width: max-content;
+  }
+  .counts {
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+  }
+  figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.4rem 1.2rem;
+    margin-top: 0.5rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.9rem;
+  }
+  .key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .key i {
+    width: 0.8rem;
+    height: 0.8rem;
+    border: 1.5px solid;
+    border-radius: 2px;
+  }
+  .r-activation i { background: var(--role-activation); border-color: var(--role-activation); }
+  .r-weight i { background: var(--role-weight-wash); border-color: var(--role-weight); }
+  .r-cache i { background: var(--role-cache); border-color: var(--role-cache); }
+  .r-route i { background: var(--role-route-wash); border-color: var(--role-route); }
+  .r-op i { background: var(--role-op-wash); border-color: var(--role-op); }
+</style>

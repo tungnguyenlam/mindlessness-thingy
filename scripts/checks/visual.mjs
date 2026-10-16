@@ -1,6 +1,6 @@
 // Visual-first (PRINCIPLES.md#visual-first): show the idea before explaining it.
-const VISUAL = /<(ArchDiagram|Calc|Stepper|Figure)\b/;
-const VISUAL_OR_TABLE = /<(ArchDiagram|Calc|Stepper|Figure|Spec)\b/g;
+const VISUAL = /<(ArchDiagram|ModelDiagram|LayerStrip|Compare|Calc|Stepper|Figure)\b/;
+const VISUAL_OR_TABLE = /<(ArchDiagram|ModelDiagram|LayerStrip|Compare|Calc|Stepper|Figure|Spec|ModelSpec)\b/g;
 // Longest stretch of prose allowed between two visuals before we nudge.
 const MAX_WORDS = 650;
 
@@ -25,8 +25,8 @@ export default function visual({ notes }, { error, warn }) {
       );
     }
     if (d.kind === 'system') {
-      if (!/<Spec\b/.test(n.text)) warn('visual-first', n.file, 'system note has no <Spec> table', 'put the headline numbers in a <Spec> with a source on every row');
-      if (!/<ArchDiagram\b/.test(n.text)) warn('visual-first', n.file, 'system note has no <ArchDiagram> of the overall block');
+      if (!/<(Spec|ModelSpec)\b/.test(n.text)) warn('visual-first', n.file, 'system note has no numbers table', 'add model data and <ModelSpec model="..." /> (docs/workflow.md)');
+      if (!/<(ArchDiagram|ModelDiagram)\b/.test(n.text)) warn('visual-first', n.file, 'system note has no diagram of the overall block', 'use <ModelDiagram model="..." /> (generated from model data) or an <ArchDiagram>');
     }
     // Walls of text: find the longest prose run between visuals.
     let last = 0;

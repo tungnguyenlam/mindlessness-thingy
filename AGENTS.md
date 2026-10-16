@@ -111,10 +111,12 @@ Available in every note without imports. Full props are in each file under `src/
 
 | Component | Use it for |
 | --- | --- |
-| `<ArchDiagram>` | Block diagrams on a grid: data flow through a layer, what is cached. Blocks can link to notes. |
+| `<ArchDiagram>` | Hand-drawn block diagrams for concepts: data flow, what is cached. Leave out `col`/`row` and blocks are placed from the edges; edges route around blocks; groups take `blocks: [ids]`. Blocks can link to notes. |
 | `<Calc>` | Sliders plus formulas, e.g. cache size as context length grows. |
 | `<Stepper>` + `<Step>` | Walking through an algorithm one step at a time. |
 | `<ModelSpec>` | A model's numbers from `src/content/models/<model>.yaml`, grouped, sourced, with derived rows (KV cache per token, active share). `diff` shows only what changed from the model it `extends`. System notes use this, never a retyped `<Spec>`. |
+| `<ModelDiagram>` | A model's layer block generated from its data: one column per mixer kind with the cache it keeps, the FFN kinds, residuals, counts from the layer pattern. Use it instead of hand-drawing a system's block. |
+| `<LayerStrip>` | Where each layer type sits, one column per layer (`model=` or `models={[...]}` stacked). Essential for hybrids and dense-then-MoE stacks. |
 | `<Compare>` | Models side by side from their data files; the first is the baseline and differing cells are marked. `fields={[...]}` picks rows, `onlyDiff` hides equal rows. The `/compare/` page does the same for any models. |
 | `<Spec>` | Tables of numbers that aren't model fields (benchmarks, training compute). Every row needs a `source`. |
 | `<Cite>` | Inline citation of a source, with an optional location. |

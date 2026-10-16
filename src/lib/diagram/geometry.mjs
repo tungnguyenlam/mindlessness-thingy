@@ -129,7 +129,16 @@ export function layout({ blocks, edges = [], groups = [] }) {
 
   const routes = routeEdges(edges.filter((e) => boxes.has(e.from) && boxes.has(e.to)), boxes);
 
+  // A group either names its blocks (works with automatic placement) or gives grid corners.
   const groupBoxes = groups.map((g) => {
+    if (Array.isArray(g.blocks) && g.blocks.length) {
+      const bs = g.blocks.map((id) => boxes.get(id)).filter(Boolean);
+      const x = Math.min(...bs.map((b) => b.x)) - 12;
+      const y = Math.min(...bs.map((b) => b.y)) - 12;
+      const x2 = Math.max(...bs.map((b) => b.x + b.w)) + 12;
+      const y2 = Math.max(...bs.map((b) => b.y + b.h)) + 12;
+      return { ...g, x, y, w: x2 - x, h: y2 - y };
+    }
     const x = PAD + g.from[0] * (CW + GX) - 12;
     const y = PAD + g.from[1] * (CH + GY) - 12;
     const x2 = PAD + g.to[0] * (CW + GX) + CW + 12;
@@ -367,6 +376,10 @@ export function lintDiagram(props) {
       const hit = collinearOverlap(a.pts, b.pts);
       if (hit) err('edges-collinear', `${where}: edges ${a.edge.from} → ${a.edge.to} and ${b.edge.from} → ${b.edge.to} are drawn on top of each other`, 'route one on the other side (side: "left" | "right") or move a block so the paths separate');
     }
+  }
+  for (const g of groups) {
+    for (const id of g.blocks ?? []) if (!ids.has(id)) err('unknown-group-block', `${where}: group "${g.label}" names unknown block "${id}"`, 'fix the id');
+    if (!g.blocks && !(g.from && g.to)) err('bad-group', `${where}: group "${g.label}" needs blocks: [...] or from/to`, 'prefer blocks: ["first-id", "last-id", ...]; the group covers all named blocks');
   }
   for (const g of L.groupBoxes) {
     for (const b of boxes) {

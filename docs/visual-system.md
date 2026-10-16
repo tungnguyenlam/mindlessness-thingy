@@ -85,7 +85,7 @@ Concepts (MLA, KV cache, flow matching) need custom pictures, so `<ArchDiagram>`
    - more columns than fit the reading column (about 4 at 150 px);
    - a digit in `label` or `sub` (numbers belong in model data or a `<Spec>`; allow-list shapes like `n × d_c`);
    - a block `role` outside the five roles, or `link` to a stub when a written note exists under another slug.
-2. **Auto-layout (phase 3).** `col`/`row` become optional. Without them, the component lays out the graph at build time with ELK (`elkjs`, layered algorithm, orthogonal edges), sizing boxes to their measured labels. Build-time layout keeps the page identical on every load (`keep-place` point 5) and costs the reader nothing. Hand coordinates remain as an override.
+2. **Auto-layout (phase 3, done).** `col`/`row` are optional. Without them, blocks are placed at build time on the same grid: rows by longest path from the inputs, columns by the mean column of their parents, siblings spread around them. Edges try several orthogonal routes and keep one that crosses no block. Columns widen to fit measured labels. Build-time layout keeps the page identical on every load (`keep-place` point 5) and costs the reader nothing. Hand coordinates remain as an override.
 
 ### Visual vocabulary to add
 
@@ -141,7 +141,7 @@ Each phase ends with `pnpm run check` passing and existing notes migrated or exp
 | 0 | This doc, `docs/workflow.md`, `worklog.md`, `CLAUDE.md` symlink | done 2026-10-17 |
 | 1 | `diagram-geometry` lint in `check:graph` sharing the component's layout code; obstacle-avoiding edge router, residual lanes, auto column width; `scripts/baseline.json` ratchet; `shot --select` | done 2026-10-17 |
 | 2 | `models` collection, `src/lib/models/fields.mjs`, `<ModelSpec>` (+ `diff`), `<Compare>`, `/compare/`, layer pattern strips; DeepSeek V2/V3/V3.2 and LFM2.5 migrated | done 2026-10-17; Nemotron and StableHand wait for their uncommitted drafts |
-| 3 | ELK auto-layout, `<ModelDiagram>`, `<LayerStrip>` | system diagrams have no coordinates |
+| 3 | Automatic placement (longest-path rows, parent-mean columns; chosen over ELK to stay on the grid the lint checks and add no dependency), groups by block id, `<ModelDiagram>`, `<LayerStrip>` | done 2026-10-17 |
 | 4 | `scripts/test-visual.mjs` in `pnpm run check` | runs on every note with a visual, 1280 and 390 px |
 | 5 | Structure rules, new system template, migrate notes | warnings promoted to errors |
 | 6 | Claude Code hooks: wire `scripts/agent-hooks/*` through `.claude/settings.json` (today they're only in `.agents/hooks.json`, a different harness format) | session-start, guardrail and stop hooks fire in Claude Code |

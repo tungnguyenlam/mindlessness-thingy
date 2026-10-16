@@ -16,36 +16,12 @@ LFM2.5-1.2B-Instruct is the general-purpose chat checkpoint in the 1.2B LFM2.5 f
 
 ## The block
 
-<ArchDiagram
-  title="An LFM2.5-1.2B-Instruct layer"
+<ModelDiagram
+  model="lfm2-5-1-2b-instruct"
   caption="Same 16-layer conv/attention split as the 350M. Hidden size 2048, 32 query heads sharing 8 key/value heads, SwiGLU width 12288."
-  blocks={[
-    { id: 'in', label: 'Hidden state', sub: '2048', role: 'activation', col: 1, row: 0 },
-    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
-    { id: 'conv', label: 'Gated short conv', sub: '× 10 · k = 3', role: 'op', col: 0, row: 2, link: 'gated-short-conv' },
-    { id: 'attn', label: 'GQA', sub: '× 6 · 32 Q / 8 KV', role: 'op', col: 2, row: 2, link: 'gqa' },
-    { id: 'cwin', label: 'Conv window', sub: 'fixed', role: 'cache', col: 0, row: 3 },
-    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
-    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 4 },
-    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 5 },
-    { id: 'ffn', label: 'SwiGLU', sub: '12288', role: 'weight', col: 1, row: 6 },
-    { id: 'add2', label: 'Add', role: 'op', col: 1, row: 7 },
-  ]}
-  edges={[
-    { from: 'in', to: 'n1' },
-    { from: 'n1', to: 'conv' },
-    { from: 'n1', to: 'attn' },
-    { from: 'conv', to: 'cwin', dashed: true },
-    { from: 'attn', to: 'kv', dashed: true },
-    { from: 'conv', to: 'add1' },
-    { from: 'attn', to: 'add1' },
-    { from: 'in', to: 'add1', side: 'left' },
-    { from: 'add1', to: 'n2' },
-    { from: 'n2', to: 'ffn' },
-    { from: 'ffn', to: 'add2' },
-    { from: 'add1', to: 'add2', side: 'left' },
-  ]}
 />
+
+<LayerStrip model="lfm2-5-1-2b-instruct" />
 
 <ModelSpec model="lfm2-5-1-2b-instruct" />
 

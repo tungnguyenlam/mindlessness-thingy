@@ -20,17 +20,17 @@ Each of the 61 layers is a standard pre-norm [[transformer-block]]: attention, t
 
 <ArchDiagram
   title="A DeepSeek-V3 layer"
-  caption="Each token goes through attention, then one shared expert plus 8 of 256 routed experts chosen by the router. Click a block to open its note."
+  caption="Each token goes through attention, then one shared expert plus the top k of N_r routed experts chosen by the router; the values are in the table below. Click a block to open its note."
   blocks={[
-    { id: 'in', label: 'Hidden state', sub: '7168', role: 'activation', col: 1, row: 0 },
-    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
-    { id: 'att', label: 'Multi-head latent attn', sub: '128 heads', role: 'op', col: 1, row: 2, link: 'mla' },
-    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 3 },
-    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 4 },
-    { id: 'shared', label: 'Shared expert', sub: 'every token', role: 'weight', col: 0, row: 5, link: 'deepseek-moe' },
-    { id: 'router', label: 'Router', sub: 'sigmoid + bias', role: 'route', col: 2, row: 5, link: 'aux-loss-free-balancing' },
-    { id: 'routed', label: 'Routed experts', sub: '8 of 256', role: 'weight', col: 2, row: 6, link: 'deepseek-moe' },
-    { id: 'sum', label: 'Weighted sum + Add', role: 'op', col: 1, row: 7 },
+    { id: 'in', label: 'Hidden state', sub: 'width d', role: 'activation' },
+    { id: 'n1', label: 'RMSNorm', role: 'op' },
+    { id: 'att', label: 'Multi-head latent attn', sub: 'n_h heads', role: 'op', link: 'mla' },
+    { id: 'add1', label: 'Add', role: 'op' },
+    { id: 'n2', label: 'RMSNorm', role: 'op' },
+    { id: 'shared', label: 'Shared expert', sub: 'every token', role: 'weight', link: 'deepseek-moe' },
+    { id: 'router', label: 'Router', sub: 'sigmoid + bias', role: 'route', link: 'aux-loss-free-balancing' },
+    { id: 'routed', label: 'Routed experts', sub: 'top-k of N_r', role: 'weight', link: 'deepseek-moe' },
+    { id: 'sum', label: 'Weighted sum + Add', role: 'op' },
   ]}
   edges={[
     { from: 'in', to: 'n1' },
@@ -40,13 +40,15 @@ Each of the 61 layers is a standard pre-norm [[transformer-block]]: attention, t
     { from: 'add1', to: 'n2' },
     { from: 'n2', to: 'shared' },
     { from: 'n2', to: 'router' },
-    { from: 'router', to: 'routed', label: 'top-8 gates' },
+    { from: 'router', to: 'routed', label: 'top-k gates' },
     { from: 'shared', to: 'sum' },
     { from: 'routed', to: 'sum' },
     { from: 'add1', to: 'sum', side: 'left' },
   ]}
-  groups={[{ label: '61 layers; the first 3 use a dense FFN', from: [0, 1], to: [2, 7] }]}
+  groups={[{ label: 'L layers; the first few use a dense FFN', blocks: ['n1', 'shared', 'routed', 'sum'] }]}
 />
+
+<LayerStrip model="deepseek-v3" />
 
 <ModelSpec model="deepseek-v3" />
 
