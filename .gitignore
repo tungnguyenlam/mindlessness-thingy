@@ -1,6 +1,29 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
 .astro/
+
+# Agent scratch space
 .scratch/
 .agents/.state/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~
