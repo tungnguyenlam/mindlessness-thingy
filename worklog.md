@@ -41,3 +41,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: claude.mjs adapts Claude Code hook payloads and transcripts to the existing agent hooks (session start, guardrail after edits, git safety, stop gate); pre-commit also checks the index in a clean temp checkout, which reproduces the earlier CI no-dangling failure locally
 - files: .claude/settings.json scripts/agent-hooks/claude.mjs scripts/check-commit.mjs .githooks/pre-commit
 - open: hooks take effect in new Claude Code sessions (or after /hooks reload)
+
+## 2026-10-17 · feat(viz): add MaskGrid, ShapeFlow and Timeline
+- did: MaskGrid (restorable; MHA causal vs full, conv window vs attention), ShapeFlow (MLA squeeze/cache/expand), Timeline (models on a path with what each adds, sourced stats, layer strips); props lint; all roadmap phases done
+- files: src/components/viz/{MaskGrid,ShapeFlow,Timeline}.astro scripts/checks/viz-props.mjs
+- open: content backlog: Nemotron/StableHand model data after their drafts land, DeepSeek-V4/V4.1 data, baselined notes in scripts/baseline.json; dsa stub would suit a topk MaskGrid

@@ -23,10 +23,12 @@ steps:
   - deepseek-v4
   - deepseek-v4-1-flash
 status: draft
-updated: 2026-10-16
+updated: 2026-10-17
 ---
 
 DeepSeek's models are easiest to understand as a chain of fixes. Two pressures drive almost every step: the [[kv-cache]] limits how long and how many conversations a model can serve, and dense feed-forward layers make every extra parameter cost compute on every token.
+
+<Timeline path="deepseek-lineage" />
 
 The first half of the path follows attention. [[mha]] sets the baseline, [[mqa]] and [[gqa]] shrink its cache by sharing heads, and [[mla]] shrinks it further by caching a compressed latent instead.
 

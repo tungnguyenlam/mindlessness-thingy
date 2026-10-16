@@ -1,0 +1,165 @@
+---
+// Tensor shapes along a computation, one chip per step, the dimension that changed from the
+// previous step highlighted. Answers "what shape is it at each step, and where does it shrink?"
+// Use symbols (d, d_c, n_h), not numbers: values belong in <Spec>/<ModelSpec>.
+//   <ShapeFlow title="..." steps={[
+//     { label: 'Hidden state h_t', shape: ['d'], role: 'activation' },
+//     { label: 'Latent c_t', shape: ['d_c'], role: 'cache', op: 'W^DKV', link: 'kv-cache' },
+//   ]} />
+import { getEntry } from 'astro:content';
+import { noteUrl } from '../../lib/url';
+
+type Role = 'activation' | 'weight' | 'cache' | 'route' | 'op';
+interface Step {
+  label: string;
+  shape: string[];
+  role?: Role;
+  /** The operation that produced this step, shown on the arrow into it. */
+  op?: string;
+  link?: string;
+  note?: string;
+}
+interface Props {
+  title: string;
+  steps: Step[];
+  caption?: string;
+}
+const { title, steps, caption } = Astro.props;
+if (!steps?.length || steps.length > 8) throw new Error(`<ShapeFlow title="${title}">: needs 1 to 8 steps`);
+for (const s of steps) {
+  if (s.link && !(await getEntry('notes', s.link))) throw new Error(`<ShapeFlow title="${title}">: step "${s.label}" links to unknown note "${s.link}"`);
+}
+const view = steps.map((s, i) => {
+  const prev = steps[i - 1]?.shape ?? [];
+  return { ...s, dims: s.shape.map((d, k) => ({ d, changed: i > 0 && prev[k] !== d })) };
+});
+---
+
+<figure class="shapeflow ui">
+  <p class="title">{title}</p>
+  <ol>
+    {
+      view.map((s) => (
+        <li>
+          {s.op && <span class="op">{s.op}</span>}
+          <div class:list={['step', `role-${s.role ?? 'activation'}`]}>
+            <span class="label">{s.link ? <a href={noteUrl(s.link)} data-slug={s.link}>{s.label}</a> : s.label}</span>
+            <span class="shape" aria-label={`shape ${s.shape.join(' by ')}`}>
+              {s.dims.map((x, k) => (
+                <>
+                  {k > 0 && <span class="x">×</span>}
+                  <span class:list={['dim', { changed: x.changed }]}>{x.d}</span>
+                </>
+              ))}
+            </span>
+            {s.note && <span class="note">{s.note}</span>}
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .shapeflow {
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .title {
+    margin: 0 0 0.8rem;
+    font-weight: 600;
+  }
+  ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.5rem 0;
+  }
+  li {
+    display: flex;
+    align-items: center;
+  }
+  .op {
+    position: relative;
+    padding: 0 0.9rem 0.9rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  .op::after {
+    content: '';
+    position: absolute;
+    left: 0.4rem;
+    right: 0.4rem;
+    bottom: 0.45rem;
+    border-bottom: 1.3px solid var(--ink-soft);
+  }
+  .op::before {
+    content: '';
+    position: absolute;
+    right: 0.35rem;
+    bottom: calc(0.45rem - 3px);
+    border: 4px solid transparent;
+    border-left: 6px solid var(--ink-soft);
+    border-right: 0;
+  }
+  li:not(:first-child):not(:has(.op))::before {
+    content: '→';
+    padding: 0 0.6rem;
+    color: var(--ink-soft);
+  }
+  .step {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.5rem 0.7rem;
+    border: 1.5px solid;
+    border-radius: var(--radius-block);
+    min-width: 7rem;
+  }
+  .label {
+    font-size: var(--step--1);
+    font-weight: 500;
+  }
+  .label a {
+    color: inherit;
+  }
+  .shape {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+  }
+  .dim.changed {
+    color: var(--ink);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+  .x {
+    margin: 0 0.25rem;
+    color: var(--ink-faint);
+  }
+  .note {
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+  }
+  .role-activation { background: var(--role-activation-wash); border-color: var(--role-activation); }
+  .role-weight { background: var(--role-weight-wash); border-color: var(--role-weight); }
+  .role-cache { background: var(--role-cache-wash); border-color: var(--role-cache); border-width: 2.2px; }
+  .role-route { background: var(--role-route-wash); border-color: var(--role-route); }
+  .role-op { background: var(--paper-raised); border-color: var(--role-op); }
+  figcaption {
+    margin-top: 0.7rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+</style>

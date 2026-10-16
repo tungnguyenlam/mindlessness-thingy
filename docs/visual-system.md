@@ -1,6 +1,6 @@
 # Visual system: design and roadmap
 
-Status: **proposal**. Nothing below "Phase 1" exists yet unless the phase is marked done. Agents: don't use a component from this file until it appears in the catalog in `AGENTS.md#components`.
+Status: **implemented** (all phases done 2026-10-17; see the roadmap table for what each shipped and what is still baselined). The component catalog in `AGENTS.md#components` is the reference for authors; this file explains why the system is built this way.
 
 The goal: a reader understands a note by looking at it, diagrams never have layout bugs, and any two models can be compared side by side. The way to get there is to **move work from the author to the system**. An agent should write facts and prose; layout, colours, numbers in pictures and comparisons should be derived and checked automatically.
 
@@ -77,7 +77,7 @@ pattern: "D3 E58"                 # layer pattern: 3 dense, 58 MoE (hybrids: "M 
 
 Concepts (MLA, KV cache, flow matching) need custom pictures, so `<ArchDiagram>` stays. It gets safer in two steps:
 
-1. **Lint (phase 1).** A pure function `src/lib/diagram/lint.ts` checks a diagram's props. It runs inside the component at build time and inside `check:graph` (props are object literals; parse the MDX with `@mdx-js/mdx` and evaluate the literal), so the per-turn guardrail hook catches mistakes in under a second. New rule id: `diagram-geometry`.
+1. **Lint (phase 1, done).** `src/lib/diagram/geometry.mjs` holds both the layout the component renders with and `lintDiagram()`. `scripts/checks/diagram.mjs` reads props straight out of the MDX (they are literals; `scripts/lib/mdx-props.mjs` evaluates them without compiling), so the per-turn guardrail hook catches mistakes in under a second. Rule id: `diagram-geometry`. Label widths use glyph metrics measured from the real fonts (`src/lib/diagram/metrics.mjs`).
    - two blocks in overlapping cells;
    - an edge segment passing through a block it doesn't connect;
    - two edges sharing a segment (e.g. two `side: 'left'` edges over the same rows);
@@ -145,6 +145,6 @@ Each phase ends with `pnpm run check` passing and existing notes migrated or exp
 | 4 | `scripts/test-visual.mjs` (rule `render-clean`) in `pnpm run check`, with `--selftest` | done 2026-10-17: every page at 1280 and 390 px, about 40 s |
 | 5 | Structure rules (errors for new work, existing violations in `scripts/baseline.json`), model-card system template, MHA migrated | done 2026-10-17; baseline lists the remaining notes to migrate |
 | 6 | Claude Code hooks through `.claude/settings.json` + `scripts/agent-hooks/claude.mjs` adapter; pre-commit checks the commit tree in a clean checkout | done 2026-10-17 |
-| 7 | `<ShapeFlow>`, `<MaskGrid>`, `<Timeline>` | each in the catalog with a lint |
+| 7 | `<ShapeFlow>` (MLA), `<MaskGrid>` (MHA, hybrid conv-attention), `<Timeline>` (both lineage paths), props lint in `scripts/checks/viz-props.mjs` | done 2026-10-17 |
 
-Phase 1 is the best first step: it catches the existing bugs now, with no content migration.
+What's left is content, not machinery: model data for Nemotron and StableHand once their drafts are committed, DeepSeek-V4/V4.1 data, and migrating the notes listed in `scripts/baseline.json`.

@@ -1,6 +1,6 @@
 # Workflow
 
-How work moves through this repo, for the owner and for agents. Rules live in `AGENTS.md`, reasons in `PRINCIPLES.md`, the plan for visuals in `docs/visual-system.md`. Items marked *(planned)* don't exist yet.
+How work moves through this repo, for the owner and for agents. Rules live in `AGENTS.md`, reasons in `PRINCIPLES.md`, the plan for visuals in `docs/visual-system.md`.
 
 ## Who does what
 

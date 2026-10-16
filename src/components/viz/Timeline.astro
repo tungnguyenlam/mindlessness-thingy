@@ -1,0 +1,166 @@
+---
+// The models along a learning path, in path order, with what each one added: the concept notes
+// that sit between it and the previous model on the path. Models with data show their layer
+// pattern and headline numbers (sourced, hover for the source). Answers "what changed at each step
+// of this lineage?" without retyping anything.
+//   <Timeline path="deepseek-lineage" />
+import { getEntry } from 'astro:content';
+import { modelData } from '../../lib/models/load';
+import { formatValue, FIELD } from '../../lib/models/fields.mjs';
+import { DERIVED, formatDerived } from '../../lib/models/data.mjs';
+import { noteUrl } from '../../lib/url';
+import PatternStrip from '../models/PatternStrip.astro';
+
+interface Props {
+  path: string;
+  caption?: string;
+}
+const { path, caption } = Astro.props;
+const p = await getEntry('notes', path);
+if (!p || p.data.kind !== 'path') throw new Error(`<Timeline path="${path}">: no path note with that slug`);
+const d = await modelData();
+const byNote = new Map([...d.models.values()].map((m) => [m.note, m]));
+
+const items: { slug: string; title: string; status: string; added: { slug: string; title: string; status: string }[]; model?: any }[] = [];
+let pending: { slug: string; title: string; status: string }[] = [];
+for (const s of p.data.steps) {
+  const n = d.notes.get(s);
+  if (!n) continue;
+  if (n.kind === 'system') {
+    items.push({ slug: s, title: n.title, status: n.status, added: pending, model: byNote.get(s) });
+    pending = [];
+  } else pending.push({ slug: s, title: n.title, status: n.status });
+}
+const stat = (m: any, key: string) => {
+  const v = m.values[key];
+  if (v) return { text: formatValue(FIELD[key], v), src: `${d.sources.get(v.source)?.short ?? v.source}, ${v.where}` };
+  const dv = m.derived[key];
+  if (dv) return { text: formatDerived(DERIVED.find((x) => x.key === key)!, dv.v), src: `derived: ${dv.formula}` };
+  return null;
+};
+const STATS = [
+  ['params_total', 'total'],
+  ['params_active', 'active'],
+  ['kv_bytes_per_token', 'KV / token'],
+] as const;
+---
+
+<figure class="timeline ui">
+  <ol>
+    {
+      items.map((it) => (
+        <li class:list={{ stub: it.status === 'stub' }}>
+          {it.added.length > 0 && (
+            <p class="added">
+              adds{' '}
+              {it.added.map((a, i) => (
+                <>
+                  {i > 0 && ', '}
+                  <a href={noteUrl(a.slug)} data-slug={a.slug} class:list={{ stub: a.status === 'stub' }}>
+                    {a.title}
+                  </a>
+                </>
+              ))}
+            </p>
+          )}
+          <div class="model">
+            <span class="dot" aria-hidden="true" />
+            <a class="name" href={noteUrl(it.slug)} data-slug={it.slug}>
+              {it.title}
+            </a>
+            {it.model ? (
+              <span class="stats">
+                {STATS.map(([k, label]) => {
+                  const s = stat(it.model, k);
+                  return s && (
+                    <span class="stat" title={s.src}>
+                      <b>{s.text}</b> {label}
+                    </span>
+                  );
+                })}
+              </span>
+            ) : (
+              <span class="nodata">no model data yet</span>
+            )}
+            {it.model?.values.layer_pattern && (
+              <span class="strip">
+                <PatternStrip pattern={it.model.values.layer_pattern.v} mini />
+              </span>
+            )}
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+  <figcaption>
+    {caption ?? `The models on this path, in reading order, and the ideas each one adds. Numbers come from model data (hover for the source).`}{' '}
+    <a href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/compare/?m=${items.filter((i) => i.model).map((i) => i.model.id).join(',')}`}>Compare them side by side</a>
+  </figcaption>
+</figure>
+
+<style>
+  .timeline {
+    margin: 2rem 0;
+  }
+  ol {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 0.9rem;
+    border-left: 2px solid var(--rule);
+  }
+  li {
+    position: relative;
+    padding: 0.2rem 0 1.1rem 1.1rem;
+  }
+  .added {
+    margin: 0 0 0.35rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .added a.stub {
+    text-decoration-style: dashed;
+  }
+  .model {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.9rem;
+  }
+  .dot {
+    position: absolute;
+    left: calc(-0.9rem - 7px);
+    width: 12px;
+    height: 12px;
+    background: var(--paper-raised);
+    border: 2px solid var(--ink);
+    border-radius: 2px;
+  }
+  .stub .dot {
+    border-style: dashed;
+    border-color: var(--ink-faint);
+  }
+  .name {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.8rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .stat b {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .nodata {
+    font-size: 0.75rem;
+    color: var(--ink-faint);
+  }
+  figcaption {
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+</style>

@@ -9,7 +9,7 @@ contrasts_with: [hybrid-ssm-attention, mla]
 related: []
 sources: [lfm2-report, lfm2-5-350m-config, lfm2-5-350m-card, lfm2-5-2-6b-config]
 status: draft
-updated: 2026-10-16
+updated: 2026-10-17
 ---
 
 A full-attention stack pays for a [[kv-cache]] in every layer. Liquid's LFM2 search, run against on-device latency and peak memory, kept a simpler hybrid: most mixers are [[gated-short-conv]] blocks, plus a small number of [[gqa]] layers, and no extra state-space or linear-attention operator <Cite id="lfm2-report" where="§2.1" />. [[hybrid-ssm-attention]] answers the same cache problem by swapping in Mamba-2 instead of the convolution.
@@ -47,6 +47,16 @@ Each layer is a pre-norm residual block: a mixer, then a SwiGLU feed-forward. Th
     { from: 'ffn', to: 'add2' },
     { from: 'add1', to: 'add2', side: 'left' },
   ]}
+/>
+
+<MaskGrid
+  title="What one layer of each kind reads"
+  n={12}
+  masks={[
+    { label: 'Attention layer: every earlier token', kind: 'causal' },
+    { label: 'Conv layer: the last k tokens', kind: 'window', window: 3 },
+  ]}
+  caption="The conv layer's reach is fixed by its kernel (k = 3 in LFM2), so it only ever keeps the last few inputs. The attention layer reads every earlier token, which is why only those layers grow a KV cache."
 />
 
 The released dense LFM2 sizes put 6 attention blocks in the 16-layer models and 8 in the 30-layer 2.6B <Cite id="lfm2-report" where="Table 1" />. LFM2.5 keeps that split. The 350M and 1.2B configs both list 10 `conv` layers and 6 `full_attention` layers, interleaved rather than grouped at one end of the stack <Cite id="lfm2-5-350m-config" where="layer_types" />.

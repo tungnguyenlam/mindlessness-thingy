@@ -116,6 +116,9 @@ Available in every note without imports. Full props are in each file under `src/
 | --- | --- |
 | `<ArchDiagram>` | Hand-drawn block diagrams for concepts: data flow, what is cached. Leave out `col`/`row` and blocks are placed from the edges; edges route around blocks; groups take `blocks: [ids]`. Blocks can link to notes. |
 | `<Calc>` | Sliders plus formulas, e.g. cache size as context length grows. |
+| `<MaskGrid>` | Which keys each query may read (`causal`, `window`, `topk`, `full`), several masks compared with tabs; the reader picks a query row. |
+| `<ShapeFlow>` | Tensor shapes step by step, the dimension that changed highlighted. Symbols, not numbers. |
+| `<Timeline>` | In a path note: the models along the path, what each adds, their layer strips and headline numbers from model data. |
 | `<Stepper>` + `<Step>` | Walking through an algorithm one step at a time. |
 | `<ModelSpec>` | A model's numbers from `src/content/models/<model>.yaml`, grouped, sourced, with derived rows (KV cache per token, active share). `diff` shows only what changed from the model it `extends`. System notes use this, never a retyped `<Spec>`. |
 | `<ModelDiagram>` | A model's layer block generated from its data: one column per mixer kind with the cache it keeps, the FFN kinds, residuals, counts from the layer pattern. Use it instead of hand-drawing a system's block. |

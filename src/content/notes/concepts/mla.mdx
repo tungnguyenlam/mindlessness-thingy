@@ -9,12 +9,22 @@ contrasts_with: [mqa]
 related: []
 sources: [deepseek-v2-report, deepseek-v3-config]
 status: draft
-updated: 2026-10-16
+updated: 2026-10-17
 ---
 
 [[gqa]] shrinks the [[kv-cache]] by keeping fewer key/value heads. Multi-head latent attention (MLA), introduced in [[deepseek-v2]], takes a different route: keep all the heads, but don't store their keys and values at all. Store one compressed vector per token and rebuild the keys and values from it on the fly <Cite id="deepseek-v2-report" where="§2.1" />.
 
 ## Low-rank joint compression
+
+<ShapeFlow
+  title="Per token: squeeze, cache, expand"
+  steps={[
+    { label: 'Hidden state h_t', shape: ['d'], role: 'activation' },
+    { label: 'Latent c^KV_t', shape: ['d_c'], role: 'cache', op: 'W^DKV', link: 'kv-cache', note: 'the only part cached' },
+    { label: 'Keys k^C_t and values v^C_t', shape: ['n_h', 'd_h'], role: 'activation', op: 'W^UK, W^UV', note: 'each, rebuilt when needed' },
+  ]}
+  caption="The width that matters for memory is the cached one: d_c instead of 2·n_h·d_h per token per layer."
+/>
 
 For each token, a down-projection squeezes the hidden state into a small latent $c^{KV}_t$ of width $d_c$, much smaller than $n_h d_h$. Two up-projections recover per-head keys and values from it:
 

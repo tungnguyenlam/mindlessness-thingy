@@ -50,6 +50,16 @@ $$
 o_t = \sum_{j \le t} \operatorname{softmax}_j\!\left(\frac{q_t^\top k_j}{\sqrt{d_h}}\right) v_j
 $$
 
+<MaskGrid
+  title="Which earlier tokens a query reads"
+  n={10}
+  masks={[
+    { label: 'Decoder: causal', kind: 'causal' },
+    { label: 'Encoder: every token', kind: 'full' },
+  ]}
+  caption="A language model generates left to right, so token t may only read keys at positions up to t (the decoder mask). The original Transformer's encoder reads in both directions."
+/>
+
 Dividing by $\sqrt{d_h}$ keeps the dot products from growing with head size, which would otherwise push the softmax into a near one-hot regime with tiny gradients <Cite id="attention-is-all-you-need" where="§3.2.1" />.
 
 ## Many heads

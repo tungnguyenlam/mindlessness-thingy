@@ -24,10 +24,12 @@ steps:
   - lfm2-5-2-6b-base
   - lfm2-5-2-6b
 status: draft
-updated: 2026-10-16
+updated: 2026-10-17
 ---
 
 On-device models cannot afford a [[kv-cache]] in every layer. Liquid's LFM2 search kept local mixing as a [[gated-short-conv]] and left a few [[gqa]] layers as global anchors. That stack is [[hybrid-conv-attention]]. LFM2.5 is the same backbone with more pretraining and heavier post-training, not a new mixer.
+
+<Timeline path="lfm2-5-lineage" />
 
 Read the 350M first: it is the smallest model that still uses the 16-layer interleaving. [[lfm2-5-230m]] is distilled from it. [[lfm2-5-1-2b-instruct]] widens that 16-layer pattern; [[lfm2-5-1-2b-thinking]] keeps the widths and teaches the model to think. [[lfm2-5-2-6b-base]] is the 30-layer 128K-context pretrained checkpoint, and [[lfm2-5-2-6b]] is that checkpoint trained as an agent.
 
