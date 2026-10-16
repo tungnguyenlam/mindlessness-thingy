@@ -1,0 +1,117 @@
+---
+import { getGraph } from '../lib/graph';
+import { noteUrl } from '../lib/url';
+import StatusMark from './StatusMark.astro';
+
+interface Props {
+  current?: string;
+  filter?: boolean;
+}
+const { current, filter = true } = Astro.props;
+const g = await getGraph();
+const groups = [
+  { kind: 'path', label: 'Paths' },
+  { kind: 'system', label: 'Systems' },
+  { kind: 'concept', label: 'Concepts' },
+] as const;
+const byKind = (kind: string) =>
+  [...g.notes.values()].filter((n) => n.data.kind === kind).sort((a, b) => a.data.title.localeCompare(b.data.title));
+---
+
+<x-note-index class="note-index ui">
+  {
+    filter && (
+      <label class="filter">
+        <span class="visually-hidden">Filter notes</span>
+        <input type="search" placeholder="Filter notes" autocomplete="off" />
+      </label>
+    )
+  }
+  {
+    groups.map(({ kind, label }) => {
+      const list = byKind(kind);
+      return (
+        list.length > 0 && (
+          <section>
+            <h2>{label}</h2>
+            <ul>
+              {list.map((n) => (
+                <li data-title={`${n.data.title} ${n.id}`.toLowerCase()}>
+                  <a href={noteUrl(n.id)} aria-current={n.id === current ? 'page' : undefined} data-slug={n.id}>
+                    <StatusMark status={n.data.status} kind={n.data.kind} />
+                    <span>{n.data.title}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      );
+    })
+  }
+</x-note-index>
+
+<script>
+  class XNoteIndex extends HTMLElement {
+    connectedCallback() {
+      const input = this.querySelector('input');
+      const items = [...this.querySelectorAll<HTMLElement>('li')];
+      input?.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        for (const li of items) li.hidden = !!q && !li.dataset.title!.includes(q);
+        for (const s of this.querySelectorAll('section')) {
+          (s as HTMLElement).hidden = ![...s.querySelectorAll('li')].some((li) => !li.hidden);
+        }
+      });
+    }
+  }
+  customElements.define('x-note-index', XNoteIndex);
+</script>
+
+<style>
+  .note-index {
+    display: block;
+    font-size: var(--step--1);
+  }
+  .filter input {
+    width: 100%;
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 0.35rem 0.55rem;
+    margin-bottom: 0.6rem;
+  }
+  h2 {
+    font-size: var(--step--1);
+    font-weight: 600;
+    margin: 1rem 0 0.3rem;
+    color: var(--ink-soft);
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  a {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.18rem 0.4rem;
+    margin-left: -0.4rem;
+    border-radius: 3px;
+    text-decoration: none;
+    color: var(--ink-soft);
+    line-height: 1.35;
+  }
+  a:hover {
+    color: var(--ink);
+    background: var(--rule-soft);
+  }
+  a[aria-current='page'] {
+    color: var(--ink);
+    font-weight: 500;
+    background: var(--rule-soft);
+  }
+</style>

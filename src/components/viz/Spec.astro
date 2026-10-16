@@ -1,0 +1,96 @@
+---
+import { getEntry } from 'astro:content';
+
+interface Row {
+  label: string;
+  value: string | number;
+  /** Source id from src/content/sources/. Required: no unsourced numbers. */
+  source: string;
+  /** Where in the source, e.g. "§2.1", "Table 1", "config.json: kv_lora_rank". */
+  where?: string;
+}
+interface Props {
+  title: string;
+  rows: Row[];
+}
+
+const { title, rows } = Astro.props;
+const resolved = await Promise.all(
+  rows.map(async (r) => {
+    if (!r.source) throw new Error(`<Spec title="${title}">: row "${r.label}" has no source`);
+    const src = await getEntry('sources', r.source);
+    if (!src) throw new Error(`<Spec title="${title}">: row "${r.label}" cites unknown source "${r.source}"`);
+    return { ...r, src };
+  }),
+);
+---
+
+<figure class="spec ui">
+  <table>
+    <caption>{title}</caption>
+    <thead>
+      <tr><th scope="col">Field</th><th scope="col">Value</th><th scope="col">Source</th></tr>
+    </thead>
+    <tbody>
+      {
+        resolved.map((r) => (
+          <tr>
+            <th scope="row">{r.label}</th>
+            <td class="value">{r.value}</td>
+            <td class="src">
+              <a href={r.src.data.url} title={r.src.data.title} rel="noopener">
+                {r.src.data.short}
+              </a>
+              {r.where && <span class="where">{r.where}</span>}
+            </td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</figure>
+
+<style>
+  .spec {
+    margin: 2rem 0;
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--step--1);
+  }
+  caption {
+    text-align: left;
+    font-weight: 600;
+    font-size: var(--step-0);
+    padding-bottom: 0.5rem;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 0.4rem 0.8rem 0.4rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: baseline;
+  }
+  thead th {
+    font-weight: 500;
+    color: var(--ink-soft);
+    border-bottom-color: var(--rule);
+  }
+  tbody th {
+    font-weight: 500;
+  }
+  .value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .src {
+    color: var(--ink-soft);
+  }
+  .where {
+    margin-left: 0.4rem;
+    color: var(--ink-faint);
+  }
+</style>

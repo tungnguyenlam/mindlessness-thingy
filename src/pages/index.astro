@@ -1,0 +1,178 @@
+---
+import Base from '../layouts/Base.astro';
+import GlobalGraph from '../components/GlobalGraph.astro';
+import NoteIndex from '../components/NoteIndex.astro';
+import StatusMark from '../components/StatusMark.astro';
+import { getGraph } from '../lib/graph';
+import { noteUrl } from '../lib/url';
+
+const g = await getGraph();
+const all = [...g.notes.values()];
+const paths = all.filter((n) => n.data.kind === 'path');
+const written = all.filter((n) => n.data.status !== 'stub').length;
+const recent = all
+  .filter((n) => n.data.status !== 'stub')
+  .sort((a, b) => b.data.updated.valueOf() - a.data.updated.valueOf())
+  .slice(0, 6);
+---
+
+<Base wide>
+  <div class="home">
+    <section class="map" aria-labelledby="map-title">
+      <h1 id="map-title" class="ui">How the pieces of modern models connect</h1>
+      <p class="lede">
+        Every circle is one idea, every square is a model built from them. Foundations sit at the top, and arrows run
+        down to whatever builds on them. {written} of {all.length} notes are written; the dashed ones are still
+        placeholders.
+      </p>
+      <GlobalGraph />
+    </section>
+
+    <div class="below">
+      <section class="paths" aria-labelledby="paths-title">
+        <h2 id="paths-title" class="ui">Start with a path</h2>
+        <ul class="path-list">
+          {
+            paths.map((p) => {
+              const steps = p.data.steps.map((s) => g.notes.get(s)!);
+              const done = steps.filter((s) => s.data.status !== 'stub').length;
+              return (
+                <li>
+                  <a href={noteUrl(p.id)} data-slug={p.id} class="path-title ui">
+                    {p.data.title}
+                  </a>
+                  <p>{p.data.summary}</p>
+                  <ol class="track ui" aria-label={`${done} of ${steps.length} steps written`}>
+                    {steps.map((s) => (
+                      <li>
+                        <a href={noteUrl(s.id)} data-slug={s.id} title={s.data.title}>
+                          <StatusMark status={s.data.status} kind={s.data.kind} size={12} />
+                        </a>
+                      </li>
+                    ))}
+                  </ol>
+                </li>
+              );
+            })
+          }
+        </ul>
+
+        <h2 class="ui">Recently updated</h2>
+        <ul class="recent ui">
+          {
+            recent.map((n) => (
+              <li>
+                <a href={noteUrl(n.id)} data-slug={n.id}>
+                  <StatusMark status={n.data.status} kind={n.data.kind} />
+                  {n.data.title}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
+      <section class="index" aria-label="All notes">
+        <NoteIndex />
+      </section>
+    </div>
+  </div>
+</Base>
+
+<style>
+  .home {
+    max-width: 92rem;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: var(--step-3);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    margin: 0.5rem 0 0.4rem;
+  }
+  .lede {
+    max-width: var(--measure);
+    color: var(--ink-soft);
+    margin: 0 0 1.2rem;
+  }
+  .below {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 18rem;
+    gap: clamp(1.5rem, 4vw, 4rem);
+    margin-top: 2.5rem;
+  }
+  h2 {
+    font-size: var(--step-1);
+    font-weight: 600;
+    margin: 0 0 0.8rem;
+  }
+  h2:not(:first-child) {
+    margin-top: 2.5rem;
+  }
+  .path-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-width: var(--measure);
+  }
+  .path-list > li {
+    padding: 1rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .path-title {
+    font-weight: 600;
+    font-size: var(--step-1);
+    text-decoration: none;
+  }
+  .path-title:hover {
+    text-decoration: underline;
+  }
+  .paths p {
+    margin: 0.2rem 0 0.6rem;
+    color: var(--ink-soft);
+  }
+  .track {
+    display: flex;
+    align-items: center;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .track li {
+    display: flex;
+    align-items: center;
+  }
+  .track li + li::before {
+    content: '';
+    width: 1.1rem;
+    height: 1px;
+    background: var(--ink-faint);
+  }
+  .track a {
+    display: flex;
+    padding: 0.2rem;
+  }
+  .recent {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: var(--step--1);
+    columns: 2 14rem;
+  }
+  .recent a {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    padding: 0.15rem 0;
+    text-decoration: none;
+  }
+  .recent a:hover {
+    text-decoration: underline;
+  }
+  @media (max-width: 820px) {
+    .below {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

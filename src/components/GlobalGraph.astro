@@ -1,0 +1,388 @@
+---
+import { url } from '../lib/url';
+---
+
+<x-graph class="global-graph ui" data-src={url('/graph.json')} data-base={url('')}>
+  <svg role="img" aria-label="Map of every note and how they link"></svg>
+  <div class="legend" aria-hidden="true">
+    <span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.2" /></svg>Concept</span>
+    <span><svg viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" /></svg>System</span>
+    <span><svg viewBox="0 0 12 12"><circle class="filled" cx="6" cy="6" r="4.2" /></svg>Verified</span>
+    <span><svg viewBox="0 0 12 12"><circle class="stub" cx="6" cy="6" r="4.2" /></svg>Stub</span>
+    <span><svg viewBox="0 0 24 12"><path class="line" d="M1 6 H23" /></svg>Read first</span>
+    <span><svg viewBox="0 0 24 12"><path class="line weak" d="M1 6 H23" /></svg>Mentions</span>
+  </div>
+  <p class="hint">Drag to move, scroll to zoom, click a node to open it.</p>
+</x-graph>
+
+<script>
+  import {
+    forceSimulation,
+    forceLink,
+    forceManyBody,
+    forceCollide,
+    forceX,
+    forceY,
+    type SimulationNodeDatum,
+  } from 'd3-force';
+
+  interface N extends SimulationNodeDatum {
+    slug: string;
+    title: string;
+    kind: string;
+    status: string;
+  }
+  interface E {
+    source: N | string;
+    target: N | string;
+    type: string;
+  }
+
+  const SVG = 'http://www.w3.org/2000/svg';
+  const el = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}) => {
+    const e = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    return e;
+  };
+  const strong = new Set(['prerequisite', 'builds_on', 'step']);
+
+  class XGraph extends HTMLElement {
+    async connectedCallback() {
+      const svg = this.querySelector('svg')!;
+      const base = this.dataset.base!;
+      const data = (await (await fetch(this.dataset.src!)).json()) as { nodes: N[]; edges: { from: string; to: string; type: string }[] };
+      // Paths link to every step and would turn the map into a hub; they're listed below the map instead.
+      const nodes = data.nodes.filter((n) => n.kind !== 'path');
+      const keep = new Set(nodes.map((n) => n.slug));
+      const edges = data.edges.filter((e) => keep.has(e.from) && keep.has(e.to));
+      const w = () => svg.clientWidth || 800;
+      const h = () => svg.clientHeight || 520;
+
+      // Depth in the read-first graph: foundations at 0, each note one below its deepest prerequisite.
+      const prereqs = new Map<string, string[]>(nodes.map((n) => [n.slug, []]));
+      for (const e of edges) if (e.type === 'prerequisite' || e.type === 'builds_on') prereqs.get(e.from)!.push(e.to);
+      const depth = new Map<string, number>();
+      const depthOf = (s: string, seen = new Set<string>()): number => {
+        if (depth.has(s)) return depth.get(s)!;
+        if (seen.has(s)) return 0;
+        seen.add(s);
+        const d = Math.max(-1, ...prereqs.get(s)!.map((p) => depthOf(p, seen))) + 1;
+        depth.set(s, d);
+        return d;
+      };
+      nodes.forEach((n) => depthOf(n.slug));
+      const ROW = 78;
+      const MAX_H = Math.max(480, window.innerHeight * 0.85);
+
+      // Draw prerequisite edges in learning direction: from the thing you read first.
+      const links: E[] = edges.map((e) =>
+        e.type === 'prerequisite' || e.type === 'builds_on'
+          ? { source: e.to, target: e.from, type: e.type }
+          : { source: e.from, target: e.to, type: e.type },
+      );
+      const degree = new Map<string, number>();
+      for (const e of edges) for (const s of [e.from, e.to]) degree.set(s, (degree.get(s) ?? 0) + 1);
+
+      const defs = el('defs');
+      const marker = el('marker', { id: 'g-arrow', viewBox: '0 0 8 8', refX: 15, refY: 4, markerWidth: 6, markerHeight: 6, orient: 'auto' });
+      marker.append(el('path', { d: 'M0,0.8 L7,4 L0,7.2', class: 'arrow' }));
+      defs.append(marker);
+      const world = el('g');
+      const linkLayer = el('g', { class: 'links' });
+      const nodeLayer = el('g', { class: 'nodes' });
+      world.append(linkLayer, nodeLayer);
+      svg.append(defs, world);
+
+      const lineEls = links.map((l) => {
+        const line = el('line', { class: strong.has(l.type) ? 'line' : 'line weak' });
+        if (strong.has(l.type)) line.setAttribute('marker-end', 'url(#g-arrow)');
+        linkLayer.append(line);
+        return line;
+      });
+
+      const radius = (n: N) => 4.5 + Math.min(5, Math.sqrt(degree.get(n.slug) ?? 0) * 1.4);
+      const nodeEls = nodes.map((n) => {
+        const a = el('a', { href: `${base}/notes/${n.slug}/`, 'data-slug': n.slug, class: `node status-${n.status}` });
+        const r = radius(n);
+        const shape =
+          n.kind === 'system'
+            ? el('rect', { x: -r, y: -r, width: r * 2, height: r * 2 })
+            : n.kind === 'path'
+              ? el('path', { d: `M0 ${-r * 1.3} L${r * 1.3} 0 L0 ${r * 1.3} L${-r * 1.3} 0 Z` })
+              : el('circle', { r });
+        const label = el('text', { x: r + 4, y: 3.5 });
+        label.textContent = n.title;
+        a.append(shape, label);
+        nodeLayer.append(a);
+        return a;
+      });
+
+      nodes.forEach((n, i) => {
+        n.y = depth.get(n.slug)! * ROW;
+        n.x = (i % 7) * 60;
+      });
+      const sim = forceSimulation<N>(nodes)
+        .force('link', forceLink<N, any>(links).id((d) => d.slug).distance((l) => (strong.has(l.type) ? 70 : 120)).strength((l) => (strong.has(l.type) ? 0.3 : 0.03)))
+        .force('charge', forceManyBody().strength(-420))
+        .force('collide', forceCollide<N>().radius((d) => radius(d) + 22))
+        .force('x', forceX(0).strength(0.015))
+        .force('y', forceY<N>((d) => depth.get(d.slug)! * ROW).strength(0.9));
+
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        sim.stop();
+        sim.tick(300);
+      }
+
+      const draw = () => {
+        links.forEach((l, i) => {
+          const s = l.source as N;
+          const t = l.target as N;
+          lineEls[i].setAttribute('x1', String(s.x));
+          lineEls[i].setAttribute('y1', String(s.y));
+          lineEls[i].setAttribute('x2', String(t.x));
+          lineEls[i].setAttribute('y2', String(t.y));
+        });
+        nodes.forEach((n, i) => nodeEls[i].setAttribute('transform', `translate(${n.x},${n.y})`));
+        if (!userMoved) fit();
+      };
+
+      // Keep the whole map in view until the reader pans or zooms.
+      let userMoved = false;
+      const fit = () => {
+        const xs = nodes.map((n) => n.x!);
+        const ys = nodes.map((n) => n.y!);
+        const labelRoom = 130;
+        const x0 = Math.min(...xs) - 20;
+        const x1 = Math.max(...xs) + labelRoom;
+        const y0 = Math.min(...ys) - 20;
+        const y1 = Math.max(...ys) + 20;
+        const legendRoom = 40;
+        // Grow the canvas with the graph so labels stay readable, up to a cap.
+        const wantK = Math.min(1.25, w() / (x1 - x0));
+        const height = Math.max(380, Math.min(MAX_H, (y1 - y0) * wantK + legendRoom + 24));
+        if (Math.abs(height - svg.clientHeight) > 2) svg.style.height = `${height}px`;
+        k = Math.min(wantK, (h() - legendRoom) / (y1 - y0));
+        tx = (w() - (x1 - x0) * k) / 2 - x0 * k;
+        ty = (h() - legendRoom - (y1 - y0) * k) / 2 - y0 * k;
+        apply();
+      };
+      sim.on('tick', draw);
+
+      // Hover: fade everything that isn't a direct neighbour.
+      const adj = new Map<string, Set<string>>(nodes.map((n) => [n.slug, new Set([n.slug])]));
+      for (const l of links) {
+        const s = (l.source as N).slug;
+        const t = (l.target as N).slug;
+        adj.get(s)!.add(t);
+        adj.get(t)!.add(s);
+      }
+      const focus = (slug: string | null) => {
+        svg.classList.toggle('focusing', !!slug);
+        const near = slug ? adj.get(slug)! : null;
+        nodes.forEach((n, i) => nodeEls[i].classList.toggle('near', !!near?.has(n.slug)));
+        links.forEach((l, i) =>
+          lineEls[i].classList.toggle('near', !!slug && ((l.source as N).slug === slug || (l.target as N).slug === slug)),
+        );
+      };
+      nodeEls.forEach((a, i) => {
+        a.addEventListener('mouseenter', () => focus(nodes[i].slug));
+        a.addEventListener('focus', () => focus(nodes[i].slug));
+        a.addEventListener('mouseleave', () => focus(null));
+        a.addEventListener('blur', () => focus(null));
+      });
+
+      // Pan, zoom and node dragging.
+      let k = 1;
+      let tx = 0;
+      let ty = 0;
+      const apply = () => world.setAttribute('transform', `translate(${tx},${ty}) scale(${k})`);
+      draw();
+      svg.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          userMoved = true;
+          const r = svg.getBoundingClientRect();
+          const mx = e.clientX - r.left;
+          const my = e.clientY - r.top;
+          const nk = Math.min(4, Math.max(0.3, k * Math.exp(-e.deltaY * 0.0015)));
+          tx = mx - ((mx - tx) * nk) / k;
+          ty = my - ((my - ty) * nk) / k;
+          k = nk;
+          apply();
+        },
+        { passive: false },
+      );
+
+      let drag: { node?: N; x: number; y: number; moved: boolean } | null = null;
+      const toWorld = (e: PointerEvent) => {
+        const r = svg.getBoundingClientRect();
+        return [(e.clientX - r.left - tx) / k, (e.clientY - r.top - ty) / k];
+      };
+      svg.addEventListener('pointerdown', (e) => {
+        const a = (e.target as Element).closest('a.node');
+        const node = a ? nodes[nodeEls.indexOf(a as SVGAElement)] : undefined;
+        drag = { node, x: e.clientX, y: e.clientY, moved: false };
+      });
+      svg.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const dx = e.clientX - drag.x;
+        const dy = e.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+        // Capture only once it's a real drag, so a plain click still reaches the link.
+        if (!drag.moved) svg.setPointerCapture(e.pointerId);
+        drag.moved = true;
+        if (drag.node) {
+          const [x, y] = toWorld(e);
+          drag.node.fx = x;
+          drag.node.fy = y;
+          sim.alphaTarget(0.2).restart();
+        } else {
+          userMoved = true;
+          tx += dx;
+          ty += dy;
+          drag.x = e.clientX;
+          drag.y = e.clientY;
+          apply();
+        }
+      });
+      const end = () => {
+        if (drag?.node) {
+          drag.node.fx = null;
+          drag.node.fy = null;
+          sim.alphaTarget(0);
+        }
+        setTimeout(() => (drag = null));
+      };
+      svg.addEventListener('pointerup', end);
+      svg.addEventListener('pointercancel', end);
+      svg.addEventListener('click', (e) => {
+        if (drag?.moved) e.preventDefault();
+      }, true);
+    }
+  }
+  customElements.define('x-graph', XGraph);
+</script>
+
+<style>
+  .global-graph {
+    display: block;
+    position: relative;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-panel);
+    background: var(--paper-raised);
+    overflow: hidden;
+  }
+  .global-graph > svg {
+    display: block;
+    width: 100%;
+    height: clamp(380px, 62vh, 680px);
+    touch-action: none;
+    cursor: grab;
+  }
+  .global-graph > svg:active {
+    cursor: grabbing;
+  }
+  .global-graph :global(.line) {
+    stroke: var(--ink-soft);
+    stroke-width: 1;
+  }
+  .global-graph :global(.line.weak) {
+    stroke: var(--rule);
+    stroke-dasharray: 3 3;
+  }
+  .global-graph :global(.arrow) {
+    fill: none;
+    stroke: var(--ink-soft);
+    stroke-width: 1.2;
+  }
+  .global-graph :global(.node circle),
+  .global-graph :global(.node rect),
+  .global-graph :global(.node path) {
+    fill: var(--paper);
+    stroke: var(--ink);
+    stroke-width: 1.4;
+  }
+  .global-graph :global(.node.status-verified :is(circle, rect, path)) {
+    fill: var(--ink);
+  }
+  .global-graph :global(.node.status-reviewed :is(circle, rect, path)) {
+    fill: var(--rule);
+  }
+  .global-graph :global(.node.status-stub :is(circle, rect, path)) {
+    stroke: var(--ink-faint);
+    stroke-dasharray: 2 1.6;
+  }
+  .global-graph :global(.node text) {
+    font-size: 11px;
+    fill: var(--ink-soft);
+    paint-order: stroke;
+    stroke: var(--paper-raised);
+    stroke-width: 3px;
+    pointer-events: none;
+  }
+  .global-graph :global(.node.status-stub text) {
+    fill: var(--ink-faint);
+  }
+  .global-graph :global(svg.focusing .node:not(.near)),
+  .global-graph :global(svg.focusing .line:not(.near)) {
+    opacity: 0.18;
+  }
+  .global-graph :global(svg.focusing .node.near text) {
+    fill: var(--ink);
+  }
+  .legend {
+    position: absolute;
+    left: 0.8rem;
+    bottom: 0.7rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.9rem;
+    max-width: calc(100% - 1.6rem);
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    pointer-events: none;
+  }
+  .legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .legend svg {
+    height: 0.75rem;
+    width: auto;
+  }
+  .legend svg * {
+    fill: var(--paper);
+    stroke: var(--ink);
+    stroke-width: 1.3;
+  }
+  .legend svg .filled {
+    fill: var(--ink);
+  }
+  .legend svg .stub {
+    stroke: var(--ink-faint);
+    stroke-dasharray: 2 1.6;
+  }
+  .legend svg .line {
+    fill: none;
+    stroke: var(--ink-soft);
+  }
+  .legend svg .line.weak {
+    stroke: var(--ink-faint);
+    stroke-dasharray: 3 3;
+  }
+  .hint {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.8rem;
+    margin: 0;
+    font-size: var(--step--1);
+    color: var(--ink-faint);
+  }
+  @media (hover: none) {
+    .hint {
+      display: none;
+    }
+  }
+</style>

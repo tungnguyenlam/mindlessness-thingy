@@ -1,0 +1,293 @@
+---
+import { getEntry } from 'astro:content';
+import { noteUrl } from '../../lib/url';
+
+type Role = 'activation' | 'weight' | 'cache' | 'route' | 'op';
+
+interface Block {
+  id: string;
+  label: string;
+  /** Second line, usually a tensor shape like "n × d_c". */
+  sub?: string;
+  role?: Role;
+  col: number;
+  row: number;
+  /** Columns spanned, default 1. */
+  span?: number;
+  /** Slug of the note that explains this block. */
+  link?: string;
+}
+interface Edge {
+  from: string;
+  to: string;
+  label?: string;
+  dashed?: boolean;
+  /** Route around the left or right of the blocks, for residual connections. */
+  side?: 'left' | 'right';
+}
+interface Group {
+  label: string;
+  /** Top-left and bottom-right cells, inclusive, as [col, row]. */
+  from: [number, number];
+  to: [number, number];
+}
+interface Props {
+  title: string;
+  blocks: Block[];
+  edges?: Edge[];
+  groups?: Group[];
+  caption?: string;
+}
+
+const { title, blocks, edges = [], groups = [], caption } = Astro.props;
+
+const CW = 150; // cell width
+const CH = 50; // cell height
+const GX = 34; // gap between columns
+const GY = 40; // gap between rows
+const PAD = 28;
+
+const byId = new Map(blocks.map((b) => [b.id, b]));
+for (const b of blocks) {
+  if (b.link && !(await getEntry('notes', b.link))) throw new Error(`<ArchDiagram title="${title}">: block "${b.id}" links to unknown note "${b.link}"`);
+}
+for (const e of edges) {
+  for (const id of [e.from, e.to]) {
+    if (!byId.has(id)) throw new Error(`<ArchDiagram title="${title}">: edge refers to unknown block "${id}"`);
+  }
+}
+
+const cols = Math.max(...blocks.map((b) => b.col + (b.span ?? 1)));
+const rows = Math.max(...blocks.map((b) => b.row + 1));
+const width = PAD * 2 + cols * CW + (cols - 1) * GX;
+const height = PAD * 2 + rows * CH + (rows - 1) * GY;
+
+const box = (b: Block) => {
+  const span = b.span ?? 1;
+  const x = PAD + b.col * (CW + GX);
+  const y = PAD + b.row * (CH + GY);
+  const w = span * CW + (span - 1) * GX;
+  return { x, y, w, h: CH, cx: x + w / 2, cy: y + CH / 2 };
+};
+
+function route(e: Edge) {
+  const a = box(byId.get(e.from)!);
+  const b = box(byId.get(e.to)!);
+  if (e.side) {
+    const out = e.side === 'left' ? Math.min(a.x, b.x) - PAD * 0.6 : Math.max(a.x + a.w, b.x + b.w) + PAD * 0.6;
+    const ax = e.side === 'left' ? a.x : a.x + a.w;
+    const bx = e.side === 'left' ? b.x : b.x + b.w;
+    return { d: `M${ax},${a.cy} H${out} V${b.cy} H${bx}`, lx: out, ly: (a.cy + b.cy) / 2 };
+  }
+  if (a.y === b.y) {
+    const [x1, x2] = a.cx < b.cx ? [a.x + a.w, b.x] : [a.x, b.x + b.w];
+    return { d: `M${x1},${a.cy} H${x2}`, lx: (x1 + x2) / 2, ly: a.cy - 6 };
+  }
+  const down = b.y > a.y;
+  const y1 = down ? a.y + a.h : a.y;
+  const y2 = down ? b.y : b.y + b.h;
+  if (Math.abs(a.cx - b.cx) < 1) return { d: `M${a.cx},${y1} V${y2}`, lx: a.cx + 6, ly: (y1 + y2) / 2 };
+  const mid = down ? y2 - GY / 2 : y2 + GY / 2;
+  return { d: `M${a.cx},${y1} V${mid} H${b.cx} V${y2}`, lx: b.cx + 6, ly: (mid + y2) / 2 };
+}
+
+const groupBoxes = groups.map((g) => {
+  const x = PAD + g.from[0] * (CW + GX) - 12;
+  const y = PAD + g.from[1] * (CH + GY) - 12;
+  const x2 = PAD + g.to[0] * (CW + GX) + CW + 12;
+  const y2 = PAD + g.to[1] * (CH + GY) + CH + 12;
+  return { label: g.label, x, y, w: x2 - x, h: y2 - y };
+});
+
+const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+---
+
+<figure class="arch ui">
+  <div class="scroll">
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} role="img" aria-labelledby={`${markerId}-t`}>
+      <title id={`${markerId}-t`}>{title}</title>
+      <defs>
+        <marker id={markerId} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0.8 L7,4 L0,7.2" fill="none" stroke="currentColor" stroke-width="1.3"></path>
+        </marker>
+      </defs>
+      {
+        groupBoxes.map((g) => (
+          <g class="group">
+            <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="6" />
+            <text x={g.x + g.w - 8} y={g.y + g.h - 7} text-anchor="end">
+              {g.label}
+            </text>
+          </g>
+        ))
+      }
+      {
+        edges.map((e) => {
+          const r = route(e);
+          return (
+            <g class:list={['edge', { dashed: e.dashed }]}>
+              <path d={r.d} marker-end={`url(#${markerId})`} />
+              {e.label && (
+                <text x={r.lx} y={r.ly} dominant-baseline="middle">
+                  {e.label}
+                </text>
+              )}
+            </g>
+          );
+        })
+      }
+      {
+        blocks.map((b) => {
+          const r = box(b);
+          const inner = (
+            <g class:list={['block', `role-${b.role ?? 'op'}`]}>
+              <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="3" />
+              <text x={r.cx} y={b.sub ? r.cy - 7 : r.cy} class="label">
+                {b.label}
+              </text>
+              {b.sub && (
+                <text x={r.cx} y={r.cy + 10} class="sub">
+                  {b.sub}
+                </text>
+              )}
+            </g>
+          );
+          return b.link ? (
+            <a href={noteUrl(b.link)} data-slug={b.link} class="block-link">
+              {inner}
+            </a>
+          ) : (
+            inner
+          );
+        })
+      }
+    </svg>
+  </div>
+  <figcaption>
+    <span class="caption">{caption ?? title}</span>
+    <span class="legend" aria-hidden="true">
+      {
+        (['activation', 'weight', 'cache', 'route'] as const)
+          .filter((role) => blocks.some((b) => b.role === role))
+          .map((role) => (
+            <span class:list={['key', `role-${role}`]}>
+              <i />
+              {{ activation: 'activations', weight: 'weights', cache: 'cached', route: 'routing' }[role]}
+            </span>
+          ))
+      }
+    </span>
+  </figcaption>
+</figure>
+
+<style>
+  .arch {
+    margin: 2rem 0;
+    width: min(100%, calc(var(--measure) + 14rem));
+  }
+  .scroll {
+    overflow-x: auto;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+    /* Faint engineering grid behind the blocks */
+    background-image:
+      linear-gradient(var(--rule-soft) 1px, transparent 1px),
+      linear-gradient(90deg, var(--rule-soft) 1px, transparent 1px);
+    background-size: 23px 23px;
+    background-position: -1px -1px;
+  }
+  svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+    color: var(--ink-soft);
+    font-family: var(--font-ui);
+  }
+  .group rect {
+    fill: none;
+    stroke: var(--ink-faint);
+    stroke-dasharray: 4 3;
+  }
+  .group text {
+    font-size: 11px;
+    fill: var(--ink-soft);
+  }
+  .edge path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+  }
+  .edge.dashed path {
+    stroke-dasharray: 4 3;
+  }
+  .edge text {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    fill: var(--ink-soft);
+    paint-order: stroke;
+    stroke: var(--paper-raised);
+    stroke-width: 4px;
+  }
+  .block rect {
+    stroke-width: 1.5;
+  }
+  .block text {
+    text-anchor: middle;
+    dominant-baseline: middle;
+    fill: var(--ink);
+  }
+  .block .label {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .block .sub {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    fill: var(--ink-soft);
+  }
+  .role-activation rect { fill: var(--role-activation-wash); stroke: var(--role-activation); }
+  .role-weight rect { fill: var(--role-weight-wash); stroke: var(--role-weight); }
+  .role-cache rect { fill: var(--role-cache-wash); stroke: var(--role-cache); stroke-width: 2.2; }
+  .role-route rect { fill: var(--role-route-wash); stroke: var(--role-route); }
+  .role-op rect { fill: var(--paper-raised); stroke: var(--role-op); }
+  .block-link {
+    cursor: pointer;
+  }
+  .block-link:hover rect,
+  .block-link:focus-visible rect {
+    stroke-width: 2.6;
+  }
+  .block-link:hover .label {
+    text-decoration: underline;
+  }
+  figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.4rem 1.2rem;
+    margin-top: 0.5rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .legend {
+    display: flex;
+    gap: 0.9rem;
+  }
+  .key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .key i {
+    width: 0.8rem;
+    height: 0.8rem;
+    border: 1.5px solid;
+    border-radius: 2px;
+  }
+  .key.role-activation i { background: var(--role-activation-wash); border-color: var(--role-activation); }
+  .key.role-weight i { background: var(--role-weight-wash); border-color: var(--role-weight); }
+  .key.role-cache i { background: var(--role-cache-wash); border-color: var(--role-cache); }
+  .key.role-route i { background: var(--role-route-wash); border-color: var(--role-route); }
+</style>

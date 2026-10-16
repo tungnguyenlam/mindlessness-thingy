@@ -1,0 +1,7 @@
+title: DeepSeek-V3 config.json (Hugging Face)
+short: DeepSeek-V3 config
+authors: DeepSeek-AI
+year: 2024
+url: https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json
+type: config
+notes: The released model configuration. Field names like kv_lora_rank and n_routed_experts map to symbols in the report.

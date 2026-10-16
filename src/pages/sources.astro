@@ -1,0 +1,97 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import { getGraph } from '../lib/graph';
+import { noteUrl } from '../lib/url';
+
+const sources = (await getCollection('sources')).sort((a, b) => b.data.year - a.data.year || a.data.title.localeCompare(b.data.title));
+const g = await getGraph();
+const citedBy = (id: string) => [...g.notes.values()].filter((n) => n.data.sources.includes(id));
+const typeLabel = {
+  paper: 'Paper',
+  report: 'Technical report',
+  config: 'Model config',
+  'model-card': 'Model card',
+  blog: 'Blog post',
+  repo: 'Repository',
+  docs: 'Documentation',
+};
+---
+
+<Base title="Sources" description="Every paper, report and config the notes cite.">
+  <div class="sources-page">
+    <h1 class="ui">Sources</h1>
+    <p class="lede">
+      Every number in a spec table points to one of these. If a figure isn't traceable to a source here, it doesn't
+      belong in a note.
+    </p>
+    <ul>
+      {
+        sources.map((s) => {
+          const notes = citedBy(s.id);
+          return (
+            <li id={s.id}>
+              <a class="title" href={s.data.url} rel="noopener">
+                {s.data.title}
+              </a>
+              <p class="meta ui">
+                {typeLabel[s.data.type]}, {[s.data.authors, s.data.year].filter(Boolean).join(', ')}
+              </p>
+              {s.data.notes && <p class="notes">{s.data.notes}</p>}
+              {notes.length > 0 && (
+                <p class="cited ui">
+                  Cited by{' '}
+                  {notes.map((n, i) => (
+                    <>
+                      {i > 0 && ', '}
+                      <a href={noteUrl(n.id)} data-slug={n.id}>
+                        {n.data.title}
+                      </a>
+                    </>
+                  ))}
+                </p>
+              )}
+            </li>
+          );
+        })
+      }
+    </ul>
+  </div>
+</Base>
+
+<style>
+  .sources-page {
+    max-width: var(--measure);
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: var(--step-3);
+    font-weight: 600;
+    margin: 0.5rem 0 0.4rem;
+  }
+  .lede {
+    color: var(--ink-soft);
+  }
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 2rem 0;
+  }
+  li {
+    padding: 1rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .title {
+    font-weight: 600;
+  }
+  .meta,
+  .cited {
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    margin: 0.2rem 0 0;
+  }
+  .notes {
+    margin: 0.4rem 0 0;
+    font-size: var(--step--1);
+  }
+</style>

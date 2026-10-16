@@ -1,0 +1,113 @@
+---
+title: DeepSeek-V3
+kind: system
+summary: DeepSeek's late-2024 MoE model, 671B parameters with 37B active per token. It keeps V2's attention and changes how experts are balanced, adds multi-token prediction, and trains in FP8.
+domains: [llm, moe, attention]
+prerequisites: [aux-loss-free-balancing, mtp, fp8-training]
+builds_on: [deepseek-v2]
+contrasts_with: []
+related: []
+sources: [deepseek-v3-report, deepseek-v3-config]
+status: draft
+updated: 2026-10-16
+---
+
+DeepSeek-V3 is a scaled-up [[deepseek-v2]]. The attention design is the same [[mla]], and the feed-forward layers are still [[deepseek-moe]]. What changed is mostly about training a model this large cheaply and stably: how experts are kept evenly loaded, an extra training objective, and 8-bit arithmetic. This note covers those differences. For anything it reuses, follow the links.
+
+## One layer
+
+Each of the 61 layers is a standard pre-norm [[transformer-block]]: attention, then a feed-forward network, each with a residual connection. In all but the first three layers, the feed-forward network is a mixture of experts <Cite id="deepseek-v3-report" where="§4.2" />.
+
+<ArchDiagram
+  title="A DeepSeek-V3 layer"
+  caption="Each token goes through attention, then one shared expert plus 8 of 256 routed experts chosen by the router. Click a block to open its note."
+  blocks={[
+    { id: 'in', label: 'Hidden state', sub: '7168', role: 'activation', col: 1, row: 0 },
+    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
+    { id: 'att', label: 'Multi-head latent attn', sub: '128 heads', role: 'op', col: 1, row: 2, link: 'mla' },
+    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 3 },
+    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 4 },
+    { id: 'shared', label: 'Shared expert', sub: 'every token', role: 'weight', col: 0, row: 5, link: 'deepseek-moe' },
+    { id: 'router', label: 'Router', sub: 'sigmoid + bias', role: 'route', col: 2, row: 5, link: 'aux-loss-free-balancing' },
+    { id: 'routed', label: 'Routed experts', sub: '8 of 256', role: 'weight', col: 2, row: 6, link: 'deepseek-moe' },
+    { id: 'sum', label: 'Weighted sum + Add', role: 'op', col: 1, row: 7 },
+  ]}
+  edges={[
+    { from: 'in', to: 'n1' },
+    { from: 'n1', to: 'att' },
+    { from: 'att', to: 'add1' },
+    { from: 'in', to: 'add1', side: 'left' },
+    { from: 'add1', to: 'n2' },
+    { from: 'n2', to: 'shared' },
+    { from: 'n2', to: 'router' },
+    { from: 'router', to: 'routed', label: 'top-8 gates' },
+    { from: 'shared', to: 'sum' },
+    { from: 'routed', to: 'sum' },
+    { from: 'add1', to: 'sum', side: 'left' },
+  ]}
+  groups={[{ label: '61 layers; the first 3 use a dense FFN', from: [0, 1], to: [2, 7] }]}
+/>
+
+<Spec
+  title="DeepSeek-V3 at a glance"
+  rows={[
+    { label: 'Total parameters', value: '671B', source: 'deepseek-v3-report', where: 'Abstract' },
+    { label: 'Active per token', value: '37B', source: 'deepseek-v3-report', where: 'Abstract' },
+    { label: 'Layers', value: 61, source: 'deepseek-v3-config', where: 'num_hidden_layers' },
+    { label: 'Hidden size', value: 7168, source: 'deepseek-v3-config', where: 'hidden_size' },
+    { label: 'Attention heads', value: 128, source: 'deepseek-v3-config', where: 'num_attention_heads' },
+    { label: 'KV latent width d_c', value: 512, source: 'deepseek-v3-config', where: 'kv_lora_rank' },
+    { label: 'Shared experts', value: 1, source: 'deepseek-v3-config', where: 'n_shared_experts' },
+    { label: 'Routed experts', value: 256, source: 'deepseek-v3-config', where: 'n_routed_experts' },
+    { label: 'Routed experts per token', value: 8, source: 'deepseek-v3-config', where: 'num_experts_per_tok' },
+    { label: 'Expert hidden size', value: 2048, source: 'deepseek-v3-config', where: 'moe_intermediate_size' },
+    { label: 'Dense layers before MoE', value: 3, source: 'deepseek-v3-config', where: 'first_k_dense_replace' },
+    { label: 'Context length', value: '128K', source: 'deepseek-v3-report', where: '§4.3' },
+    { label: 'Training tokens', value: '14.8T', source: 'deepseek-v3-report', where: 'Abstract' },
+    { label: 'Total H800 GPU hours', value: '2.788M', source: 'deepseek-v3-report', where: 'Table 1' },
+  ]}
+/>
+
+<Callout type="pitfall">
+The config lists `max_position_embeddings: 163840`, but the supported context is 128K. The extra room is a margin from how the context was extended (YaRN), not a longer context.
+</Callout>
+
+## What changed from V2
+
+### Balancing experts without a balancing loss
+
+An MoE router left alone tends to send most tokens to a few favourite experts. V2 fought this with three auxiliary losses that penalise imbalance. Those losses also pull the model away from its real objective, so a strong balancing loss costs quality.
+
+V3 replaces them with [[aux-loss-free-balancing]]. Each expert gets a bias that is added to its routing score only when picking the top experts. After each training step, overloaded experts have their bias lowered and underloaded experts raised, by a fixed step $\gamma$. The bias never enters the gating weight itself, so it steers selection without distorting the output <Cite id="deepseek-v3-report" where="§2.1.2" />. A very small sequence-level balance loss remains as a safety net.
+
+Two smaller routing changes come with it. Affinity scores use a sigmoid, normalised over the selected experts, where V2 used a softmax. And each token's experts are limited to at most 4 nodes of the cluster, to cap cross-node communication <Cite id="deepseek-v3-report" where="§2.1.2" />.
+
+<Spec
+  title="Routing settings"
+  rows={[
+    { label: 'Scoring function', value: 'sigmoid', source: 'deepseek-v3-config', where: 'scoring_func' },
+    { label: 'Max nodes per token', value: 4, source: 'deepseek-v3-report', where: '§2.1.2' },
+    { label: 'Bias update step γ', value: '0.001, then 0', source: 'deepseek-v3-report', where: '§4.2' },
+    { label: 'Sequence-wise balance loss α', value: 0.0001, source: 'deepseek-v3-report', where: '§4.2' },
+  ]}
+/>
+
+$\gamma$ is 0.001 for the first 14.3T training tokens and 0 for the last 500B, so the routing settles at the end of training <Cite id="deepseek-v3-report" where="§4.2" />.
+
+### Predicting one more token
+
+V3 trains with [[mtp]]: alongside the normal next-token prediction, a small extra module predicts the token after that. It shares the embedding and output head with the main model and runs one extra transformer block. The extra loss is weighted 0.3 for the first 10T tokens and 0.1 afterwards <Cite id="deepseek-v3-report" where="§4.2" />.
+
+At inference the module can be dropped. Or it can draft the second token for speculative decoding: DeepSeek reports the draft is accepted 85–90% of the time, for about 1.8× more tokens per second <Cite id="deepseek-v3-report" where="§5.4.3" />.
+
+### Training in FP8
+
+Most large matrix multiplies run in 8-bit floating point, using the E4M3 format throughout. 8-bit numbers have little range, so a single outlier would wreck a tensor-wide scale. V3 scales small pieces separately instead: activations in 1×128 tiles and weights in 128×128 blocks, with partial sums periodically promoted to FP32 <Cite id="deepseek-v3-report" where="§3.3" />. Details belong in [[fp8-training]].
+
+### No token dropping
+
+V2 dropped tokens that overflowed an expert's capacity during training. Because balancing works well enough, V3 drops none, in training or inference <Cite id="deepseek-v3-report" where="§2.1.2" />.
+
+## What came next
+
+[[deepseek-v3-2]] kept this architecture and added [[dsa]], a learned sparse attention. [[deepseek-v4]] then changed the attention and MoE designs much more substantially.

@@ -1,0 +1,139 @@
+---
+import '../styles/global.css';
+import { url } from '../lib/url';
+
+interface Props {
+  title?: string;
+  description?: string;
+  wide?: boolean;
+}
+const { title, description = 'A visual notebook on how models are built.', wide = false } = Astro.props;
+const siteName = 'Mindlessness';
+const path = Astro.url.pathname;
+const nav = [
+  { href: url('/'), label: 'Map' },
+  { href: url('/sources/'), label: 'Sources' },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href={url('/favicon.svg')} />
+    <title>{title ? `${title} | ${siteName}` : siteName}</title>
+  </head>
+  <body data-base={url('')}>
+    <a class="skip ui" href="#main">Skip to content</a>
+    <header class="site-header ui">
+      <a class="wordmark" href={url('/')}>
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <circle cx="4" cy="4" r="2.6" />
+          <rect x="11.4" y="1.4" width="5.2" height="5.2" />
+          <path d="M9 10.6 L12.4 14 L9 17.4 L5.6 14 Z" />
+          <path class="edge" d="M5.8 5.8 L8 11.4 M11.4 5.4 L10 11.4" />
+        </svg>
+        {siteName}
+      </a>
+      <nav aria-label="Site">
+        {
+          nav.map((n) => (
+            <a href={n.href} aria-current={path === n.href ? 'page' : undefined}>
+              {n.label}
+            </a>
+          ))
+        }
+      </nav>
+    </header>
+    <main id="main" class:list={{ wide }}>
+      <slot />
+    </main>
+    <div id="preview-card" class="preview-card ui" role="tooltip" hidden></div>
+    <script>
+      import { initPreviews } from '../scripts/previews';
+      initPreviews();
+    </script>
+  </body>
+</html>
+
+<style>
+  .skip {
+    position: absolute;
+    left: -999px;
+    top: 0.5rem;
+    background: var(--ink);
+    color: var(--paper);
+    padding: 0.4rem 0.8rem;
+    z-index: 10;
+  }
+  .skip:focus {
+    left: 0.5rem;
+  }
+  .site-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.8rem clamp(1rem, 3vw, 2rem);
+    border-bottom: 1px solid var(--rule);
+    font-size: var(--step--1);
+  }
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-weight: 600;
+    font-size: var(--step-0);
+    text-decoration: none;
+    letter-spacing: 0.01em;
+  }
+  .wordmark svg * {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.4;
+  }
+  .wordmark svg .edge {
+    stroke: var(--ink-faint);
+    stroke-width: 1;
+  }
+  nav {
+    display: flex;
+    gap: 1.25rem;
+  }
+  nav a {
+    text-decoration: none;
+    color: var(--ink-soft);
+  }
+  nav a[aria-current='page'] {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  main {
+    padding: clamp(1rem, 3vw, 2rem);
+  }
+  .preview-card {
+    position: absolute;
+    z-index: 20;
+    max-width: 22rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-panel);
+    padding: 0.7rem 0.85rem;
+    font-size: var(--step--1);
+    line-height: 1.45;
+    box-shadow: 0 6px 18px -8px rgb(20 33 61 / 0.35);
+    pointer-events: none;
+  }
+  .preview-card :global(strong) {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.2rem;
+  }
+  .preview-card :global(.meta) {
+    display: block;
+    color: var(--ink-faint);
+    margin-top: 0.35rem;
+  }
+</style>

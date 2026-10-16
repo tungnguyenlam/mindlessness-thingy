@@ -1,0 +1,19 @@
+---
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+
+<section class="step">
+  <h4 class="ui">{title}</h4>
+  <slot />
+</section>
+
+<style>
+  h4 {
+    margin: 0.9rem 0 0.3rem;
+    font-size: var(--step-0);
+    font-weight: 600;
+  }
+</style>

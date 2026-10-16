@@ -1,0 +1,7 @@
+title: DeepSeek-V4.1-Flash config.json (Hugging Face)
+short: DeepSeek-V4.1-Flash config
+authors: DeepSeek-AI
+year: 2026
+url: https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/blob/main/config.json
+type: config
+notes: Model settings live under text_config. The report says MTP is omitted, yet num_nextn_predict_layers is 3; it appears to describe the three DSpark drafter blocks.

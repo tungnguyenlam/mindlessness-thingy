@@ -1,0 +1,22 @@
+---
+import { getEntry } from 'astro:content';
+
+interface Props {
+  id: string;
+  /** Where in the source, e.g. "§3.2" or "Figure 2". */
+  where?: string;
+}
+const { id, where } = Astro.props;
+const src = await getEntry('sources', id);
+if (!src) throw new Error(`<Cite id="${id}">: unknown source`);
+---
+
+<span class="cite ui">(<a href={src.data.url} title={src.data.title} rel="noopener">{src.data.short}</a>{where && `, ${where}`})</span>
+
+<style>
+  .cite {
+    font-size: 0.82em;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+</style>

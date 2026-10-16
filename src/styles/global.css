@@ -1,0 +1,139 @@
+@import '@fontsource-variable/literata';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import 'katex/dist/katex.min.css';
+
+:root {
+  /* Paper and ink */
+  --paper: #eef2f5;
+  --paper-raised: #f8fafb;
+  --ink: #14213d;
+  --ink-soft: #4a5670;
+  --ink-faint: #7d879b;
+  --rule: #c9d3dd;
+  --rule-soft: #dde4ea;
+
+  /* Tensor roles. Every diagram uses these with the same meaning. */
+  --role-activation: #2e5bdb;
+  --role-weight: #7b4fd6;
+  --role-cache: #0f8b8d;
+  --role-route: #c27c00;
+  --role-op: #8a94a6;
+
+  --role-activation-wash: #dfe7fb;
+  --role-weight-wash: #ebe3fa;
+  --role-cache-wash: #d7eeee;
+  --role-route-wash: #f6ead2;
+  --role-op-wash: #e6e9ee;
+
+  --warn: #b3412e;
+
+  --font-body: 'Literata Variable', Georgia, serif;
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Type scale: 1.2 ratio from a 17px body */
+  --step--1: 0.833rem;
+  --step-0: 1rem;
+  --step-1: 1.2rem;
+  --step-2: 1.44rem;
+  --step-3: 1.728rem;
+  --step-4: 2.488rem;
+
+  --measure: 68ch;
+  --radius-block: 3px;
+  --radius-panel: 6px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 106.25%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+  line-height: 1.65;
+  font-optical-sizing: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+:focus-visible {
+  outline: 2px solid var(--role-activation);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+:not(pre) > code {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-soft);
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+}
+
+pre {
+  background: var(--paper-raised) !important;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-panel);
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.ui {
+  font-family: var(--font-ui);
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Wikilinks: solid underline in ink; stubs get a dotted one so you can see the gap. */
+a.wikilink {
+  text-decoration-color: var(--ink-faint);
+}
+a.wikilink.is-stub {
+  text-decoration-style: dotted;
+  color: var(--ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

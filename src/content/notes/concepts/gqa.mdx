@@ -1,0 +1,55 @@
+---
+title: Grouped-query attention
+kind: concept
+summary: Query heads are split into groups and each group shares one key and value head, sitting between full multi-head and multi-query attention.
+domains: [llm, attention]
+prerequisites: [mha, kv-cache]
+builds_on: [mqa]
+contrasts_with: [mla]
+related: []
+sources: [gqa-paper]
+status: draft
+updated: 2026-10-16
+---
+
+[[mqa]] cuts the [[kv-cache]] as far as it can go by giving all query heads a single shared key and value. That works, but quality can drop and training can become less stable. Grouped-query attention (GQA) picks a point in between: split the $n_h$ query heads into $n_g$ groups, and give each group its own key and value head <Cite id="gqa-paper" where="§2.2" />.
+
+- $n_g = n_h$: every head has its own key and value. This is [[mha]].
+- $n_g = 1$: one shared key and value. This is [[mqa]].
+- Anything in between trades cache size against quality.
+
+The cache per token per layer becomes $2 \cdot n_g \cdot d_h$, a factor of $n_h / n_g$ smaller than MHA.
+
+<ArchDiagram
+  title="Eight query heads sharing two key/value heads"
+  caption="With n_h = 8 and n_g = 2, each key/value head serves four query heads, so the cache is four times smaller than full multi-head attention."
+  blocks={[
+    { id: 'q1', label: 'Query heads 1–4', role: 'activation', col: 0, row: 0 },
+    { id: 'q2', label: 'Query heads 5–8', role: 'activation', col: 2, row: 0 },
+    { id: 'kv1', label: 'Key/value head A', role: 'cache', col: 0, row: 1, link: 'kv-cache' },
+    { id: 'kv2', label: 'Key/value head B', role: 'cache', col: 2, row: 1, link: 'kv-cache' },
+    { id: 'a1', label: 'Attention', sub: '4 heads', role: 'op', col: 0, row: 2 },
+    { id: 'a2', label: 'Attention', sub: '4 heads', role: 'op', col: 2, row: 2 },
+    { id: 'o', label: 'Concat, then W^O', role: 'weight', col: 1, row: 3 },
+  ]}
+  edges={[
+    { from: 'q1', to: 'a1', side: 'left' },
+    { from: 'kv1', to: 'a1' },
+    { from: 'q2', to: 'a2', side: 'right' },
+    { from: 'kv2', to: 'a2' },
+    { from: 'a1', to: 'o' },
+    { from: 'a2', to: 'o' },
+  ]}
+/>
+
+## Converting an existing model
+
+The GQA paper also shows that an MHA checkpoint can be converted rather than retrained. Key and value heads within a group are mean-pooled into one head, then the model is trained a little longer so it adapts. The authors report that about 5% of the original pre-training compute is enough to recover most of the quality <Cite id="gqa-paper" where="§2.1" />.
+
+<Callout type="pitfall">
+GQA does not reduce compute much. Each query head still attends over the full context. What it reduces is memory and the bandwidth spent reading the cache, which is what limits decoding speed.
+</Callout>
+
+## Where it stops helping
+
+GQA can only shrink the cache by dropping heads. To go further without collapsing to a single shared head, you need to change what is stored, not just how much of it. That is the step [[mla]] takes.

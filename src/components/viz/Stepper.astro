@@ -1,0 +1,109 @@
+---
+// Walks through <Step> children one at a time. Without JavaScript every step is shown in order.
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+
+<x-stepper class="stepper">
+  <div class="head ui">
+    <p class="title">{title}</p>
+    <div class="controls" hidden>
+      <button type="button" data-dir="-1" aria-label="Previous step">Back</button>
+      <span class="count" aria-live="polite"></span>
+      <button type="button" data-dir="1" aria-label="Next step">Next</button>
+    </div>
+  </div>
+  <div class="steps">
+    <slot />
+  </div>
+</x-stepper>
+
+<script>
+  class XStepper extends HTMLElement {
+    i = 0;
+    connectedCallback() {
+      const steps = [...this.querySelectorAll<HTMLElement>(':scope > .steps > .step')];
+      if (steps.length < 2) return;
+      const controls = this.querySelector<HTMLElement>('.controls')!;
+      const count = this.querySelector('.count')!;
+      const [back, next] = controls.querySelectorAll('button');
+      const show = (i: number) => {
+        this.i = Math.max(0, Math.min(steps.length - 1, i));
+        steps.forEach((s, k) => (s.hidden = k !== this.i));
+        count.textContent = `Step ${this.i + 1} of ${steps.length}`;
+        back.disabled = this.i === 0;
+        next.disabled = this.i === steps.length - 1;
+      };
+      controls.hidden = false;
+      controls.addEventListener('click', (e) => {
+        const dir = (e.target as HTMLElement).closest('button')?.dataset.dir;
+        if (dir) show(this.i + Number(dir));
+      });
+      this.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight') show(this.i + 1);
+        if (e.key === 'ArrowLeft') show(this.i - 1);
+      });
+      show(0);
+    }
+  }
+  customElements.define('x-stepper', XStepper);
+</script>
+
+<style>
+  .stepper {
+    display: block;
+    margin: 2rem 0;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-panel);
+    background: var(--paper-raised);
+  }
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .title {
+    margin: 0;
+    font-weight: 600;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    font-size: var(--step--1);
+  }
+  .controls[hidden] {
+    display: none;
+  }
+  .count {
+    min-width: 6.5rem;
+    text-align: center;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  button {
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 0.25rem 0.75rem;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) {
+    border-color: var(--ink-soft);
+  }
+  button:disabled {
+    color: var(--ink-faint);
+    cursor: default;
+  }
+  .steps {
+    padding: 0.2rem 1.1rem 0.6rem;
+  }
+</style>

@@ -1,0 +1,87 @@
+---
+title: Multi-head attention
+kind: concept
+summary: Runs several attention operations side by side, each with its own query, key and value projections, so different heads can track different relationships.
+domains: [llm, attention]
+prerequisites: [transformer-block]
+builds_on: []
+contrasts_with: []
+related: [kv-cache]
+sources: [attention-is-all-you-need]
+status: draft
+updated: 2026-10-16
+---
+
+Attention lets every token look at every earlier token and pull in a weighted mix of their information. Multi-head attention (MHA) does this several times in parallel with different learned projections, then stitches the results together. It is the baseline that [[mqa]], [[gqa]] and [[mla]] all modify.
+
+## One head
+
+Each token's hidden vector $h_t \in \mathbb{R}^d$ is projected three ways: a query (what am I looking for?), a key (what do I contain?), and a value (what do I hand over if picked?).
+
+$$
+q_t = W^Q h_t, \quad k_t = W^K h_t, \quad v_t = W^V h_t
+$$
+
+The output for token $t$ is a softmax-weighted sum of values, where the weights come from how well its query matches every key up to and including position $t$:
+
+$$
+o_t = \sum_{j \le t} \operatorname{softmax}_j\!\left(\frac{q_t^\top k_j}{\sqrt{d_h}}\right) v_j
+$$
+
+Dividing by $\sqrt{d_h}$ keeps the dot products from growing with head size, which would otherwise push the softmax into a near one-hot regime with tiny gradients <Cite id="attention-is-all-you-need" where="§3.2.1" />.
+
+## Many heads
+
+With $n_h$ heads, each head gets its own $W^Q_i, W^K_i, W^V_i$ that project down to a smaller head dimension $d_h$, usually $d_h = d / n_h$. The heads run independently, their outputs are concatenated back to width $n_h d_h$, and a final projection $W^O$ mixes them.
+
+<ArchDiagram
+  title="Multi-head attention for one token"
+  caption="Keys and values are drawn in the cache colour because, during generation, they are stored and reused for every later token."
+  blocks={[
+    { id: 'h', label: 'Hidden state h_t', sub: 'd', role: 'activation', col: 1, row: 0 },
+    { id: 'wq', label: 'W^Q', sub: 'd → n_h·d_h', role: 'weight', col: 0, row: 1 },
+    { id: 'wk', label: 'W^K', sub: 'd → n_h·d_h', role: 'weight', col: 1, row: 1 },
+    { id: 'wv', label: 'W^V', sub: 'd → n_h·d_h', role: 'weight', col: 2, row: 1 },
+    { id: 'q', label: 'Queries', sub: 'n_h × d_h', role: 'activation', col: 0, row: 2 },
+    { id: 'k', label: 'Keys', sub: 'n_h × d_h', role: 'cache', col: 1, row: 2, link: 'kv-cache' },
+    { id: 'v', label: 'Values', sub: 'n_h × d_h', role: 'cache', col: 2, row: 2, link: 'kv-cache' },
+    { id: 'att', label: 'Scaled dot-product', sub: 'per head', role: 'op', col: 1, row: 3 },
+    { id: 'wo', label: 'Concat, then W^O', sub: 'n_h·d_h → d', role: 'weight', col: 1, row: 4 },
+    { id: 'o', label: 'Output', sub: 'd', role: 'activation', col: 1, row: 5 },
+  ]}
+  edges={[
+    { from: 'h', to: 'wq' },
+    { from: 'h', to: 'wk' },
+    { from: 'h', to: 'wv' },
+    { from: 'wq', to: 'q' },
+    { from: 'wk', to: 'k' },
+    { from: 'wv', to: 'v' },
+    { from: 'q', to: 'att' },
+    { from: 'k', to: 'att' },
+    { from: 'v', to: 'att' },
+    { from: 'att', to: 'wo' },
+    { from: 'wo', to: 'o' },
+  ]}
+  groups={[{ label: 'n_h heads in parallel', from: [0, 1], to: [2, 3] }]}
+/>
+
+<Callout type="intuition">
+One head might learn to attend to the previous token, another to the subject of the sentence, another to a matching bracket. Splitting the width into heads lets the layer keep several such patterns at once instead of averaging them into one blurry distribution.
+</Callout>
+
+## Why later variants exist
+
+The compute in MHA is fine on modern hardware. The problem shows up during generation: every key and value vector for every head, layer and past token has to stay in memory so the next token can attend to it. That store is the [[kv-cache]], and for MHA it grows with $2 \cdot n_h \cdot d_h$ numbers per token per layer.
+
+Every variant on the path from here to [[mla]] is an answer to the same question: how few numbers per token can we keep while attention still works as well?
+
+| Variant | What is stored per token per layer | Idea |
+| --- | --- | --- |
+| MHA | $2 n_h d_h$ | Every head keeps its own key and value |
+| [[mqa]] | $2 d_h$ | All heads share one key and one value |
+| [[gqa]] | $2 n_g d_h$ | Heads are split into $n_g$ groups that share |
+| [[mla]] | $d_c + d_h^R$ | Store one compressed latent and rebuild keys and values from it |
+
+<Callout type="pitfall">
+"Heads" means query heads unless stated otherwise. In GQA and MQA there are fewer key/value heads than query heads, and mixing up the two counts is the most common source of wrong KV cache numbers.
+</Callout>

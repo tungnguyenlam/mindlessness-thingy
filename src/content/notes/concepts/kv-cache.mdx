@@ -1,0 +1,61 @@
+---
+title: KV cache
+kind: concept
+summary: During generation, keys and values for past tokens are stored instead of recomputed. Its size, not compute, usually limits context length and batch size.
+domains: [llm, inference, attention]
+prerequisites: [mha]
+builds_on: []
+contrasts_with: []
+related: [mqa, gqa, mla]
+sources: [attention-is-all-you-need, mqa-paper]
+status: draft
+updated: 2026-10-16
+---
+
+A language model generates one token at a time. To produce token $t$, every attention layer needs the keys and values of tokens $1 \dots t-1$. Those don't change once computed, so instead of recomputing them at every step, the model keeps them in memory. That memory is the KV cache.
+
+## What it costs
+
+For [[mha]], each layer stores one key and one value vector per head per token. In elements:
+
+$$
+\text{KV cache} = 2 \times n_\text{layers} \times n_\text{kv heads} \times d_h \times \text{tokens} \times \text{batch}
+$$
+
+Multiply by bytes per element (2 for FP16/BF16) to get memory. Notice what's absent: the number of parameters. A model's weights are a fixed cost, but the cache grows linearly with both context length and the number of sequences served at once.
+
+<Calc
+  title="How big does the cache get?"
+  inputs={[
+    { id: 'layers', label: 'Layers', min: 1, max: 128, value: 32 },
+    { id: 'kvh', label: 'Key/value heads', min: 1, max: 128, value: 32 },
+    { id: 'dh', label: 'Head dimension', min: 32, max: 256, step: 32, value: 128 },
+    { id: 'ctx', label: 'Context length', min: 1024, max: 131072, step: 1024, value: 8192, unit: 'tokens' },
+    { id: 'batch', label: 'Sequences in batch', min: 1, max: 64, value: 1 },
+    { id: 'bytes', label: 'Bytes per element', min: 1, max: 4, value: 2 },
+  ]}
+  outputs={[
+    { label: 'Per token, all layers', expr: '2 * layers * kvh * dh * bytes', format: 'bytes', role: 'cache' },
+    { label: 'Whole cache', expr: '2 * layers * kvh * dh * bytes * ctx * batch', format: 'bytes', role: 'cache' },
+  ]}
+  note="The defaults are a generic 32-layer model with full multi-head attention. Try dropping key/value heads to 8 to see what grouped-query attention buys."
+/>
+
+At the default settings a single 8K-token sequence already needs a few gigabytes. Serve 32 of them and the cache dwarfs the weights.
+
+## Why it is a bandwidth problem too
+
+Generating each new token means reading the entire cache from GPU memory once per layer, while doing only a small amount of arithmetic with it. Shazeer observed that this memory traffic, not the arithmetic, dominates incremental decoding time <Cite id="mqa-paper" where="§2" />. Shrinking the cache therefore helps twice: more sequences fit, and each step finishes sooner.
+
+<Callout type="intuition">
+Think of the cache as the model's working memory of the conversation so far. Every design on the path from [[mha]] to [[mla]] trades a little modelling flexibility for a smaller working memory.
+</Callout>
+
+## Ways to shrink it
+
+- Store fewer key/value heads: [[mqa]] keeps one, [[gqa]] keeps a few groups.
+- Store a compressed version and expand it when needed: [[mla]].
+- Store fewer bits per number, for example 8-bit cache quantization.
+- Store fewer tokens, for example sliding-window or sparse attention.
+
+The first two change the architecture, so they have to be decided before training. The last two can often be applied to an existing model.

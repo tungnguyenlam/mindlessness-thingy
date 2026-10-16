@@ -1,0 +1,35 @@
+---
+interface Props {
+  type?: 'note' | 'intuition' | 'pitfall';
+  title?: string;
+}
+const { type = 'note', title } = Astro.props;
+const defaults = { note: 'Note', intuition: 'Intuition', pitfall: 'Common mistake' };
+---
+
+<aside class:list={['callout', type]}>
+  <p class="label ui">{title ?? defaults[type]}</p>
+  <slot />
+</aside>
+
+<style>
+  .callout {
+    margin: 1.6rem 0;
+    padding: 0.2rem 0 0.2rem 1rem;
+    border-left: 3px solid var(--ink-faint);
+  }
+  .intuition {
+    border-left-color: var(--role-activation);
+  }
+  .pitfall {
+    border-left-color: var(--warn);
+  }
+  .label {
+    margin: 0.3rem 0 0.1rem;
+    font-weight: 600;
+    font-size: var(--step--1);
+  }
+  .callout :global(p:last-child) {
+    margin-bottom: 0.3rem;
+  }
+</style>

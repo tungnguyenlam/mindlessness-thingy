@@ -1,0 +1,478 @@
+---
+import { getCollection, getEntries, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import NoteIndex from '../../components/NoteIndex.astro';
+import LocalGraph from '../../components/LocalGraph.astro';
+import StatusMark from '../../components/StatusMark.astro';
+import { vizComponents } from '../../components/viz';
+import { backlinks, getGraph, pathPositions, readFirst, type Note } from '../../lib/graph';
+import { noteUrl } from '../../lib/url';
+
+export async function getStaticPaths() {
+  const notes = await getCollection('notes');
+  return notes.map((note) => ({ params: { slug: note.id }, props: { note } }));
+}
+
+const { note } = Astro.props as { note: Note };
+const { Content } = await render(note);
+const g = await getGraph();
+const d = note.data;
+
+const first = readFirst(g, note.id);
+const direct = new Set([...d.prerequisites, ...d.builds_on]);
+const positions = pathPositions(g, note.id);
+const linkedFrom = backlinks(g, note.id).filter((b) => b.type !== 'step');
+const sources = await getEntries(d.sources.map((id) => ({ collection: 'sources' as const, id })));
+const steps = d.kind === 'path' ? d.steps.map((s) => g.notes.get(s)!) : [];
+const lookup = (ids: string[]) => ids.map((id) => g.notes.get(id)!).filter(Boolean);
+
+const kindLabel = { concept: 'Concept', system: 'System', path: 'Learning path' }[d.kind];
+const statusText = {
+  stub: 'stub. A placeholder so other notes can link to it.',
+  draft: 'draft. Written by an agent and not reviewed yet, so treat numbers with care.',
+  reviewed: 'reviewed. Read through, but specs are not yet checked against sources.',
+  verified: 'verified. Specs checked against the cited sources.',
+}[d.status];
+const updated = d.updated.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const linkTypeText: Record<string, string> = {
+  prerequisite: 'needs this',
+  builds_on: 'builds on this',
+  contrasts_with: 'contrasts',
+  related: 'related',
+  mentions: 'mentions',
+};
+---
+
+<Base title={d.title} description={d.summary}>
+  <div class="note-layout">
+    <aside class="left" aria-label="All notes">
+      <details class="index-toggle">
+        <summary class="ui">All notes</summary>
+        <NoteIndex current={note.id} />
+      </details>
+      <div class="index-static"><NoteIndex current={note.id} /></div>
+    </aside>
+
+    <article>
+      {
+        positions.map((p) => (
+          <nav class="path-nav ui" aria-label={`Position in ${p.path.data.title}`}>
+            <a href={noteUrl(p.path.id)}>{p.path.data.title}</a>
+            <span class="pos">
+              Step {p.index + 1} of {p.total}
+            </span>
+            <span class="pn">
+              {p.prev && (
+                <a href={noteUrl(p.prev.id)} data-slug={p.prev.id} rel="prev">
+                  Previous: {p.prev.data.title}
+                </a>
+              )}
+              {p.next && (
+                <a href={noteUrl(p.next.id)} data-slug={p.next.id} rel="next">
+                  Next: {p.next.data.title}
+                </a>
+              )}
+            </span>
+          </nav>
+        ))
+      }
+      <header class="note-head">
+        <h1>{d.title}</h1>
+        <p class="summary">{d.summary}</p>
+        <p class="status ui">
+          <span><StatusMark status={d.status} kind={d.kind} size={12} /> <strong>{kindLabel}</strong>, {statusText}</span>
+          <span class="updated">Updated {updated}</span>
+        </p>
+      </header>
+
+      <div class="prose">
+        <Content components={vizComponents} />
+      </div>
+
+      {
+        steps.length > 0 && (
+          <ol class="path-steps ui">
+            {steps.map((s, i) => (
+              <li>
+                <a href={noteUrl(s.id)} data-slug={s.id}>
+                  <span class="n">{i + 1}</span>
+                  <span class="t">
+                    <span class="title">
+                      <StatusMark status={s.data.status} kind={s.data.kind} />
+                      {s.data.title}
+                    </span>
+                    <span class="sum">{s.data.summary}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ol>
+        )
+      }
+
+      {
+        sources.length > 0 && (
+          <section class="sources ui">
+            <h2>Sources</h2>
+            <ul>
+              {sources.map((s) => (
+                <li>
+                  <a href={s.data.url} rel="noopener">
+                    {s.data.title}
+                  </a>
+                  <span class="meta">
+                    {[s.data.authors, s.data.year].filter(Boolean).join(', ')}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      }
+    </article>
+
+    <aside class="right ui" aria-label="Connections">
+      {
+        first.length > 0 && (
+          <section>
+            <h2>Read first</h2>
+            <ol class="read-first">
+              {first.map((n) => (
+                <li class:list={{ direct: direct.has(n.id) }}>
+                  <a href={noteUrl(n.id)} data-slug={n.id}>
+                    <StatusMark status={n.data.status} kind={n.data.kind} />
+                    {n.data.title}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )
+      }
+      {
+        (d.contrasts_with.length > 0 || d.related.length > 0) && (
+          <section>
+            <h2>See also</h2>
+            <ul>
+              {lookup(d.contrasts_with).map((n) => (
+                <li>
+                  <a href={noteUrl(n.id)} data-slug={n.id}>{n.data.title}</a> <span class="tag">contrast</span>
+                </li>
+              ))}
+              {lookup(d.related).map((n) => (
+                <li>
+                  <a href={noteUrl(n.id)} data-slug={n.id}>{n.data.title}</a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      }
+      {
+        linkedFrom.length > 0 && (
+          <section>
+            <h2>Linked from</h2>
+            <ul>
+              {linkedFrom.map((b) => (
+                <li>
+                  <a href={noteUrl(b.note.id)} data-slug={b.note.id}>{b.note.data.title}</a>{' '}
+                  <span class="tag">{linkTypeText[b.type]}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      }
+      {
+        d.kind !== 'path' && (
+          <section>
+            <h2>Neighbourhood</h2>
+            <LocalGraph slug={note.id} />
+          </section>
+        )
+      }
+    </aside>
+  </div>
+</Base>
+
+<style>
+  .note-layout {
+    display: grid;
+    grid-template-columns: 13rem minmax(0, 1fr) 17rem;
+    gap: clamp(1.5rem, 3vw, 3.5rem);
+    max-width: 92rem;
+    margin: 0 auto;
+  }
+  .left {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+  .index-toggle {
+    display: none;
+  }
+  article {
+    min-width: 0;
+    max-width: calc(var(--measure) + 14rem);
+  }
+  .note-head,
+  .prose > :global(:not(figure, x-calc, x-stepper, .arch, .spec)),
+  .path-steps,
+  .sources,
+  .path-nav {
+    max-width: var(--measure);
+  }
+  .path-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.8rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    padding-bottom: 0.6rem;
+    margin-bottom: 1.2rem;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .path-nav > a {
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .path-nav .pn {
+    display: flex;
+    gap: 1rem;
+    margin-left: auto;
+  }
+  .status strong {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  h1 {
+    font-family: var(--font-ui);
+    font-weight: 600;
+    font-size: var(--step-4);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0 0 0.6rem;
+    text-wrap: balance;
+  }
+  .summary {
+    font-size: var(--step-1);
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin: 0 0 0.9rem;
+  }
+  .status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    margin: 0 0 2rem;
+    padding-bottom: 1.2rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .updated {
+    margin-left: auto;
+    color: var(--ink-faint);
+  }
+
+  .prose :global(h2) {
+    font-family: var(--font-ui);
+    font-size: var(--step-2);
+    font-weight: 600;
+    line-height: 1.2;
+    margin: 2.6rem 0 0.6rem;
+  }
+  .prose :global(h3) {
+    font-family: var(--font-ui);
+    font-size: var(--step-1);
+    font-weight: 600;
+    margin: 2rem 0 0.4rem;
+  }
+  .prose :global(p),
+  .prose :global(li) {
+    hyphens: auto;
+  }
+  .prose :global(li + li) {
+    margin-top: 0.25rem;
+  }
+  .prose :global(table:not(.spec table)) {
+    border-collapse: collapse;
+    font-family: var(--font-ui);
+    font-size: var(--step--1);
+    margin: 1.5rem 0;
+    display: block;
+    overflow-x: auto;
+  }
+  .prose :global(table:not(.spec table) th),
+  .prose :global(table:not(.spec table) td) {
+    text-align: left;
+    padding: 0.4rem 1rem 0.4rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .prose :global(table:not(.spec table) th) {
+    font-weight: 500;
+    border-bottom-color: var(--rule);
+  }
+  .prose :global(.katex-display) {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.3rem 0;
+  }
+
+  .path-steps {
+    list-style: none;
+    padding: 0;
+    margin: 2rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .path-steps a {
+    display: grid;
+    grid-template-columns: 2.2rem 1fr;
+    gap: 0.6rem;
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+    text-decoration: none;
+  }
+  .path-steps a:hover .title {
+    text-decoration: underline;
+  }
+  .path-steps .n {
+    font-size: var(--step-2);
+    font-weight: 500;
+    color: var(--ink-faint);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .path-steps .title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    font-weight: 600;
+  }
+  .path-steps .sum {
+    display: block;
+    color: var(--ink-soft);
+    font-size: var(--step--1);
+    margin-top: 0.15rem;
+  }
+
+  .sources {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--rule);
+    font-size: var(--step--1);
+  }
+  .sources h2,
+  .right h2 {
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--ink-soft);
+    margin: 0 0 0.4rem;
+  }
+  .sources ul,
+  .right ul,
+  .right ol {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .sources li + li {
+    margin-top: 0.3rem;
+  }
+  .sources .meta {
+    color: var(--ink-faint);
+    margin-left: 0.4rem;
+  }
+
+  .right {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    font-size: var(--step--1);
+    line-height: 1.4;
+  }
+  .right section {
+    margin-bottom: 1.6rem;
+  }
+  .right li {
+    padding: 0.15rem 0;
+  }
+  .right a {
+    text-decoration: none;
+  }
+  .right a:hover {
+    text-decoration: underline;
+  }
+  .read-first {
+    counter-reset: rf;
+  }
+  .read-first li {
+    counter-increment: rf;
+    display: flex;
+    gap: 0.45rem;
+    color: var(--ink-soft);
+  }
+  .read-first li::before {
+    content: counter(rf);
+    min-width: 1rem;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .read-first a {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+  }
+  .read-first li.direct a {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .tag {
+    color: var(--ink-faint);
+  }
+
+  @media (max-width: 1180px) {
+    .note-layout {
+      grid-template-columns: minmax(0, 1fr) 16rem;
+    }
+    .left {
+      grid-column: 1 / -1;
+      position: static;
+      max-height: none;
+    }
+    .index-static {
+      display: none;
+    }
+    .index-toggle {
+      display: block;
+      border-bottom: 1px solid var(--rule-soft);
+      padding-bottom: 0.5rem;
+    }
+    .index-toggle summary {
+      cursor: pointer;
+      font-size: var(--step--1);
+      color: var(--ink-soft);
+    }
+  }
+  @media (max-width: 820px) {
+    .note-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .right {
+      position: static;
+      max-height: none;
+      border-top: 1px solid var(--rule);
+      padding-top: 1.2rem;
+    }
+    .path-nav .pn {
+      margin-left: 0;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+  }
+</style>

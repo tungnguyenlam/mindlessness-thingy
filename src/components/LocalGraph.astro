@@ -1,0 +1,108 @@
+---
+import { getGraph, neighbours } from '../lib/graph';
+import { noteUrl } from '../lib/url';
+
+interface Props {
+  slug: string;
+}
+const { slug } = Astro.props;
+const g = await getGraph();
+const center = g.notes.get(slug)!;
+const MAX = 12;
+const all = neighbours(g, slug);
+const shown = all.slice(0, MAX);
+
+const W = 280;
+const H = 240;
+const PADX = 50;
+const cx = W / 2;
+const cy = H / 2 - 4;
+const R = 72;
+const strong = new Set(['prerequisite', 'builds_on', 'step']);
+
+const nodes = shown.map((n, i) => {
+  const a = (i / shown.length) * Math.PI * 2 - Math.PI / 2;
+  const x = cx + Math.cos(a) * R;
+  const y = cy + Math.sin(a) * R;
+  return { ...n, x, y, anchor: Math.abs(Math.cos(a)) < 0.3 ? 'middle' : Math.cos(a) > 0 ? 'start' : 'end', a };
+});
+
+const shape = (kind: string, x: number, y: number, r: number) =>
+  kind === 'system'
+    ? `<rect x="${x - r}" y="${y - r}" width="${r * 2}" height="${r * 2}" />`
+    : kind === 'path'
+      ? `<path d="M${x} ${y - r * 1.25} L${x + r * 1.25} ${y} L${x} ${y + r * 1.25} L${x - r * 1.25} ${y} Z" />`
+      : `<circle cx="${x}" cy="${y}" r="${r}" />`;
+const short = (t: string) => (t.length > 20 ? `${t.slice(0, 19).trimEnd()}…` : t);
+---
+
+{
+  all.length > 0 && (
+    <figure class="local-graph ui">
+      <svg viewBox={`${-PADX} 0 ${W + PADX * 2} ${H}`} role="img" aria-label={`Notes linked to ${center.data.title}`}>
+        {nodes.map((n) => (
+          <line x1={cx} y1={cy} x2={n.x} y2={n.y} class:list={{ weak: !strong.has(n.type) }} />
+        ))}
+        {nodes.map((n) => {
+          const lx = n.x + Math.cos(n.a) * 10;
+          const ly = n.y + Math.sin(n.a) * 10 + (Math.abs(Math.cos(n.a)) < 0.3 ? (Math.sin(n.a) > 0 ? 8 : -2) : 4);
+          return (
+            <a href={noteUrl(n.note.id)} data-slug={n.note.id}>
+              <g class:list={['node', `status-${n.note.data.status}`]} set:html={shape(n.note.data.kind, n.x, n.y, 5)} />
+              <text x={lx} y={ly} text-anchor={n.anchor}>
+                {short(n.note.data.title)}
+              </text>
+            </a>
+          );
+        })}
+        <g class:list={['node', 'center', `status-${center.data.status}`]} set:html={shape(center.data.kind, cx, cy, 8)} />
+      </svg>
+      {all.length > MAX && <figcaption>Showing {MAX} of {all.length} links</figcaption>}
+    </figure>
+  )
+}
+
+<style>
+  .local-graph {
+    margin: 0;
+  }
+  svg {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  line {
+    stroke: var(--ink-soft);
+    stroke-width: 1;
+  }
+  line.weak {
+    stroke: var(--rule);
+    stroke-dasharray: 3 3;
+  }
+  .node :global(*) {
+    fill: var(--paper);
+    stroke: var(--ink);
+    stroke-width: 1.3;
+  }
+  .node.status-verified :global(*),
+  .node.center :global(*) {
+    fill: var(--ink);
+  }
+  .node.status-stub :global(*) {
+    stroke: var(--ink-faint);
+    stroke-dasharray: 2 1.5;
+  }
+  text {
+    font-size: 10.5px;
+    fill: var(--ink-soft);
+  }
+  a:hover text,
+  a:focus-visible text {
+    fill: var(--ink);
+    text-decoration: underline;
+  }
+  figcaption {
+    font-size: var(--step--1);
+    color: var(--ink-faint);
+  }
+</style>

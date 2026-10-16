@@ -1,0 +1,134 @@
+---
+title: Multi-head latent attention
+kind: concept
+summary: Compresses keys and values into one small latent vector per token and caches only that, shrinking the KV cache far below grouped-query attention while keeping per-head keys.
+domains: [llm, attention, inference]
+prerequisites: [mha, kv-cache, rope]
+builds_on: [gqa]
+contrasts_with: [mqa]
+related: []
+sources: [deepseek-v2-report, deepseek-v3-config]
+status: draft
+updated: 2026-10-16
+---
+
+[[gqa]] shrinks the [[kv-cache]] by keeping fewer key/value heads. Multi-head latent attention (MLA), introduced in [[deepseek-v2]], takes a different route: keep all the heads, but don't store their keys and values at all. Store one compressed vector per token and rebuild the keys and values from it on the fly <Cite id="deepseek-v2-report" where="§2.1" />.
+
+## Low-rank joint compression
+
+For each token, a down-projection squeezes the hidden state into a small latent $c^{KV}_t$ of width $d_c$, much smaller than $n_h d_h$. Two up-projections recover per-head keys and values from it:
+
+$$
+c^{KV}_t = W^{DKV} h_t, \qquad k^C_t = W^{UK} c^{KV}_t, \qquad v^C_t = W^{UV} c^{KV}_t
+$$
+
+Only $c^{KV}_t$ goes into the cache. Keys and values are a deterministic function of it, so nothing is lost by throwing them away.
+
+<ArchDiagram
+  title="What MLA computes and what it caches"
+  caption="Only the two thick-bordered blocks are stored per token. Keys and values are rebuilt from the latent, and at inference time the up-projections can be folded into neighbouring matrices."
+  blocks={[
+    { id: 'h', label: 'Hidden state h_t', sub: 'd', role: 'activation', col: 1, row: 0 },
+    { id: 'wdkv', label: 'W^DKV', sub: 'down-project', role: 'weight', col: 0, row: 1 },
+    { id: 'wkr', label: 'W^KR + RoPE', sub: 'shared across heads', role: 'weight', col: 2, row: 1, link: 'rope' },
+    { id: 'c', label: 'Latent c^KV_t', sub: 'd_c', role: 'cache', col: 0, row: 2, link: 'kv-cache' },
+    { id: 'kr', label: 'RoPE key k^R_t', sub: 'd_h^R', role: 'cache', col: 2, row: 2, link: 'kv-cache' },
+    { id: 'wuk', label: 'W^UK', sub: 'up-project', role: 'weight', col: 0, row: 3 },
+    { id: 'wuv', label: 'W^UV', sub: 'up-project', role: 'weight', col: 1, row: 3 },
+    { id: 'kc', label: 'Content keys', sub: 'n_h × d_h', role: 'activation', col: 0, row: 4 },
+    { id: 'v', label: 'Values', sub: 'n_h × d_h', role: 'activation', col: 1, row: 4 },
+    { id: 'att', label: 'Attention', sub: 'keys = [k^C ; k^R]', role: 'op', col: 1, row: 5, link: 'mha' },
+  ]}
+  edges={[
+    { from: 'h', to: 'wdkv' },
+    { from: 'h', to: 'wkr' },
+    { from: 'wdkv', to: 'c' },
+    { from: 'wkr', to: 'kr' },
+    { from: 'c', to: 'wuk' },
+    { from: 'c', to: 'wuv' },
+    { from: 'wuk', to: 'kc' },
+    { from: 'wuv', to: 'v' },
+    { from: 'kc', to: 'att' },
+    { from: 'v', to: 'att' },
+    { from: 'kr', to: 'att' },
+  ]}
+/>
+
+<Callout type="intuition">
+Keys and values for all 128 heads are highly redundant: they are all linear functions of the same hidden state. MLA bets that a few hundred numbers are enough to capture what the heads actually need, and learns the compression end to end instead of fixing it by dropping heads.
+</Callout>
+
+## The absorption trick
+
+Rebuilding every past token's keys at every step would cost a lot of compute. It doesn't have to happen. The attention score for head $i$ is
+
+$$
+q_{t,i}^\top k^C_{j,i} = q_{t,i}^\top W^{UK}_i c^{KV}_j = \big(W^{UK\top}_i q_{t,i}\big)^\top c^{KV}_j
+$$
+
+so $W^{UK}$ can be multiplied into the query side once, and the query is then compared directly against cached latents. The same associativity lets $W^{UV}$ fold into the output projection $W^O$. At inference time, keys and values are never materialised <Cite id="deepseek-v2-report" where="§2.1.2" />.
+
+## Why RoPE needs a side channel
+
+[[rope]] rotates queries and keys by an angle that depends on position. That rotation sits between $q$ and $W^{UK}$, and since it changes with position, it can't be folded into a fixed matrix. Applying RoPE to the rebuilt keys would break the absorption trick.
+
+MLA's fix is decoupled RoPE: position goes through a separate, small channel. Each head gets an extra query part $q^R_{t,i}$, and all heads share one extra key $k^R_t = \operatorname{RoPE}(W^{KR} h_t)$ of width $d_h^R$. The full key for head $i$ is the concatenation $[k^C_{t,i}; k^R_t]$. The shared RoPE key is cached alongside the latent <Cite id="deepseek-v2-report" where="§2.1.3" />.
+
+<Stepper title="One decoding step with MLA">
+  <Step title="Compress the new token">
+    The new hidden state $h_t$ is projected down to the latent $c^{KV}_t$ (width $d_c$) and to the shared RoPE key $k^R_t$ (width $d_h^R$), which gets rotated for position $t$.
+  </Step>
+  <Step title="Append to the cache">
+    Both vectors are appended to the cache. That is $d_c + d_h^R$ numbers per layer for this token, regardless of the number of heads.
+  </Step>
+  <Step title="Build absorbed queries">
+    For each head, the query's content part is multiplied by $W^{UK\top}_i$ so it lives in latent space. The RoPE part of the query stays as it is.
+  </Step>
+  <Step title="Score against the cache">
+    Each head scores its absorbed query against every cached latent and its RoPE query against every cached RoPE key, adds the two, scales and applies softmax.
+  </Step>
+  <Step title="Read out">
+    The softmax weights mix the cached latents. The result goes through $W^{UV}$ folded into $W^O$ to produce the layer output.
+  </Step>
+</Stepper>
+
+## How much it saves
+
+Per token per layer, MLA caches $d_c + d_h^R$ elements. In DeepSeek-V2, $d_c = 4 d_h$ and $d_h^R = d_h / 2$, so the cache equals that of [[gqa]] with only 2.25 groups, while the paper reports quality on par with or better than full [[mha]] <Cite id="deepseek-v2-report" where="§2.1.4, Table 1" />.
+
+<Calc
+  title="Cache per token across all layers"
+  inputs={[
+    { id: 'layers', label: 'Layers', min: 1, max: 128, value: 61 },
+    { id: 'nh', label: 'Attention heads', min: 1, max: 128, value: 128 },
+    { id: 'dh', label: 'Head dimension', min: 32, max: 256, step: 32, value: 128 },
+    { id: 'ng', label: 'GQA groups', min: 1, max: 128, value: 8 },
+    { id: 'dc', label: 'MLA latent width d_c', min: 64, max: 2048, step: 64, value: 512 },
+    { id: 'dr', label: 'MLA RoPE key width', min: 0, max: 256, step: 16, value: 64 },
+  ]}
+  outputs={[
+    { label: 'MHA', expr: '2 * nh * dh * layers * 2', format: 'bytes', role: 'op' },
+    { label: 'GQA', expr: '2 * ng * dh * layers * 2', format: 'bytes', role: 'op' },
+    { label: 'MQA', expr: '2 * dh * layers * 2', format: 'bytes', role: 'op' },
+    { label: 'MLA', expr: '(dc + dr) * layers * 2', format: 'bytes', role: 'cache' },
+    { label: 'MLA vs MHA', expr: '(2 * nh * dh) / (dc + dr)', format: 'ratio' },
+  ]}
+  bars
+  note="Defaults use DeepSeek-V3's layer count and attention dimensions with 2-byte elements. The GQA and MQA rows are hypothetical models with the same width, for comparison."
+/>
+
+<Spec
+  title="MLA dimensions in DeepSeek-V3"
+  rows={[
+    { label: 'Attention heads n_h', value: 128, source: 'deepseek-v3-config', where: 'num_attention_heads' },
+    { label: 'Latent width d_c', value: 512, source: 'deepseek-v3-config', where: 'kv_lora_rank' },
+    { label: 'Query latent width', value: 1536, source: 'deepseek-v3-config', where: 'q_lora_rank' },
+    { label: 'Content head dim', value: 128, source: 'deepseek-v3-config', where: 'qk_nope_head_dim' },
+    { label: 'RoPE head dim d_h^R', value: 64, source: 'deepseek-v3-config', where: 'qk_rope_head_dim' },
+    { label: 'Value head dim', value: 128, source: 'deepseek-v3-config', where: 'v_head_dim' },
+  ]}
+/>
+
+<Callout type="pitfall">
+Queries are compressed too (the query latent above), but that is for saving activation memory during training. It has nothing to do with the KV cache, which only depends on $d_c$ and $d_h^R$.
+</Callout>
