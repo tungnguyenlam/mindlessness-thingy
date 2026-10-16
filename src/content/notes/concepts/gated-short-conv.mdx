@@ -1,0 +1,88 @@
+---
+title: Gated short convolution
+kind: concept
+summary: A depthwise short convolution wrapped in two input-dependent gates. It mixes nearby tokens at linear cost and stores only a short window per channel, not a growing KV cache.
+domains: [llm, attention, inference]
+prerequisites: [transformer-block, kv-cache]
+builds_on: []
+contrasts_with: [mha, mamba-2]
+related: [gqa]
+sources: [lfm2-report, lfm2-5-350m-config]
+status: draft
+updated: 2026-10-16
+---
+
+Every [[mha]] layer appends keys and values to the [[kv-cache]] for every token of context. That cache is what makes long prompts expensive on a phone. A gated short convolution does the other job attention is asked to do — mix nearby tokens — without storing the whole past.
+
+Liquid's LFM2 search kept this operator as the local mixer and dropped the extra state-space or linear-attention branches that often sit next to it <Cite id="lfm2-report" where="§2.1" />. [[mamba-2]] is the other common local mixer; this note is the convolution that LFM2 actually ships.
+
+## The idea in one picture
+
+<ArchDiagram
+  title="One gated short convolution"
+  caption="A position-wise linear map splits the hidden state into two gates and a value. The value is gated, mixed along the sequence by a depthwise convolution of kernel 3, gated again, and projected back."
+  blocks={[
+    { id: 'h', label: 'Hidden state', sub: 'L × d', role: 'activation', col: 1, row: 0 },
+    { id: 'lin', label: 'Linear → 3d', role: 'weight', col: 1, row: 1 },
+    { id: 'b', label: 'Gate B', role: 'activation', col: 0, row: 2 },
+    { id: 'ht', label: 'Value h̃', role: 'activation', col: 1, row: 2 },
+    { id: 'c', label: 'Gate C', role: 'activation', col: 2, row: 2 },
+    { id: 'mul1', label: 'B ⊙ h̃', role: 'op', col: 1, row: 3 },
+    { id: 'conv', label: 'Depthwise Conv_k', sub: 'k = 3', role: 'op', col: 1, row: 4 },
+    { id: 'cache', label: 'Conv window', sub: 'conv_L_cache', role: 'cache', col: 2, row: 4 },
+    { id: 'mul2', label: 'C ⊙ z', role: 'op', col: 1, row: 5 },
+    { id: 'out', label: 'Linear out', role: 'weight', col: 1, row: 6 },
+  ]}
+  edges={[
+    { from: 'h', to: 'lin' },
+    { from: 'lin', to: 'b' },
+    { from: 'lin', to: 'ht' },
+    { from: 'lin', to: 'c' },
+    { from: 'b', to: 'mul1' },
+    { from: 'ht', to: 'mul1' },
+    { from: 'mul1', to: 'conv' },
+    { from: 'conv', to: 'cache', dashed: true },
+    { from: 'c', to: 'mul2' },
+    { from: 'conv', to: 'mul2' },
+    { from: 'mul2', to: 'out' },
+  ]}
+/>
+
+The gates $B$ and $C$ are produced from the current token, so how much of the convolution output is kept depends on the input. The convolution itself is depthwise: each channel looks only at a few neighbouring time steps of that same channel <Cite id="lfm2-report" where="§2.2" />.
+
+## How it works
+
+Start from a hidden sequence $h \in \mathbb{R}^{L \times d}$. One linear map, applied at each position, produces three $d$-wide tensors. The first gate scales the value, the short convolution mixes those scaled values along the sequence, and the second gate scales the result before a linear map of width $d$ writes the block output <Cite id="lfm2-report" where="§2.2" />:
+
+$$
+\begin{aligned}
+(B,\, C,\, \tilde{h}) &= \mathrm{Linear}(h) \\
+y &= B \odot \tilde{h} \\
+z &= \mathrm{Conv}_{k}(y) \\
+o &= \mathrm{Linear}_{\mathrm{out}}(C \odot z).
+\end{aligned}
+$$
+
+$k$ is 3 in every released LFM2 dense size <Cite id="lfm2-report" where="Table 1" />. The LFM2.5 configs store that window as `conv_L_cache: 3` <Cite id="lfm2-5-350m-config" where="conv_L_cache" />.
+
+<Stepper title="One token through the block">
+  <Step title="Split into gates and a value">
+    The input at this position is projected to $3d$ and split into $B$, $C$ and $\tilde{h}$. All three are the same width as the hidden state.
+  </Step>
+  <Step title="Gate, then convolve">
+    $B$ scales $\tilde{h}$ element-wise. A depthwise convolution of kernel 3 then mixes that channel with the same channel on the two previous tokens.
+  </Step>
+  <Step title="Gate again and project">
+    $C$ scales the convolution output. A linear map of width $d$ returns the residual-stream update. No keys or values are written for later tokens.
+  </Step>
+</Stepper>
+
+Because the kernel is short, decode only needs the recent window on each channel, not every past key and value. That is why a stack of these blocks can carry a 32K prompt on a CPU without the cache dominating memory. The remaining long-range work is left to a few [[gqa]] layers; that layout is [[hybrid-conv-attention]].
+
+## What it costs
+
+The convolution is linear in sequence length and cheap per step: depthwise, kernel 3, no score matrix. What you give up is global mixing. A token cannot see an item thousands of steps away through this block alone. That is the reason LFM2 still keeps a minority of softmax attention layers <Cite id="lfm2-report" where="§2.1" />.
+
+<Callout type="pitfall">
+The config field is `conv_L_cache`, not a KV length. It is a short window (3 in LFM2.5), constant across context. Treating it like an attention cache that grows with the prompt will overstate memory by a large factor.
+</Callout>

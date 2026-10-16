@@ -1,0 +1,8 @@
+title: LFM2.5-1.2B-Instruct config.json (Hugging Face)
+short: LFM2.5-1.2B-Instruct config
+authors: Liquid AI
+year: 2026
+url: https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/config.json
+type: config
+accessed: 2026-10-16
+notes: intermediate_size is 12288; LFM2 report Table 1 listed 8192 for LFM2-1.2B.

@@ -1,0 +1,85 @@
+---
+title: LFM2.5-1.2B-Instruct
+kind: system
+summary: Liquid AI's 1.17B instruction-tuned LFM2.5. Same 16-layer conv-GQA hybrid as the 350M, widened, pretrained for 28T tokens and post-trained with SFT, preference alignment and RL.
+domains: [llm, attention, inference]
+prerequisites: [hybrid-conv-attention]
+builds_on: []
+contrasts_with: []
+related: [lfm2-5-350m, lfm2-5-1-2b-thinking]
+sources: [lfm2-5-1-2b-instruct-card, lfm2-5-1-2b-instruct-config, lfm2-5-intro-blog, lfm2-report]
+status: draft
+updated: 2026-10-16
+---
+
+LFM2.5-1.2B-Instruct is the general-purpose chat checkpoint in the 1.2B LFM2.5 family. The stack is the same [[hybrid-conv-attention]] interleaving as [[lfm2-5-350m]] — 10 [[gated-short-conv]] layers and 6 [[gqa]] layers — at twice the hidden width <Cite id="lfm2-5-1-2b-instruct-card" where="Number of layers" />. Pretraining is 28T tokens, up from the 10T LFM2 budget, then SFT, preference alignment, and multi-stage RL <Cite id="lfm2-5-intro-blog" />. [[lfm2-5-1-2b-thinking]] is this backbone with a reasoning post-train.
+
+## The block
+
+<ArchDiagram
+  title="An LFM2.5-1.2B-Instruct layer"
+  caption="Same 16-layer conv/attention split as the 350M. Hidden size 2048, 32 query heads sharing 8 key/value heads, SwiGLU width 12288."
+  blocks={[
+    { id: 'in', label: 'Hidden state', sub: '2048', role: 'activation', col: 1, row: 0 },
+    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
+    { id: 'conv', label: 'Gated short conv', sub: '× 10 · k = 3', role: 'op', col: 0, row: 2, link: 'gated-short-conv' },
+    { id: 'attn', label: 'GQA', sub: '× 6 · 32 Q / 8 KV', role: 'op', col: 2, row: 2, link: 'gqa' },
+    { id: 'cwin', label: 'Conv window', sub: 'fixed', role: 'cache', col: 0, row: 3 },
+    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
+    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 4 },
+    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 5 },
+    { id: 'ffn', label: 'SwiGLU', sub: '12288', role: 'weight', col: 1, row: 6 },
+    { id: 'add2', label: 'Add', role: 'op', col: 1, row: 7 },
+  ]}
+  edges={[
+    { from: 'in', to: 'n1' },
+    { from: 'n1', to: 'conv' },
+    { from: 'n1', to: 'attn' },
+    { from: 'conv', to: 'cwin', dashed: true },
+    { from: 'attn', to: 'kv', dashed: true },
+    { from: 'conv', to: 'add1' },
+    { from: 'attn', to: 'add1' },
+    { from: 'in', to: 'add1', side: 'left' },
+    { from: 'add1', to: 'n2' },
+    { from: 'n2', to: 'ffn' },
+    { from: 'ffn', to: 'add2' },
+    { from: 'add1', to: 'add2', side: 'left' },
+  ]}
+/>
+
+<Spec
+  title="LFM2.5-1.2B-Instruct at a glance"
+  rows={[
+    { label: 'Parameters', value: '1.17B', source: 'lfm2-5-1-2b-instruct-card', where: 'Number of parameters' },
+    { label: 'Layers', value: 16, source: 'lfm2-5-1-2b-instruct-config', where: 'num_hidden_layers' },
+    { label: 'Conv / attention layers', value: '10 / 6', source: 'lfm2-5-1-2b-instruct-card', where: 'Number of layers' },
+    { label: 'Hidden size', value: 2048, source: 'lfm2-5-1-2b-instruct-config', where: 'hidden_size' },
+    { label: 'FFN intermediate', value: 12288, source: 'lfm2-5-1-2b-instruct-config', where: 'intermediate_size' },
+    { label: 'Query / KV heads', value: '32 / 8', source: 'lfm2-5-1-2b-instruct-config', where: 'num_attention_heads / num_key_value_heads' },
+    { label: 'Conv window', value: 3, source: 'lfm2-5-1-2b-instruct-config', where: 'conv_L_cache' },
+    { label: 'Vocabulary', value: 65536, source: 'lfm2-5-1-2b-instruct-config', where: 'vocab_size' },
+    { label: 'Training tokens', value: '28T', source: 'lfm2-5-1-2b-instruct-card', where: 'Training budget' },
+    { label: 'Context length', value: 32768, source: 'lfm2-5-1-2b-instruct-card', where: 'Context length' },
+    { label: 'Knowledge cutoff', value: 'Mid-2024', source: 'lfm2-5-1-2b-instruct-card' },
+  ]}
+/>
+
+<Callout type="pitfall">
+The LFM2 report lists feed-forward width 8192 for LFM2-1.2B <Cite id="lfm2-report" where="Table 1" />. This checkpoint's config has `intermediate_size: 12288`. Use the config. `max_position_embeddings` is 128000; the card's supported context is 32,768.
+</Callout>
+
+## What is new
+
+### Wider 16-layer hybrid, 28T, then instruct post-train
+
+Hidden size doubles from the 350M's 1024 to 2048, query heads from 16 to 32, KV heads stay 8, so the [[gqa]] group size is 4 rather than 2 <Cite id="lfm2-5-1-2b-instruct-config" where="num_attention_heads" />. `layer_types` matches the 350M interleaving exactly <Cite id="lfm2-5-1-2b-instruct-config" where="layer_types" />.
+
+The January 2026 family announcement describes Instruct as the default chat variant, trained with supervised fine-tuning, preference alignment, and large-scale multi-stage reinforcement learning <Cite id="lfm2-5-intro-blog" />. The card recommends it for agentic tasks, extraction and RAG, and not for knowledge-heavy work or programming <Cite id="lfm2-5-1-2b-instruct-card" />.
+
+A 296M speculative-decoding drafter (LFM2.5-1.2B-Instruct-DSpark) is released alongside; the card quotes about 2.1× faster decode in SGLang with identical outputs <Cite id="lfm2-5-1-2b-instruct-card" />.
+
+## What it reuses
+
+- [[hybrid-conv-attention]] with kernel-3 [[gated-short-conv]] and 6 [[gqa]] layers, the same layout as [[lfm2-5-350m]].
+- [[rope]] on attention layers (`rope_theta` 1,000,000) and a 65,536-token vocabulary.
+- [[kv-cache]] only in the 6 attention layers.

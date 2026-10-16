@@ -1,0 +1,8 @@
+title: LFM2.5-2.6B-Base config.json (Hugging Face)
+short: LFM2.5-2.6B-Base config
+authors: Liquid AI
+year: 2026
+url: https://huggingface.co/LiquidAI/LFM2.5-2.6B-Base/blob/main/config.json
+type: config
+accessed: 2026-10-16
+notes: max_position_embeddings is 128000; the post-trained LFM2.5-2.6B config lists 131072. Cards for both say 131,072.

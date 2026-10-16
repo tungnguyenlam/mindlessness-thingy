@@ -1,0 +1,8 @@
+title: LFM2.5-2.6B config.json (Hugging Face)
+short: LFM2.5-2.6B config
+authors: Liquid AI
+year: 2026
+url: https://huggingface.co/LiquidAI/LFM2.5-2.6B/blob/main/config.json
+type: config
+accessed: 2026-10-16
+notes: Same layer_types as Base. max_position_embeddings is 131072 here, 128000 on Base.

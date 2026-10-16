@@ -1,0 +1,84 @@
+---
+title: LFM2.5-230M
+kind: system
+summary: Liquid AI's smallest LFM2.5. Fourteen hybrid layers distilled from the 350M, pretrained for 19T tokens, aimed at tool use and extraction on tiny devices.
+domains: [llm, attention, inference]
+prerequisites: [hybrid-conv-attention]
+builds_on: [lfm2-5-350m]
+contrasts_with: []
+related: [lfm2-5-1-2b-instruct]
+sources: [lfm2-5-230m-card, lfm2-5-230m-config, lfm2-5-230m-blog, lfm2-5-350m-config]
+status: draft
+updated: 2026-10-16
+---
+
+LFM2.5-230M is a compressed [[lfm2-5-350m]]. It keeps the [[hybrid-conv-attention]] recipe — [[gated-short-conv]] plus [[gqa]] — but drops two convolution layers, narrows the feed-forward, and is distilled from the 350M rather than trained as a from-scratch sibling <Cite id="lfm2-5-230m-blog" />. This note is those cuts. The mixers are unchanged; follow the links.
+
+## The block
+
+<ArchDiagram
+  title="An LFM2.5-230M layer"
+  caption="Fourteen layers instead of the 350M's sixteen. Eight mix with a kernel-3 gated convolution; six still mix with grouped-query attention, so the KV cache layer count does not shrink."
+  blocks={[
+    { id: 'in', label: 'Hidden state', sub: '1024', role: 'activation', col: 1, row: 0 },
+    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
+    { id: 'conv', label: 'Gated short conv', sub: '× 8 · k = 3', role: 'op', col: 0, row: 2, link: 'gated-short-conv' },
+    { id: 'attn', label: 'GQA', sub: '× 6 · 16 Q / 8 KV', role: 'op', col: 2, row: 2, link: 'gqa' },
+    { id: 'cwin', label: 'Conv window', sub: 'fixed', role: 'cache', col: 0, row: 3 },
+    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
+    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 4 },
+    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 5 },
+    { id: 'ffn', label: 'SwiGLU', sub: '2560', role: 'weight', col: 1, row: 6 },
+    { id: 'add2', label: 'Add', role: 'op', col: 1, row: 7 },
+  ]}
+  edges={[
+    { from: 'in', to: 'n1' },
+    { from: 'n1', to: 'conv' },
+    { from: 'n1', to: 'attn' },
+    { from: 'conv', to: 'cwin', dashed: true },
+    { from: 'attn', to: 'kv', dashed: true },
+    { from: 'conv', to: 'add1' },
+    { from: 'attn', to: 'add1' },
+    { from: 'in', to: 'add1', side: 'left' },
+    { from: 'add1', to: 'n2' },
+    { from: 'n2', to: 'ffn' },
+    { from: 'ffn', to: 'add2' },
+    { from: 'add1', to: 'add2', side: 'left' },
+  ]}
+/>
+
+<Spec
+  title="LFM2.5-230M at a glance"
+  rows={[
+    { label: 'Parameters', value: '230M', source: 'lfm2-5-230m-card', where: 'Number of parameters' },
+    { label: 'Layers', value: 14, source: 'lfm2-5-230m-config', where: 'num_hidden_layers' },
+    { label: 'Conv / attention layers', value: '8 / 6', source: 'lfm2-5-230m-card', where: 'Number of layers' },
+    { label: 'Hidden size', value: 1024, source: 'lfm2-5-230m-config', where: 'hidden_size' },
+    { label: 'FFN intermediate', value: 2560, source: 'lfm2-5-230m-config', where: 'intermediate_size' },
+    { label: 'Query / KV heads', value: '16 / 8', source: 'lfm2-5-230m-config', where: 'num_attention_heads / num_key_value_heads' },
+    { label: 'Conv window', value: 3, source: 'lfm2-5-230m-config', where: 'conv_L_cache' },
+    { label: 'Vocabulary', value: 65536, source: 'lfm2-5-230m-config', where: 'vocab_size' },
+    { label: 'Training tokens', value: '19T', source: 'lfm2-5-230m-card', where: 'Training budget' },
+    { label: 'Context length', value: 32768, source: 'lfm2-5-230m-card', where: 'Context length' },
+    { label: 'Knowledge cutoff', value: 'Mid-2024', source: 'lfm2-5-230m-card' },
+  ]}
+/>
+
+The 14-layer pattern in `layer_types` is two convolutions, then attention and convolution alternating, ending on a convolution <Cite id="lfm2-5-230m-config" where="layer_types" />. Attention layer count stays 6, the same as the 350M, so the [[kv-cache]] still grows with six GQA blocks.
+
+<Callout type="pitfall">
+`max_position_embeddings` is 128000 in the config; the card's supported context is 32,768. Same extra-room mismatch as the 350M.
+</Callout>
+
+## What is new
+
+### Distill, then a short post-train
+
+The 230M is not a from-scratch 14-layer LFM2. The blog's recipe is three stages after 19T tokens of pretraining (including a 32K context-extension phase): supervised fine-tuning with distillation from LFM2.5-350M, direct preference optimization, then multi-domain reinforcement learning <Cite id="lfm2-5-230m-blog" />.
+
+Relative to the teacher, the visible shrink is width in the feed-forward (2560 vs 6656) and two fewer convolution layers, with hidden size and head counts unchanged <Cite id="lfm2-5-230m-config" where="intermediate_size" />. The card still points the model at extraction and lightweight tool use, and away from heavy math, code, or creative writing <Cite id="lfm2-5-230m-card" />.
+
+## What it reuses
+
+- The [[hybrid-conv-attention]] stack from [[lfm2-5-350m]], with the same 16/8 [[gqa]] heads and kernel-3 [[gated-short-conv]].
+- Vocabulary 65,536 and 32,768-token context, matching the other small LFM2.5 text models.

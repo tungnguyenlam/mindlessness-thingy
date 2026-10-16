@@ -1,0 +1,89 @@
+---
+title: Hybrid conv-attention stacks
+kind: concept
+summary: Most token-mixing layers are gated short convolutions; a few grouped-query attention layers act as global anchors, so the KV cache grows with only those layers.
+domains: [llm, attention, inference]
+prerequisites: [gated-short-conv, gqa, kv-cache]
+builds_on: []
+contrasts_with: [hybrid-ssm-attention, mla]
+related: []
+sources: [lfm2-report, lfm2-5-350m-config, lfm2-5-350m-card, lfm2-5-2-6b-config]
+status: draft
+updated: 2026-10-16
+---
+
+A full-attention stack pays for a [[kv-cache]] in every layer. Liquid's LFM2 search, run against on-device latency and peak memory, kept a simpler hybrid: most mixers are [[gated-short-conv]] blocks, plus a small number of [[gqa]] layers, and no extra state-space or linear-attention operator <Cite id="lfm2-report" where="§2.1" />. [[hybrid-ssm-attention]] answers the same cache problem by swapping in Mamba-2 instead of the convolution.
+
+## The layout
+
+Each layer is a pre-norm residual block: a mixer, then a SwiGLU feed-forward. The mixer is either the gated convolution or grouped-query attention with RoPE and QK-Norm <Cite id="lfm2-report" where="§2.2" />.
+
+<ArchDiagram
+  title="One LFM2 layer: two mixer choices"
+  caption="Every layer has the same residual shape. Only the attention choice writes keys and values that grow with context. Convolution layers keep a short window instead."
+  blocks={[
+    { id: 'in', label: 'Hidden state', role: 'activation', col: 1, row: 0 },
+    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
+    { id: 'conv', label: 'Gated short conv', sub: 'most layers', role: 'op', col: 0, row: 2, link: 'gated-short-conv' },
+    { id: 'attn', label: 'Grouped-query attn', sub: 'few layers', role: 'op', col: 2, row: 2, link: 'gqa' },
+    { id: 'cwin', label: 'Conv window', sub: 'fixed', role: 'cache', col: 0, row: 3 },
+    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
+    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 4 },
+    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 5 },
+    { id: 'ffn', label: 'SwiGLU FFN', role: 'weight', col: 1, row: 6 },
+    { id: 'add2', label: 'Add', role: 'op', col: 1, row: 7 },
+  ]}
+  edges={[
+    { from: 'in', to: 'n1' },
+    { from: 'n1', to: 'conv' },
+    { from: 'n1', to: 'attn' },
+    { from: 'conv', to: 'cwin', dashed: true },
+    { from: 'attn', to: 'kv', dashed: true },
+    { from: 'conv', to: 'add1' },
+    { from: 'attn', to: 'add1' },
+    { from: 'in', to: 'add1', side: 'left' },
+    { from: 'add1', to: 'n2' },
+    { from: 'n2', to: 'ffn' },
+    { from: 'ffn', to: 'add2' },
+    { from: 'add1', to: 'add2', side: 'left' },
+  ]}
+/>
+
+The released dense LFM2 sizes put 6 attention blocks in the 16-layer models and 8 in the 30-layer 2.6B <Cite id="lfm2-report" where="Table 1" />. LFM2.5 keeps that split. The 350M and 1.2B configs both list 10 `conv` layers and 6 `full_attention` layers, interleaved rather than grouped at one end of the stack <Cite id="lfm2-5-350m-config" where="layer_types" />.
+
+Attention at those layers uses 8 key/value heads in every dense LFM2 size, with 16 query heads at 350M-class width and 32 at 1.2B/2.6B width <Cite id="lfm2-report" where="Table 1" />.
+
+## What it saves
+
+<Calc
+  title="Cache for one sequence: hybrid vs all attention"
+  inputs={[
+    { id: 'attn', label: 'Attention layers', min: 0, max: 32, value: 6 },
+    { id: 'conv', label: 'Conv layers', min: 0, max: 32, value: 10 },
+    { id: 'kvh', label: 'Key/value heads', min: 1, max: 32, value: 8 },
+    { id: 'dh', label: 'Head dimension', min: 32, max: 256, step: 32, value: 64 },
+    { id: 'kvb', label: 'Bytes per KV element', min: 1, max: 4, value: 2 },
+    { id: 'ctx', label: 'Context length', min: 1024, max: 131072, step: 1024, value: 32768, unit: 'tokens' },
+    { id: 'hid', label: 'Hidden size', min: 512, max: 4096, step: 256, value: 1024 },
+    { id: 'cw', label: 'Conv window', min: 1, max: 8, value: 3 },
+    { id: 'cb', label: 'Bytes per conv element', min: 1, max: 4, value: 2 },
+  ]}
+  outputs={[
+    { label: 'KV cache (attention layers)', expr: '2 * attn * kvh * dh * kvb * ctx', format: 'bytes', role: 'cache' },
+    { label: 'Conv windows (conv layers)', expr: 'conv * cw * hid * cb', format: 'bytes', role: 'cache' },
+    { label: 'Hybrid total', expr: '2 * attn * kvh * dh * kvb * ctx + conv * cw * hid * cb', format: 'bytes', role: 'cache' },
+    { label: 'If every mixer layer were attention', expr: '2 * (attn + conv) * kvh * dh * kvb * ctx', format: 'bytes', role: 'cache' },
+  ]}
+  bars
+  note="Defaults match LFM2.5-350M: 6 attention layers with 8 KV heads of dimension 64, 10 conv layers, hidden size 1024, conv_L_cache 3, BF16. The conv line uses conv_L_cache as the stored window; the report states kernel size 3 but not a separate cache formula. The last row is a counterfactual, not a real model."
+/>
+
+The convolution line does not move with context length. At 32K tokens the 350M-class KV cache is already hundreds of megabytes; the conv windows stay tens of kilobytes. That is the on-device point of the design: long prompts stay affordable because only a handful of layers grow.
+
+LFM2.5 cards still quote a 32,768-token context for the 350M and 1.2B models even though `max_position_embeddings` is 128000 <Cite id="lfm2-5-350m-card" where="Context length" />. Treat the card figure as the supported length.
+
+## How it compares
+
+[[mla]] keeps attention in every layer and shrinks what each token stores. [[hybrid-ssm-attention]] replaces most attention with a recurrent SSM. This hybrid replaces most attention with a kernel-3 convolution and keeps a few full GQA layers as the global path. LFM2's hardware-in-the-loop search found that adding SSM or linear-attention branches on top of this mix did not improve the quality–latency–memory frontier they measured on device <Cite id="lfm2-report" where="§2.1" />.
+
+Models built this way include [[lfm2-5-350m]], [[lfm2-5-230m]], [[lfm2-5-1-2b-instruct]] and [[lfm2-5-2-6b-base]].

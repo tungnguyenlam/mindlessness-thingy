@@ -1,0 +1,8 @@
+title: LFM2.5-1.2B-Thinking config.json (Hugging Face)
+short: LFM2.5-1.2B-Thinking config
+authors: Liquid AI
+year: 2026
+url: https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking/blob/main/config.json
+type: config
+accessed: 2026-10-16
+notes: Same widths and layer_types as LFM2.5-1.2B-Instruct.

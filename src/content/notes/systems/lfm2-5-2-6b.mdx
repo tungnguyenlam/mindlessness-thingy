@@ -1,0 +1,84 @@
+---
+title: LFM2.5-2.6B
+kind: system
+summary: The 2.69B LFM2.5 turned into an on-device agent. Four-stage post-training, including RL inside real agent harnesses, on the 2.6B-Base backbone.
+domains: [llm, attention, inference]
+prerequisites: []
+builds_on: [lfm2-5-2-6b-base]
+contrasts_with: []
+related: [lfm2-5-1-2b-thinking]
+sources: [lfm2-5-2-6b-card, lfm2-5-2-6b-config, lfm2-5-2-6b-blog, lfm2-5-2-6b-base-config]
+status: draft
+updated: 2026-10-16
+---
+
+LFM2.5-2.6B is [[lfm2-5-2-6b-base]] after agentic post-training. The 30-layer [[hybrid-conv-attention]] stack is the same 22 [[gated-short-conv]] plus 8 [[gqa]] layout; `layer_types` matches Base exactly <Cite id="lfm2-5-2-6b-config" where="layer_types" />. What is new is a four-stage pipeline that trains the model inside real agent harnesses, and a chat template that always thinks before it answers <Cite id="lfm2-5-2-6b-card" />.
+
+## At a glance
+
+<ArchDiagram
+  title="From Base to the agent checkpoint"
+  caption="No new mixer. Post-training runs SFT, specialist teachers, on-policy distillation, then GRPO inside unmodified agent harnesses."
+  blocks={[
+    { id: 'base', label: '2.6B-Base', sub: '22 conv + 8 GQA', role: 'weight', col: 1, row: 0, link: 'lfm2-5-2-6b-base' },
+    { id: 'sft', label: 'Two-round SFT', role: 'op', col: 1, row: 1 },
+    { id: 'teach', label: 'Domain teachers', role: 'weight', col: 0, row: 2 },
+    { id: 'mopd', label: 'On-policy distill', role: 'op', col: 1, row: 2 },
+    { id: 'rl', label: 'Agentic RL', sub: 'in harnesses', role: 'op', col: 1, row: 3 },
+    { id: 'out', label: 'LFM2.5-2.6B', role: 'activation', col: 1, row: 4 },
+  ]}
+  edges={[
+    { from: 'base', to: 'sft' },
+    { from: 'sft', to: 'teach' },
+    { from: 'sft', to: 'mopd' },
+    { from: 'teach', to: 'mopd' },
+    { from: 'mopd', to: 'rl' },
+    { from: 'rl', to: 'out' },
+  ]}
+/>
+
+<Spec
+  title="LFM2.5-2.6B at a glance"
+  rows={[
+    { label: 'Parameters', value: '2.69B', source: 'lfm2-5-2-6b-card', where: 'Total parameters' },
+    { label: 'Layers', value: 30, source: 'lfm2-5-2-6b-config', where: 'num_hidden_layers' },
+    { label: 'Conv / attention layers', value: '22 / 8', source: 'lfm2-5-2-6b-card', where: 'Number of layers' },
+    { label: 'Hidden size', value: 2048, source: 'lfm2-5-2-6b-config', where: 'hidden_size' },
+    { label: 'FFN intermediate', value: 10752, source: 'lfm2-5-2-6b-config', where: 'intermediate_size' },
+    { label: 'Query / KV heads', value: '32 / 8', source: 'lfm2-5-2-6b-config', where: 'num_attention_heads / num_key_value_heads' },
+    { label: 'Vocabulary', value: 128000, source: 'lfm2-5-2-6b-config', where: 'vocab_size' },
+    { label: 'Training tokens', value: '34T', source: 'lfm2-5-2-6b-card', where: 'Training budget' },
+    { label: 'Context length', value: 131072, source: 'lfm2-5-2-6b-card', where: 'Context length' },
+    { label: 'max_position_embeddings', value: 131072, source: 'lfm2-5-2-6b-config', where: 'max_position_embeddings' },
+  ]}
+/>
+
+<Callout type="note">
+The card calls this checkpoint a pure reasoning model: the chat template starts the assistant turn with a think tag, so it always reasons before answering <Cite id="lfm2-5-2-6b-card" where="Chat Template" />.
+</Callout>
+
+## What is new
+
+### Four-stage agent post-training
+
+<Stepper title="Base to LFM2.5-2.6B">
+  <Step title="Two rounds of SFT">
+    Broad coverage first, then a second round that up-weights agentic tasks, reasoning and tool use. Across both rounds the SFT mix is about seven times the mix used for LFM2.5-8B-A1B, with more tool use, web search, software-engineering and agent traces.
+  </Step>
+  <Step title="Teacher specialization">
+    From that SFT checkpoint, one specialist per domain is trained with a focused SFT round and then RL with verifiable rewards. The blog lists specialists for instruction following, math, knowledge including hallucination control, code, tool use, and long context.
+  </Step>
+  <Step title="Multi-domain on-policy distillation">
+    The student rolls out under its own policy. Each prompt is routed to the matching teacher, which provides token-level feedback. Because the teachers branched from the same SFT checkpoint, the blog describes the supervision as close enough to the student's distribution to stay stable.
+  </Step>
+  <Step title="Agentic RL in real harnesses">
+    Multi-turn GRPO runs inside unmodified harnesses (the blog names Hermes Agent and OpenClaw). A sandbox executes tools; an outcome reward mixes an LLM-as-judge rubric, programmatic checks and a hard safety gate. A harness proxy records token-level trajectories without changing the agent.
+  </Step>
+</Stepper>
+
+A 328M speculative-decoding drafter (LFM2.5-2.6B-DSpark) is released with the weights; the card quotes about 2.6× faster decode with identical outputs <Cite id="lfm2-5-2-6b-card" />. The card recommends agentic workloads, tool use, extraction, RAG and long-context work, and not agentic coding or knowledge-heavy tasks <Cite id="lfm2-5-2-6b-card" />.
+
+## What it reuses
+
+- The [[lfm2-5-2-6b-base]] backbone: 30-layer [[hybrid-conv-attention]], 2048 hidden, 32/8 [[gqa]], kernel-3 [[gated-short-conv]], 128K vocab, 128K-class context.
+- [[rope]] with θ $10^7$, as in Base.

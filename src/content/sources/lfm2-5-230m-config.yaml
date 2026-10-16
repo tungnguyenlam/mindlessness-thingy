@@ -1,0 +1,8 @@
+title: LFM2.5-230M config.json (Hugging Face)
+short: LFM2.5-230M config
+authors: Liquid AI
+year: 2026
+url: https://huggingface.co/LiquidAI/LFM2.5-230M/blob/main/config.json
+type: config
+accessed: 2026-10-16
+notes: Released checkpoint configuration. layer_types lists conv vs full_attention; conv_L_cache is the short-convolution window.

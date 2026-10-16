@@ -1,0 +1,86 @@
+---
+title: LFM2.5-350M
+kind: system
+summary: Liquid AI's 350M on-device model. It keeps the LFM2 conv-GQA hybrid, extends pretraining from 10T to 28T tokens, and adds multi-stage reinforcement learning.
+domains: [llm, attention, inference]
+prerequisites: [hybrid-conv-attention]
+builds_on: []
+contrasts_with: []
+related: [lfm2-5-230m, lfm2-5-1-2b-instruct]
+sources: [lfm2-5-350m-card, lfm2-5-350m-config, lfm2-5-350m-blog, lfm2-report]
+status: draft
+updated: 2026-10-16
+---
+
+LFM2.5-350M is the 350M LFM2 hybrid trained further. The block recipe is still [[hybrid-conv-attention]]: 10 [[gated-short-conv]] layers and 6 [[gqa]] layers, then SwiGLU. What changed from LFM2-350M is the training budget — pretraining extended from 10T to 28T tokens — and a larger post-training stack with reinforcement learning <Cite id="lfm2-5-350m-blog" />. This note is that checkpoint. Follow the architecture links for the mixer.
+
+## The block
+
+<ArchDiagram
+  title="An LFM2.5-350M layer"
+  caption="Sixteen layers, each pre-norm residual. Ten of them mix with a kernel-3 gated convolution; six mix with grouped-query attention. Only the attention layers add to the KV cache."
+  blocks={[
+    { id: 'in', label: 'Hidden state', sub: '1024', role: 'activation', col: 1, row: 0 },
+    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
+    { id: 'conv', label: 'Gated short conv', sub: '× 10 · k = 3', role: 'op', col: 0, row: 2, link: 'gated-short-conv' },
+    { id: 'attn', label: 'GQA', sub: '× 6 · 16 Q / 8 KV', role: 'op', col: 2, row: 2, link: 'gqa' },
+    { id: 'cwin', label: 'Conv window', sub: 'fixed', role: 'cache', col: 0, row: 3 },
+    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
+    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 4 },
+    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 5 },
+    { id: 'ffn', label: 'SwiGLU', sub: '6656', role: 'weight', col: 1, row: 6 },
+    { id: 'add2', label: 'Add', role: 'op', col: 1, row: 7 },
+  ]}
+  edges={[
+    { from: 'in', to: 'n1' },
+    { from: 'n1', to: 'conv' },
+    { from: 'n1', to: 'attn' },
+    { from: 'conv', to: 'cwin', dashed: true },
+    { from: 'attn', to: 'kv', dashed: true },
+    { from: 'conv', to: 'add1' },
+    { from: 'attn', to: 'add1' },
+    { from: 'in', to: 'add1', side: 'left' },
+    { from: 'add1', to: 'n2' },
+    { from: 'n2', to: 'ffn' },
+    { from: 'ffn', to: 'add2' },
+    { from: 'add1', to: 'add2', side: 'left' },
+  ]}
+  groups={[{ label: '16 layers; layer_types interleaves conv and full_attention', from: [0, 1], to: [2, 7] }]}
+/>
+
+<Spec
+  title="LFM2.5-350M at a glance"
+  rows={[
+    { label: 'Parameters', value: '350M', source: 'lfm2-5-350m-card', where: 'Number of parameters' },
+    { label: 'Layers', value: 16, source: 'lfm2-5-350m-config', where: 'num_hidden_layers' },
+    { label: 'Conv / attention layers', value: '10 / 6', source: 'lfm2-5-350m-card', where: 'Number of layers' },
+    { label: 'Hidden size', value: 1024, source: 'lfm2-5-350m-config', where: 'hidden_size' },
+    { label: 'FFN intermediate', value: 6656, source: 'lfm2-5-350m-config', where: 'intermediate_size' },
+    { label: 'Query / KV heads', value: '16 / 8', source: 'lfm2-5-350m-config', where: 'num_attention_heads / num_key_value_heads' },
+    { label: 'Conv window', value: 3, source: 'lfm2-5-350m-config', where: 'conv_L_cache' },
+    { label: 'Vocabulary', value: 65536, source: 'lfm2-5-350m-config', where: 'vocab_size' },
+    { label: 'Training tokens', value: '28T', source: 'lfm2-5-350m-card', where: 'Training budget' },
+    { label: 'Context length', value: 32768, source: 'lfm2-5-350m-card', where: 'Context length' },
+    { label: 'Knowledge cutoff', value: 'Mid-2024', source: 'lfm2-5-350m-card' },
+  ]}
+/>
+
+<Callout type="pitfall">
+The LFM2 report lists feed-forward width 4608 for LFM2-350M <Cite id="lfm2-report" where="Table 1" />. The released LFM2.5-350M config has `intermediate_size: 6656`. Use the config for this checkpoint. The same config sets `max_position_embeddings` to 128000; the card's supported context is 32,768.
+</Callout>
+
+## What is new
+
+### More pretraining, then RL
+
+LFM2 dense models were pretrained for 10T tokens at 4K context, then 1T of mid-training at 32K <Cite id="lfm2-report" where="§3.2" />. The 350M LFM2.5 blog describes the 2.5 generation as that same architecture with pretraining extended from 10T to 28T, plus large-scale reinforcement learning <Cite id="lfm2-5-350m-blog" />. The card lists the training budget as 28T tokens <Cite id="lfm2-5-350m-card" where="Training budget" />.
+
+The authors highlight three scores that moved relative to LFM2-350M: IFBench 18.20 → 40.69, CaseReportBench 11.67 → 32.45, and BFCLv3 22.95 → 44.11 <Cite id="lfm2-5-350m-blog" />. They still recommend the model for extraction and tool use, not for math, code, or creative writing <Cite id="lfm2-5-350m-card" />.
+
+## What it reuses
+
+- [[gated-short-conv]] for local mixing in 10 of 16 layers, kernel 3.
+- [[gqa]] with 16 query heads sharing 8 key/value heads, plus [[rope]] on the attention layers.
+- [[kv-cache]] only in those 6 attention layers; convolution layers keep a short window.
+
+[[lfm2-5-230m]] is distilled from this size. [[lfm2-5-1-2b-instruct]] uses the same 16-layer interleaving at hidden size 2048.

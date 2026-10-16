@@ -1,0 +1,80 @@
+---
+title: LFM2.5-1.2B-Thinking
+kind: system
+summary: The 1.2B LFM2.5 trained to think before answering. Same hybrid backbone as Instruct; post-training adds reasoning traces, loop-aware DPO and curriculum RL.
+domains: [llm, attention, inference]
+prerequisites: []
+builds_on: [lfm2-5-1-2b-instruct]
+contrasts_with: []
+related: []
+sources: [lfm2-5-1-2b-thinking-card, lfm2-5-1-2b-thinking-config, lfm2-5-1-2b-thinking-blog, lfm2-5-1-2b-instruct-card]
+status: draft
+updated: 2026-10-16
+---
+
+LFM2.5-1.2B-Thinking is [[lfm2-5-1-2b-instruct]] with a reasoning post-train. The `config.json` widths, `layer_types` and 28T pretraining budget match Instruct; the weights are the same [[hybrid-conv-attention]] backbone <Cite id="lfm2-5-1-2b-thinking-config" where="layer_types" />. What is new is that the model writes a thinking trace before the answer, and the training recipe that makes small models do that without looping <Cite id="lfm2-5-1-2b-thinking-blog" />.
+
+## At a glance
+
+<ArchDiagram
+  title="Thinking sits on the Instruct backbone"
+  caption="No new mixer. The 16-layer conv-GQA stack is unchanged; post-training teaches the model to reason first, then answer."
+  blocks={[
+    { id: 'in', label: 'Prompt', role: 'activation', col: 1, row: 0 },
+    { id: 'backbone', label: '1.2B hybrid', sub: '10 conv + 6 GQA', role: 'op', col: 1, row: 1, link: 'lfm2-5-1-2b-instruct' },
+    { id: 'think', label: 'Thinking trace', role: 'activation', col: 0, row: 2 },
+    { id: 'ans', label: 'Answer', role: 'activation', col: 2, row: 2 },
+  ]}
+  edges={[
+    { from: 'in', to: 'backbone' },
+    { from: 'backbone', to: 'think' },
+    { from: 'think', to: 'ans' },
+  ]}
+/>
+
+<Spec
+  title="LFM2.5-1.2B-Thinking at a glance"
+  rows={[
+    { label: 'Parameters', value: '1.17B', source: 'lfm2-5-1-2b-thinking-card', where: 'Number of parameters' },
+    { label: 'Layers', value: 16, source: 'lfm2-5-1-2b-thinking-config', where: 'num_hidden_layers' },
+    { label: 'Conv / attention layers', value: '10 / 6', source: 'lfm2-5-1-2b-thinking-card', where: 'Number of layers' },
+    { label: 'Hidden size', value: 2048, source: 'lfm2-5-1-2b-thinking-config', where: 'hidden_size' },
+    { label: 'FFN intermediate', value: 12288, source: 'lfm2-5-1-2b-thinking-config', where: 'intermediate_size' },
+    { label: 'Training tokens', value: '28T', source: 'lfm2-5-1-2b-thinking-card', where: 'Training budget' },
+    { label: 'Context length', value: 32768, source: 'lfm2-5-1-2b-thinking-card', where: 'Context length' },
+    { label: 'MATH-500', value: '87.96 vs Instruct 63.20', source: 'lfm2-5-1-2b-thinking-blog' },
+    { label: 'AIME25', value: '31.73 vs Instruct 14.00', source: 'lfm2-5-1-2b-thinking-blog' },
+  ]}
+/>
+
+## What is new
+
+### Reason first, without doom loops
+
+Small models that emit traces tend to repeat themselves instead of finishing. The Thinking blog names that "doom looping" and measures it on a held-out prompt set: 15.74% after mid-training, 14.98% after SFT, 4.32% after DPO, 0.36% after RLVR <Cite id="lfm2-5-1-2b-thinking-blog" />.
+
+<Stepper title="How Thinking is trained">
+  <Step title="Put traces in mid-training">
+    Earlier LFM-1B-Math runs had shown that reasoning traces during mid-training teach the "reason first, then answer" habit. Thinking reuses that idea so SFT does not have to invent the format from scratch.
+  </Step>
+  <Step title="SFT on synthetic traces">
+    Supervised fine-tuning on synthetic reasoning traces makes chain-of-thought generation reliable enough that they skip a format reward later.
+  </Step>
+  <Step title="DPO that prefers non-loops">
+    From the SFT checkpoint they sample five temperature candidates and one greedy candidate. The chosen response is the highest-scoring under an LLM judge. The rejected response is a looping candidate whenever one appears, otherwise the lowest-scoring candidate.
+  </Step>
+  <Step title="RLVR with a repetition penalty">
+    Reinforcement learning with verifiable rewards (a GRPO-style, critic-free update) adds an n-gram repetition penalty early in training. Verifiable tasks use rule rewards; open-ended prompts use a generative reward model.
+  </Step>
+  <Step title="Curriculum, then merge">
+    Instruction-following RLVR is the trunk. Domain specialists for reasoning, math and tool use branch off, then iterative merging recombines them. The blog says the final checkpoint has 25 unique checkpoints in its family tree.
+  </Step>
+</Stepper>
+
+On the card's suite, math moves the most versus Instruct: MATH-500 63.20 → 87.96 and AIME25 14.00 → 31.73. Multi-IF and BFCLv3 also rise; IFBench is slightly lower (47.33 → 44.85) <Cite id="lfm2-5-1-2b-thinking-blog" />. The authors recommend Thinking for tool use, math and programming, and Instruct for chat and creative writing <Cite id="lfm2-5-1-2b-thinking-blog" />.
+
+The card's default sampling temperature is 0.05; Instruct's is 0.1 <Cite id="lfm2-5-1-2b-thinking-card" where="Generation parameters" />.
+
+## What it reuses
+
+- The entire [[lfm2-5-1-2b-instruct]] backbone: 16-layer [[hybrid-conv-attention]], 2048 hidden, 32/8 [[gqa]], kernel-3 [[gated-short-conv]], 65,536 vocab, 32K context.

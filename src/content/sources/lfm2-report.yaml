@@ -1,0 +1,8 @@
+title: LFM2 Technical Report
+short: LFM2 report
+authors: Liquid AI
+year: 2025
+url: https://arxiv.org/abs/2511.23404
+type: report
+accessed: 2026-10-16
+notes: Architecture of the LFM2 hybrid backbone that LFM2.5 reuses. Dense Table 1 FF dims differ from some LFM2.5 config.json files; prefer those configs for released 2.5 checkpoints.

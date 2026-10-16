@@ -1,0 +1,86 @@
+---
+title: LFM2.5-2.6B-Base
+kind: system
+summary: The 2.69B LFM2.5 pretrained checkpoint. Thirty hybrid layers, a 128K vocabulary and a 128K-class context window, trained on 34T tokens.
+domains: [llm, attention, inference]
+prerequisites: [hybrid-conv-attention]
+builds_on: []
+contrasts_with: []
+related: [lfm2-5-1-2b-instruct, lfm2-5-2-6b]
+sources: [lfm2-5-2-6b-base-card, lfm2-5-2-6b-base-config, lfm2-5-2-6b-blog, lfm2-report]
+status: draft
+updated: 2026-10-16
+---
+
+LFM2.5-2.6B-Base is the pretrained 2.6B hybrid that [[lfm2-5-2-6b]] is post-trained from. It is still [[hybrid-conv-attention]], but deeper than the 16-layer 350M/1.2B models: 22 [[gated-short-conv]] blocks and 8 [[gqa]] blocks <Cite id="lfm2-5-2-6b-base-card" where="Number of layers" />. Pretraining is about 34T tokens, the vocabulary is doubled to 128K, and mid-training extends context to 128K <Cite id="lfm2-5-2-6b-blog" />. The card is for further fine-tuning, not chat out of the box <Cite id="lfm2-5-2-6b-base-card" />.
+
+## The block
+
+<ArchDiagram
+  title="An LFM2.5-2.6B-Base layer"
+  caption="Thirty layers. Twenty-two mix with a kernel-3 gated convolution; eight mix with grouped-query attention. Hidden size stays 2048, the same as the 1.2B."
+  blocks={[
+    { id: 'in', label: 'Hidden state', sub: '2048', role: 'activation', col: 1, row: 0 },
+    { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
+    { id: 'conv', label: 'Gated short conv', sub: '× 22 · k = 3', role: 'op', col: 0, row: 2, link: 'gated-short-conv' },
+    { id: 'attn', label: 'GQA', sub: '× 8 · 32 Q / 8 KV', role: 'op', col: 2, row: 2, link: 'gqa' },
+    { id: 'cwin', label: 'Conv window', sub: 'fixed', role: 'cache', col: 0, row: 3 },
+    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
+    { id: 'add1', label: 'Add', role: 'op', col: 1, row: 4 },
+    { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 5 },
+    { id: 'ffn', label: 'SwiGLU', sub: '10752', role: 'weight', col: 1, row: 6 },
+    { id: 'add2', label: 'Add', role: 'op', col: 1, row: 7 },
+  ]}
+  edges={[
+    { from: 'in', to: 'n1' },
+    { from: 'n1', to: 'conv' },
+    { from: 'n1', to: 'attn' },
+    { from: 'conv', to: 'cwin', dashed: true },
+    { from: 'attn', to: 'kv', dashed: true },
+    { from: 'conv', to: 'add1' },
+    { from: 'attn', to: 'add1' },
+    { from: 'in', to: 'add1', side: 'left' },
+    { from: 'add1', to: 'n2' },
+    { from: 'n2', to: 'ffn' },
+    { from: 'ffn', to: 'add2' },
+    { from: 'add1', to: 'add2', side: 'left' },
+  ]}
+  groups={[{ label: '30 layers; attention every few convolutions, not in one cluster', from: [0, 1], to: [2, 7] }]}
+/>
+
+<Spec
+  title="LFM2.5-2.6B-Base at a glance"
+  rows={[
+    { label: 'Parameters', value: '2.69B', source: 'lfm2-5-2-6b-base-card', where: 'Total parameters' },
+    { label: 'Layers', value: 30, source: 'lfm2-5-2-6b-base-config', where: 'num_hidden_layers' },
+    { label: 'Conv / attention layers', value: '22 / 8', source: 'lfm2-5-2-6b-base-card', where: 'Number of layers' },
+    { label: 'Hidden size', value: 2048, source: 'lfm2-5-2-6b-base-config', where: 'hidden_size' },
+    { label: 'FFN intermediate', value: 10752, source: 'lfm2-5-2-6b-base-config', where: 'intermediate_size' },
+    { label: 'Query / KV heads', value: '32 / 8', source: 'lfm2-5-2-6b-base-config', where: 'num_attention_heads / num_key_value_heads' },
+    { label: 'Conv window', value: 3, source: 'lfm2-5-2-6b-base-config', where: 'conv_L_cache' },
+    { label: 'RoPE θ', value: '10,000,000', source: 'lfm2-5-2-6b-base-config', where: 'rope_parameters.rope_theta' },
+    { label: 'Vocabulary', value: 128000, source: 'lfm2-5-2-6b-base-config', where: 'vocab_size' },
+    { label: 'Training tokens', value: '34T', source: 'lfm2-5-2-6b-base-card', where: 'Training budget' },
+    { label: 'Context length', value: 131072, source: 'lfm2-5-2-6b-base-card', where: 'Context length' },
+  ]}
+/>
+
+`layer_types` places the 8 attention layers at indices 2, 5, 9, 13, 17, 21, 24, 27 — every two or three convolutions, not a block of attention at the end <Cite id="lfm2-5-2-6b-base-config" where="layer_types" />. Feed-forward width 10752 matches LFM2-2.6B in the original report <Cite id="lfm2-report" where="Table 1" />.
+
+<Callout type="pitfall">
+The card lists context 131,072. This Base config has `max_position_embeddings: 128000`; the post-trained [[lfm2-5-2-6b]] config has 131072. Prefer the card for the supported window, and do not assume the two configs agree.
+</Callout>
+
+## What is new
+
+### Deeper stack, bigger vocab, 128K context
+
+The 16-layer models stop at 6 attention blocks and a 65,536-token vocabulary. Base adds two attention blocks and twelve convolution blocks, trains on 34T tokens, and doubles the tokenizer to 128K by extending the existing vocabulary in place rather than retraining from scratch — the same procedure used for LFM2.5-8B-A1B <Cite id="lfm2-5-2-6b-blog" />. Mid-training includes a dedicated 128K context-extension phase <Cite id="lfm2-5-2-6b-blog" />. [[rope]] θ is $10^7$ here versus $10^6$ on the 1.2B configs <Cite id="lfm2-5-2-6b-base-config" where="rope_parameters.rope_theta" />.
+
+Original LFM2-2.6B was a 32K-context dense model <Cite id="lfm2-report" where="Table 1, §2.2" />. The 2.5 Base checkpoint is that depth and width with the longer window and the larger vocabulary.
+
+## What it reuses
+
+- [[hybrid-conv-attention]] with kernel-3 [[gated-short-conv]] and [[gqa]] (32 query / 8 KV heads, same as the 1.2B).
+- SwiGLU feed-forward at the LFM2-2.6B width 10752.
+- [[kv-cache]] only in the 8 attention layers.
