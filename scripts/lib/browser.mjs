@@ -191,7 +191,19 @@ export async function withPage({ width = 1280, height = 900, flags = [] } = {}, 
   } finally {
     sock.close();
     chrome.proc.kill();
+    await new Promise((r) => {
+      if (chrome.proc.exitCode != null) r();
+      else chrome.proc.once('exit', r);
+    });
     server.close();
-    fs.rmSync(chrome.dir, { recursive: true, force: true });
+    for (let i = 0; i < 8; i++) {
+      try {
+        fs.rmSync(chrome.dir, { recursive: true, force: true });
+        break;
+      } catch (e) {
+        if (e.code !== 'ENOTEMPTY' || i === 7) throw e;
+        await new Promise((r) => setTimeout(r, 50 * (i + 1)));
+      }
+    }
   }
 }
