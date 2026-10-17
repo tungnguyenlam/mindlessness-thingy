@@ -5,7 +5,7 @@ description: The last step of every task in this repo. Run the checks, look at w
 
 # Finish a task
 
-A task isn't done until it's committed (rule `commit-when-done`). Do these in order. The stop hook will remind you if you skip one.
+A task isn't done until it's committed (rule `commit-when-done`). Do these in order, and don't call it done until the commit would pass CI. The stop hook will remind you if you skip one.
 
 ## 1. Check
 
@@ -80,11 +80,25 @@ git -c user.name="$(git log -1 --format=%an)" -c user.email="$(git log -1 --form
 
 Don't push unless the owner asked you to.
 
-## 6. Report
+## 6. Verify CI
+
+```sh
+pnpm run ci
+```
+
+This replays the GitHub Actions deploy job on your commit: a clean checkout of `HEAD` (uncommitted files don't exist there), `pnpm install --frozen-lockfile`, then `pnpm run check`. It takes a minute or two. If it fails while your working tree passes, the commit is missing a file it needs or `package.json` and `pnpm-lock.yaml` disagree: fix it, commit again, rerun. Don't report the task done until it passes.
+
+If the owner asked you to push, also watch the real run until it finishes:
+
+```sh
+gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status
+```
+
+## 7. Report
 
 Tell the owner, briefly:
 
-- what you changed and the commit hash(es);
+- what you changed and the commit hash(es), and that `pnpm run ci` passed;
 - stubs you created;
 - numbers you couldn't verify, or sources that disagreed;
 - anything you noticed but left alone (other people's failing files, ideas for follow-ups).

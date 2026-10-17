@@ -66,3 +66,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: completed all 22 remaining stubs (17 concepts, 5 systems) with sourced prose and visual-first diagrams; added model data for DeepSeek-V3.2, V4 and V4.1-Flash; commits: 14279cf attention, 12b69a8 moe, edcaf3d deepseek concepts, c55d49d deepseek-v2, e9899d3 deepseek-v3-2, + v4, generative, vision, mamba-2
 - files: src/content/notes/concepts/*.mdx src/content/notes/systems/deepseek-*.mdx src/content/notes/systems/nemotron-3-nano.mdx src/content/models/deepseek-*.yaml
 - open: MANO vertex count and shape-vector length unverified (left out); V4/V4.1 tokenizer identical to V3's not documented, only its size; nemotron-3-nano shared-expert count differs between report and config; overview.mjs renders expert_groups 0 as "within 0 of 0 groups"
+
+## 2026-10-17 · build(ci): replay the deploy job locally with pnpm run ci
+- did: pnpm run ci checks out HEAD into a temp dir, installs with --frozen-lockfile and runs pnpm run check like deploy.yml; AGENTS.md lifecycle and finish-task skill now require it after every commit (plus gh run watch when pushing)
+- files: scripts/ci-local.mjs package.json AGENTS.md .agents/skills/finish-task/SKILL.md
+- open: none

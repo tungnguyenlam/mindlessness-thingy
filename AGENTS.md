@@ -28,7 +28,7 @@ Each rule has an id. When `pnpm run check`, a test, a git hook or an agent hook 
 10. `diagram-geometry`: **Diagrams must lay out cleanly.** The fast check runs the same layout code as `<ArchDiagram>` and fails on overlapping blocks, edges through blocks, edges drawn on top of each other, labels wider than their box and diagrams too wide for the column. Edges are routed around blocks automatically and blocks without `col`/`row` are placed for you, so prefer leaving positions out. Hand-drawn diagrams use symbols, never numbers (`sourced-numbers` warning), and in concept notes every tensor box shows its shape (`no-shape` warning). Generated model diagrams draw that model's real numbers from its data. See [Style](#style).
 11. `render-clean`: **What renders must be clean at 1280 px and 390 px.** `scripts/test-visual.mjs` (part of `pnpm run check`) loads every page with real fonts and fails on sideways page scroll, diagram text wider than its block, colliding labels, labels rendered too small, KaTeX errors and script errors. Wide content scrolls inside its own figure, never the page.
 12. `model-card`: **A system note with model data shows the whole model and its tokenizer.** `<ModelOverview model="...">` near the top (text → tokenizer → embedding → layers → head → next token, with one tab per part drawn down to projections and tensor shapes), `<ModelSpec>` for the numbers, and a `## Tokenizer` section with `<Tokenizer model="...">`. Tokenizers live in `src/content/tokenizers/` and are shared by every model that uses them; the shared tokenizer note explains how it splits text. The generated diagrams of every model are linted on each check.
-13. `commit-when-done`: **Finish every task with `pnpm run check` passing and a commit of only your own files.** See the task lifecycle below.
+13. `commit-when-done`: **Finish every task with `pnpm run check` passing, a commit of only your own files, and `pnpm run ci` passing on that commit.** `pnpm run ci` replays the GitHub Actions deploy job locally (clean checkout of `HEAD`, `pnpm install --frozen-lockfile`, `pnpm run check`), so a red build is caught before it is pushed, not after. See the task lifecycle below.
 
 ### When the system corrects you
 
@@ -49,13 +49,15 @@ How all of this fits together, and how to add a new rule, is in `docs/guardrails
 4. **Look.** `pnpm run shot /notes/<slug>/` and open the PNG for anything visual you changed.
 5. **Log.** Append one entry to `worklog.md` with the shell (format and command in `docs/workflow.md#the-worklog`) and stage it with your files.
 6. **Commit.** Stage your files by path and commit with a conventional message (`content(mla): ...`, `feat(trail): ...`). The `commit-msg` hook enforces the format and `pre-commit` reruns the checks on staged files. Details in `.agents/skills/finish-task/SKILL.md`.
-7. **Report** what changed, what you committed, and anything unverified.
+7. **Verify CI.** After committing, run `pnpm run ci`. It checks out only what is committed, installs from the lockfile and runs the full check, exactly like `.github/workflows/deploy.yml`. If it fails, fix the cause and make a new commit; never report a task done with a red local CI. If you pushed (only when the owner asked), also confirm the real run with `gh run watch $(gh run list --limit 1 --json databaseId -q '.[0].databaseId') --exit-status`.
+8. **Report** what changed, what you committed, the local CI result, and anything unverified.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
 | `pnpm run check` | Everything: graph checks, `astro build`, keep-place browser test, render-clean browser test. Must pass before committing. |
+| `pnpm run ci` | The GitHub Actions build job, locally: clean checkout of `HEAD`, frozen-lockfile install, `pnpm run check`. Run after every commit (`--keep` keeps the temp checkout). |
 | `pnpm run check:graph` | Fast content and contract checks only (well under a second). Add `--files a,b` to scope, `--json` for tools. |
 | `pnpm run new <kind> <slug> "Title"` | New stub. Add `--draft` to scaffold a full note from `templates/notes/<kind>.mdx`. |
 | `pnpm run shot <path>` | Screenshot a page to `.scratch/shots/`. Options: `--select <css>` (crop to each match, e.g. `figure.arch`; cheapest to look at), `--full`, `--width`, `--click <selector>`, `--out <file>`. |
