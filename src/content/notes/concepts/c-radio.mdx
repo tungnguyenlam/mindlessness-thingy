@@ -8,8 +8,74 @@ builds_on: []
 contrasts_with: []
 related: [vision-language-connector]
 sources: [am-radio-paper, c-radio-v4-report]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+CLIP-style training gives an encoder language-aligned features, DINO-style self-supervision gives dense features that hold up on segmentation, and SAM-style training gives features a mask decoder can consume. A multimodal system wants all three but can only afford one [[transformer-block]] backbone. AM-RADIO's answer is multi-teacher distillation: train one student to reproduce several teachers at once <Cite id="am-radio-paper" where="Abstract" />. C-RADIO is NVIDIA's current release of that idea, and the image encoder of the Nemotron vision-language models.
+
+## The idea in one picture
+
+<ArchDiagram
+  title="Several teachers, one student backbone"
+  caption="Each teacher scores the same images with its own objective. The student is trained to match their features; afterwards the teachers and their adaptor heads are thrown away, and only the backbone and its patch features remain."
+  blocks={[
+    { id: 'tclip', label: 'CLIP-style teacher', sub: 'language-aligned', role: 'weight' },
+    { id: 'tdino', label: 'DINO-style teacher', sub: 'self-supervised', role: 'weight' },
+    { id: 'tsam', label: 'SAM-style teacher', sub: 'segmentation', role: 'weight' },
+    { id: 'loss', label: 'Distillation losses', sub: 'summary + patch features', role: 'op' },
+    { id: 'student', label: 'Student backbone', sub: 'patches → d per token', role: 'weight', link: 'transformer-block' },
+    { id: 'feat', label: 'Patch features', sub: 'T × d', role: 'activation', link: 'vision-language-connector' },
+  ]}
+  edges={[
+    { from: 'tclip', to: 'loss' },
+    { from: 'tdino', to: 'loss' },
+    { from: 'tsam', to: 'loss' },
+    { from: 'loss', to: 'student', label: 'distils' },
+    { from: 'student', to: 'feat' },
+  ]}
+/>
+
+Each teacher watches the same stream of images; no labels are needed, the datasets are only sources of pixels <Cite id="am-radio-paper" where="§3.1" />. The student's patch features and its summary vector are pushed by the losses to match every teacher's, through small adaptor heads that exist only during training. What stays afterwards is one backbone whose features sit close enough to each teacher's to reuse that teacher's downstream tooling.
+
+## How it works
+
+There is no shared label space to match, so AM-RADIO matches features: the student's summary vector against each teacher's summary with cosine distance, and the spatial feature maps with a mix of cosine similarity and smooth L1 <Cite id="am-radio-paper" where="§3.4" />. SAM contributes only the spatial term; it has no summary to match <Cite id="am-radio-paper" where="§3.4" />. The smooth L1 term matches magnitudes, which is what lets the trained backbone drop into a teacher's existing decoder unchanged <Cite id="am-radio-paper" where="§3.4" />.
+
+$$
+L_{\text{spatial}} = \sum_i \gamma_i \Big( \alpha \, L_{\cos}\big(h_i(x'),\, t_i(x)\big) + \beta \, L_{\text{smooth-}L_1}\big(h_i(x'),\, t_i(x)\big) \Big)
+$$
+
+In the equation, $h_i$ is a small adaptor head for teacher $i$ and $x' = f(x)$ is the student's features. The heads are two-layer MLPs (LayerNorm + GELU), one per teacher for the summary and one for the spatial features, and they are discarded after training <Cite id="am-radio-paper" where="§3.2" />. Learned loss-balancing schemes bought nothing over naive equal weighting <Cite id="am-radio-paper" where="§3.4.1" />. The teachers run at three different input resolutions, so the training loop splits its GPUs by teacher and resolution group <Cite id="am-radio-paper" where="§4" />.
+
+<Spec
+  title="AM-RADIO's distillation recipe"
+  rows={[
+    { label: 'Spatial loss mix (cosine : smooth L1)', value: '0.9 : 0.1', source: 'am-radio-paper', where: '§3.4' },
+    { label: 'Summary-loss weights (CLIP, DINOv2, SAM)', value: '1 : 1 : 0', source: 'am-radio-paper', where: '§3.4.1' },
+    { label: 'Best student and its teachers', value: 'ViT-H/16; CLIP, DINOv2, SAM', source: 'am-radio-paper', where: '§4' },
+    { label: 'Distillation dataset', value: 'DataComp-1B', source: 'am-radio-paper', where: '§3.3, §4' },
+  ]}
+/>
+
+## What C-RADIO adds over AM-RADIO
+
+AM-RADIO merged CLIP, DINOv2 and SAM; C-RADIOv4 keeps the recipe and upgrades everything around it. The teacher set becomes SigLIP2, DINOv3 and SAM3 <Cite id="c-radio-v4-report" where="§1, §2.1" />, on the standing observation that better teachers yield better students <Cite id="am-radio-paper" where="§6" />. Training samples its resolution stochastically instead of using two fixed ones; the feature loss becomes shift-equivariant, so the student cannot copy a teacher's fixed-pattern noise; and the summary loss is normalized by each teacher's angular dispersion, so one teacher cannot dominate <Cite id="c-radio-v4-report" where="§2.2, §2.3, §2.5" />.
+
+| Role | AM-RADIO | C-RADIOv4 |
+| --- | --- | --- |
+| Language alignment | DFN CLIP | SigLIP2 |
+| Dense self-supervision | DINOv2 | DINOv3 |
+| Segmentation | SAM | SAM3 |
+
+The teacher sets are from AM-RADIO §4 and C-RADIOv4 §2.1. Two sizes ship, 412M and 631M parameters, under a permissive license, with ViTDet windowed attention as an efficiency option at high resolution <Cite id="c-radio-v4-report" where="Abstract" />.
+
+## What it costs
+
+Distillation is only as good as the teachers. AM-RADIO's student beats its teachers on most benchmarks, not all — six of nine in its own comparison <Cite id="am-radio-paper" where="§5.2, Table 1" /> — and C-RADIOv4 substitutes for SAM3's encoder unevenly across image domains <Cite id="c-radio-v4-report" where="§3.2" />. The trained backbone keeps one artifact: RADIO models change their representation style when the input resolution shifts far from training <Cite id="am-radio-paper" where="§6" />.
+
+<Callout type="pitfall">
+Zero-shot classification only works because the student matched CLIP's features closely enough to reuse CLIP's text encoder. A RADIO student is not itself a CLIP model; reach for the teacher's tooling, not the student's name.
+</Callout>
+
+The patch features go next to a [[vision-language-connector]], which turns them into tokens a language model reads.

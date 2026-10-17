@@ -8,8 +8,72 @@ builds_on: []
 contrasts_with: []
 related: []
 sources: [nemotron-3-super-report, nemotron-3-5-report]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Four bits per weight is half of what [[fp8-training]] uses and a quarter of BF16. NVFP4 stores each element as an E2M1 float — one sign bit, two exponent bits, one mantissa bit — and keeps the values usable with two levels of scaling: an FP8 scale per block of consecutive values, and one FP32 scale per tensor <Cite id="nemotron-3-super-report" where="§2.2, Table 3" />. Nemotron 3 Super is the first Nemotron model pretrained in this format <Cite id="nemotron-3-super-report" where="Abstract, §1" />, and Nemotron 3.5 ships its deployment checkpoints quantized with it <Cite id="nemotron-3-5-report" where="§4.1" />.
+
+## The scale hierarchy
+
+<ArchDiagram
+  title="One tensor, stored as blocks of scaled 4-bit values"
+  caption="The values are stored as E2M1; everything else is bookkeeping around them. One FP32 scale carries the tensor's overall magnitude, and one FP8 scale rescales each block so its values fill E2M1's narrow range."
+  blocks={[
+    { id: 'ten', label: 'Tensor', sub: 'the weights to store', role: 'weight' },
+    { id: 'gs', label: 'Tensor scale', sub: 'FP32, one per tensor', role: 'op' },
+    { id: 'blk', label: 'Block of values', sub: 'consecutive run', role: 'op' },
+    { id: 'bs', label: 'Block scale', sub: 'FP8', role: 'op' },
+    { id: 'vals', label: 'E2M1 values', sub: 'the stored weights', role: 'weight' },
+  ]}
+  edges={[
+    { from: 'ten', to: 'gs' },
+    { from: 'ten', to: 'blk', label: 'split' },
+    { from: 'blk', to: 'bs' },
+    { from: 'blk', to: 'vals' },
+  ]}
+/>
+
+A block holds 16 values <Cite id="nemotron-3-super-report" where="§2.2, Table 3" />; the scales let each block use E2M1's small range well instead of relying on one global scale. The Nemotron 3.5 report restates the format as E2M1 elements with per-block scales <Cite id="nemotron-3-5-report" where="§4" />.
+
+## What 4-bit buys
+
+Weights are the biggest single tensor group in a large model, and serving is usually bound by how fast they can be read from memory, so halving their bytes is the cheapest speedup available — this suggests the reported 2.43× throughput over BF16 for the quantized Nemotron 3.5 release <Cite id="nemotron-3-5-report" where="Abstract, §4" />.
+
+The scales cost a little of the saving: one FP8 scale per 16 values adds half a bit per element (derived: eight bits over sixteen values), which is why the report measures its NVFP4 KV cache at 4.5 bits per element rather than 4 <Cite id="nemotron-3-5-report" where="§4.5" />.
+
+Across the whole mixed release checkpoint — experts in NVFP4, attention in FP8, embeddings in BF16 — the average lands at 4.82 bits per parameter <Cite id="nemotron-3-5-report" where="§4.1, Table 12" />.
+
+<Calc
+  title="Bytes to store a model's weights"
+  inputs={[
+    { id: 'p', label: 'Parameters (billions)', min: 1, max: 550, value: 124 },
+  ]}
+  outputs={[
+    { label: 'BF16 weights', expr: 'p * 2e9', format: 'bytes', role: 'weight' },
+    { label: 'FP8 weights', expr: 'p * 1e9', format: 'bytes', role: 'weight' },
+    { label: 'NVFP4 values only', expr: 'p * 0.5e9', format: 'bytes', role: 'weight' },
+    { label: 'NVFP4 values + scales', expr: 'p * 4.5 / 8 * 1e9', format: 'bytes', role: 'weight' },
+    { label: 'BF16 ÷ NVFP4+scales', expr: '2 / (4.5 / 8)', format: 'ratio', role: 'op' },
+  ]}
+  bars
+  note="p is billions of parameters. The default is Nemotron 3.5 Super VL's 124.453B including vision and MTP (Nemotron 3.5 report, §4.1). The NVFP4-with-scales row uses the 4.5 bits per element the report measures for its NVFP4 KV cache (§4.5); values-only is the bare 4-bit payload."
+/>
+
+## What it costs
+
+4-bit floats have a narrow range; values outside it are rounded or clipped, so every quantized tensor carries error. Nemotron 3.5 recovers a median 99.62% of the BF16 accuracy across 36 benchmarks <Cite id="nemotron-3-5-report" where="Abstract, §4.1" /> — recovery, not equality — and the most sensitive parts never go to 4 bits <Cite id="nemotron-3-super-report" where="§2.2, Table 3" />.
+
+<Spec
+  title="What stays in higher precision"
+  rows={[
+    { label: 'Super pretraining: kept high precision', value: 'Final 15% of the network, latent projections, MTP, attention in BF16; Mamba output projection in MXFP8', source: 'nemotron-3-super-report', where: '§2.2, Table 3' },
+    { label: '3.5 release: NVFP4', value: 'MoE and shared-expert GEMMs', source: 'nemotron-3-5-report', where: '§4.1, Table 12' },
+    { label: '3.5 release: FP8', value: 'Attention projections, Mamba linears, LM head, KV cache', source: 'nemotron-3-5-report', where: '§4.1, Table 12' },
+    { label: '3.5 release: BF16 / FP32', value: 'Embeddings, latent projections, C-RADIO, connector; router in FP32', source: 'nemotron-3-5-report', where: '§4.1, Table 12' },
+  ]}
+/>
+
+<Callout type="pitfall">
+4-bit weights are not a 4-bit model. Activations run at 4 bits only on Blackwell (W4A4); everywhere else the weights are NVFP4 but the activations stay at 16 bits (W4A16) <Cite id="nemotron-3-5-report" where="§4.1" />.
+</Callout>

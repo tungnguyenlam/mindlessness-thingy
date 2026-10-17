@@ -7,9 +7,68 @@ prerequisites: [c-radio]
 builds_on: []
 contrasts_with: []
 related: []
-sources: [nemotron-3-nano-omni-report]
-status: stub
-updated: 2026-10-16
+sources: [nemotron-3-nano-omni-report, nemotron-3-5-super-vl-config]
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+[[c-radio]] hands over one feature vector per image patch: a grid of $T$ vectors, each of width $d$. A language model reads tokens of its own width $d_L$, and every extra token adds attention and cache over the rest of the sequence. The connector is the small module in between. It merges neighbouring patches into fewer, wider tokens, then projects them with an MLP <Cite id="nemotron-3-nano-omni-report" where="§2" />.
+
+## Patch features to language-model tokens
+
+<ShapeFlow
+  title="Merge, then project"
+  steps={[
+    { label: 'Patch features', shape: ['T', 'd'], role: 'activation', link: 'c-radio' },
+    { label: 'Merged tokens', shape: ['T′', 'n_merge·d'], role: 'activation', op: 'pixel shuffle' },
+    { label: 'Language-model tokens', shape: ['T′', 'd_L'], role: 'activation', op: 'MLP' },
+  ]}
+  caption="Pixel shuffle folds each group of n_merge neighbouring patches into one token of n_merge·d features; the MLP then maps that into the language model's width d_L. T′ = T / n_merge."
+/>
+
+The merge is a rearrange, not a computation: the features of neighbouring patches are stacked along the width axis, so nothing is thrown away yet. The MLP is the only learned part of the connector, mapping from the widened token into the language model's width <Cite id="nemotron-3-nano-omni-report" where="§2" />.
+
+## Why merge before projecting
+
+Dynamic resolution makes the count urgent: Nemotron's pipeline gives the encoder between 1,024 and 13,312 patches per image <Cite id="nemotron-3-nano-omni-report" where="§2" />. Every patch that survives into the language model costs attention against every other token and a slot in its [[kv-cache]]. The Omni report states the goal plainly: reduce the token count presented to the language model <Cite id="nemotron-3-nano-omni-report" where="§2" />.
+
+<Calc
+  title="Tokens into the language model"
+  inputs={[
+    { id: 't', label: 'Patch features T', min: 256, max: 16384, step: 256, value: 13312 },
+    { id: 'n', label: 'Merge factor n_merge', min: 1, max: 4, value: 4 },
+  ]}
+  outputs={[
+    { label: 'Tokens presented (T / n_merge)', expr: 't / n', format: 'number', role: 'activation' },
+    { label: 'Attention pairs', expr: '(t / n) * (t / n)', format: 'number', role: 'op' },
+    { label: 'Pairs saved vs no merging', expr: 'n * n', format: 'ratio', role: 'op' },
+  ]}
+  bars
+  note="Defaults are the maximum image of Nemotron 3 Nano Omni's dynamic-resolution pipeline and its 4× pixel shuffle (Nemotron 3 Nano Omni report, §2). n_merge = 1 is the same image with no merge."
+/>
+
+## The numbers in Nemotron
+
+The reports state the design but not every width. Omni uses 16×16 patches, at most 13,312 tokens per image, a pixel shuffle with 4× downsampling before the MLP projector, and a 3D convolution folding every two video frames into one <Cite id="nemotron-3-nano-omni-report" where="§2" />. Nemotron 3.5 Super VL publishes only two connector keys, consistent with the same design but not proof of it <Cite id="nemotron-3-5-super-vl-config" where="downsample_ratio, projector_hidden_size" />.
+
+<Spec
+  title="The connector's numbers in Nemotron"
+  rows={[
+    { label: 'Patch size', value: '16 × 16 px', source: 'nemotron-3-nano-omni-report', where: '§2' },
+    { label: 'Visual tokens per image (before merge)', value: '1,024–13,312', source: 'nemotron-3-nano-omni-report', where: '§2' },
+    { label: 'Pixel-shuffle downsampling', value: '4×', source: 'nemotron-3-nano-omni-report', where: '§2' },
+    { label: 'Video frames folded by Conv3D', value: '2 → 1', source: 'nemotron-3-nano-omni-report', where: '§2' },
+    { label: 'Super VL: projector hidden width', value: 20480, source: 'nemotron-3-5-super-vl-config', where: 'projector_hidden_size' },
+    { label: 'Super VL: downsample ratio', value: 0.5, source: 'nemotron-3-5-super-vl-config', where: 'downsample_ratio' },
+  ]}
+/>
+
+The MLP's depth and activation are unverified: the Omni report says only "MLP projectors", and Super VL's config gives no layer count.
+
+## Where it sits
+
+Nano Omni is an encoder–projector–decoder: C-RADIO encodes, the connector projects, and the visual tokens are concatenated with the text tokens into the one sequence the [[hybrid-ssm-attention]] backbone reads <Cite id="nemotron-3-nano-omni-report" where="§2" />. The projector is trained first and alone: the opening training stage freezes both encoders and the language model, and trains only the vision MLP projector <Cite id="nemotron-3-nano-omni-report" where="§3.1.1" />.
+
+<Callout type="pitfall">
+The merge is irreversible. Once neighbouring patches share one token, the language model can no longer attend to a single patch. Whether that costs fine detail such as small text is a per-model question; the Omni report does not ablate the merge factor.
+</Callout>
