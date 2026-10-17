@@ -8,8 +8,79 @@ builds_on: []
 contrasts_with: [mha]
 related: [kv-cache]
 sources: [mamba2-paper]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+A [[transformer-block]]'s attention reads every past token, so its [[kv-cache]] grows with every token generated. A state space layer mixes along the sequence another way: it folds the whole past into one fixed-size recurrent state and produces each new output from that state alone. Memory per generated token stays constant <Cite id="mamba2-paper" where="§1" />. Mamba-2 is the version of this layer that trains with matrix multiplications, through the framework Dao and Gu call state space duality <Cite id="mamba2-paper" where="Abstract" />.
+
+## The idea in one picture
+
+<ArchDiagram
+  title="One Mamba-2 layer: a state carried along the sequence"
+  caption="Only the state is kept between steps; the dashed edge is the decoding loop, where the state written at one step is read at the next. Every other block is recomputed for the new token."
+  blocks={[
+    { id: 'x', label: 'Token embedding', sub: 'T × d', role: 'activation' },
+    { id: 'b', label: 'Input injection B', sub: 'd → d_s', role: 'weight' },
+    { id: 'a', label: 'State transition A', sub: 'n → n', role: 'weight' },
+    { id: 'h', label: 'Recurrent state h_t', sub: 'n × d_s', role: 'cache', link: 'hybrid-ssm-attention' },
+    { id: 'c', label: 'Readout C', sub: 'n → d_s', role: 'weight' },
+    { id: 'wo', label: 'Output projection W^O', sub: 'd_s → d', role: 'weight' },
+    { id: 'out', label: 'Layer output', sub: 'T × d', role: 'activation', link: 'transformer-block' },
+  ]}
+  edges={[
+    { from: 'x', to: 'b' },
+    { from: 'b', to: 'h' },
+    { from: 'a', to: 'h' },
+    { from: 'h', to: 'a', dashed: true, side: 'right' },
+    { from: 'h', to: 'c' },
+    { from: 'c', to: 'wo' },
+    { from: 'wo', to: 'out' },
+  ]}
+/>
+
+The layer keeps one state, $h$, of shape $n \times d_s$: $n$ state values for each of the $d_s$ channels the input is projected into. Per step it injects the new token into the channels, applies the transition $A$ over the state dimension, and reads the state out. No token is ever stored.
+
+## How it works
+
+<Stepper title="One decoding step">
+  <Step title="Read the state">Load $h_{t-1}$: $n \times d_s$ numbers per layer, the only thing kept between steps.</Step>
+  <Step title="Inject the token">Project $x_t$ into the $d_s$ channels and add it to the state: $B x_t$.</Step>
+  <Step title="Transition">Apply $A$ over the state dimension, giving $h_t = A h_{t-1} + B x_t$.</Step>
+  <Step title="Read out">Turn the state into the layer output, $y_t = C^\top h_t$, and hand it to the output projection.</Step>
+</Stepper>
+
+The state is a running summary. Whatever the far future will need from the past has to survive inside it, and one step is three operations:
+
+$$h_t = A h_{t-1} + B x_t, \qquad y_t = C^\top h_t$$
+
+$A$ is the $n \times n$ transition, the same at every step. $B$ injects the new input into the state, $C$ reads it out <Cite id="mamba2-paper" where="§2.1, Eq. 1" />. Dao and Gu write these discretized parameters plain; earlier SSM work writes them $\bar A$ and $\bar B$ <Cite id="mamba2-paper" where="§2.1, Remark 1" />.
+
+Two things follow from the state not growing. Decoding holds the same $n \times d_s$ values per layer whether the context is one token or a million, and one step costs the same work throughout <Cite id="mamba2-paper" where="§6.3" />. Attention pays the opposite price: it "caches its history and does not compress its state" <Cite id="mamba2-paper" where="§6.3" />.
+
+## State space duality
+
+<ArchDiagram
+  title="The same layer, computed two ways"
+  caption="Both forms compute one sequence transformation; the recurrence walks it token by token, the matrix form batches the whole sequence at once. Mamba-2 trains with the second and decodes with the first."
+  blocks={[
+    { id: 'x', label: 'Sequence x', sub: 'T × d', role: 'activation' },
+    { id: 'rec', label: 'Recurrent form', sub: 'scan, one step at a time', role: 'op' },
+    { id: 'mat', label: 'Matrix form', sub: 'Y = M X, batched', role: 'op' },
+    { id: 'y', label: 'Output Y', sub: 'T × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'rec' },
+    { from: 'x', to: 'mat' },
+    { from: 'rec', to: 'y' },
+    { from: 'mat', to: 'y' },
+  ]}
+/>
+
+Written over the whole sequence at once, the recurrence is one matrix product $Y = M X$, where $M$ is built from the SSM parameters <Cite id="mamba2-paper" where="§2.4" />. The two forms are equivalent: that equivalence is structured state space duality <Cite id="mamba2-paper" where="§5.3" />. Training runs the matrix form as batched matrix multiplications; the recurrence is a linear-time scan <Cite id="mamba2-paper" where="§2.4" />. Mamba-2's blockwise algorithm mixes the two, and its core layer is reported 2–8× faster than Mamba's selective SSM <Cite id="mamba2-paper" where="Abstract" />.
+
+## What it costs
+
+The price is the one an RNN pays. A fixed-size state has no way back into the past: the layer cannot re-read token $j$'s key the way [[mha]] can, so everything a distant position will need has to be compressed into $h$ while the sequence streams by. State width $n$ sets that capacity <Cite id="mamba2-paper" where="§2.1" />, and a wider state costs more every step. Mamba-2 also simplifies $A$ to a scalar times the identity, trading some expressive power for training speed <Cite id="mamba2-paper" where="§2.4" />.
+
+What it buys is a cache that never grows. Stacks that need real retrieval keep a handful of attention layers and let the Mamba-2 layers carry the rest; [[hybrid-ssm-attention]] sizes both kinds of memory against a [[kv-cache]] and shows where the swap pays off.

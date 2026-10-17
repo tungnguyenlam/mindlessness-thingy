@@ -7,9 +7,103 @@ prerequisites: [hybrid-ssm-attention]
 builds_on: []
 contrasts_with: []
 related: [deepseek-moe]
-sources: [nemotron-3-nano-report, nemotron-h-paper]
-status: stub
-updated: 2026-10-16
+sources: [nemotron-3-nano-report, nemotron-h-paper, nemotron-3-super-report, nemotron-3-ultra-report, nemotron-3-5-report, nemotron-3-nano-omni-report]
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Nemotron 3 Nano is NVIDIA's smallest Nemotron 3: a hybrid Mamba-attention MoE of 31.6B parameters, 3.2B active per token <Cite id="nemotron-3-nano-report" where="§1, §2.1" />. The rest of the family grows from it — [[nemotron-3-super]]'s report says it "scales up the hybrid Mamba-Attention MoE architecture introduced in Nemotron-3 Nano" <Cite id="nemotron-3-super-report" where="§2.1" /> — and [[nemotron-lineage]] lays out the whole line. Nano predates the family's two defining additions: it has neither [[latent-moe]] nor [[mtp]] <Cite id="nemotron-3-super-report" where="Abstract, §1" />.
+
+## The stack
+
+<ArchDiagram
+  title="The three kinds of layer in Nemotron 3 Nano"
+  caption="Each layer of the network is exactly one of these blocks, in the order of the pattern below. Only the attention layers add to a cache that grows with the context; the Mamba-2 layers keep reusing their state."
+  blocks={[
+    { id: 'in', label: 'Hidden state', sub: 'd', role: 'activation' },
+    { id: 'mamba', label: 'Mamba-2 layer', sub: 'fixed-size state', role: 'op', link: 'mamba-2' },
+    { id: 'moe', label: 'MoE layer', sub: 'routed + shared experts', role: 'weight', link: 'deepseek-moe' },
+    { id: 'attn', label: 'GQA attention', sub: 'grows the KV cache', role: 'op', link: 'gqa' },
+    { id: 'state', label: 'SSM state', sub: 'constant size', role: 'cache', link: 'hybrid-ssm-attention' },
+    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', link: 'kv-cache' },
+    { id: 'out', label: 'Next layer', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'in', to: 'mamba' },
+    { from: 'in', to: 'moe' },
+    { from: 'in', to: 'attn' },
+    { from: 'mamba', to: 'state', dashed: true },
+    { from: 'attn', to: 'kv', dashed: true },
+    { from: 'mamba', to: 'out' },
+    { from: 'moe', to: 'out' },
+    { from: 'attn', to: 'out' },
+  ]}
+/>
+
+The layout is the [[hybrid-ssm-attention]] recipe that Nemotron-H introduced, replacing most attention layers with Mamba ones <Cite id="nemotron-h-paper" where="Abstract" />, fixed here as a single pattern <Cite id="nemotron-3-nano-report" where="Fig. 2" />. The pattern, with M for Mamba-2, E for MoE and \* for attention:
+
+```
+MEMEM*EMEMEM*EMEMEM*EMEMEM*EMEMEM*EMEMEMEM*EMEMEMEME
+```
+
+<Callout type="note">
+Table 1 counts two shared experts. The released config lists one at twice a routed expert's width, and the model card says "128 experts plus 1 shared" — both readings unverified here, so treat the count as unsettled.
+</Callout>
+
+<Spec
+  title="Nemotron 3 Nano at a glance"
+  rows={[
+    { label: 'Total / active parameters', value: '31.6B / 3.2B', source: 'nemotron-3-nano-report', where: '§1, §2.1' },
+    { label: 'Layers', value: 52, source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Mamba-2 / MoE / attention layers', value: '23 / 23 / 6', source: 'nemotron-3-nano-report', where: 'Fig. 2' },
+    { label: 'Hidden size', value: 2688, source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Query / KV heads', value: '32 / 2', source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Head dimension', value: 128, source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Mamba-2 heads × head dim', value: '64 × 64', source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'SSM state size', value: 128, source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Routed experts', value: 128, source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Active routed experts', value: 6, source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Shared experts', value: 2, source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Expert hidden size', value: 1856, source: 'nemotron-3-nano-report', where: 'Table 1' },
+    { label: 'Pretraining tokens', value: '25T', source: 'nemotron-3-nano-report', where: '§1, §2.4' },
+    { label: 'Long-context tokens', value: '121B', source: 'nemotron-3-nano-report', where: '§2.5' },
+  ]}
+/>
+
+## What is new
+
+### Fine-grained experts beside a shared one
+
+The dense feed-forward layers of the Nemotron-H hybrid are replaced by sparse MoE: each token is routed to a few of many experts, with shared experts that every token also passes through <Cite id="nemotron-3-nano-report" where="§2.1" />. Six of 128 experts <Cite id="nemotron-3-nano-report" where="Table 1" /> keep the active compute small while the parameter count grows. The mechanism is [[deepseek-moe]]'s; [[moe]] explains routing and gating.
+
+### None of the family's later additions
+
+No [[latent-moe]], no [[mtp]]. Nemotron 3 Super is called the first in the family with both <Cite id="nemotron-3-super-report" where="Abstract, §1" />, so Nano's experts work at full width and its training predicts one token per step.
+
+## What it reuses
+
+- **The hybrid stack.** Mostly [[mamba-2]] layers, a few [[gqa]] attention layers as the only [[kv-cache]] holders — the layout [[hybrid-ssm-attention]] explains.
+- **Plain plumbing.** RMSNorm, no biases or dropout, untied embeddings, no positional embeddings <Cite id="nemotron-3-nano-report" where="§2.1" />.
+- **Squared-ReLU experts.** The experts activate with a squared ReLU and a sigmoid-gated router picks them <Cite id="nemotron-3-nano-report" where="§2.1" />.
+
+## What came next
+
+<ArchDiagram
+  title="Where Nemotron 3 Nano sits in the family"
+  caption="Nano is the base: Super scales the architecture up and Ultra scales Super again, while Lightning and Super VL start from a released checkpoint. Click a block to open its note."
+  blocks={[
+    { id: 'n', label: 'Nano', sub: 'this model', role: 'op' },
+    { id: 's', label: 'Super', sub: 'scaled up', role: 'op', link: 'nemotron-3-super' },
+    { id: 'u', label: 'Ultra', sub: 'scaled again', role: 'op' },
+    { id: 'l', label: 'Lightning', sub: 'Nano base, distilled', role: 'op' },
+    { id: 'vl', label: 'Super VL', sub: 'Super base, adds vision', role: 'op', link: 'nemotron-3-5-super-vl' },
+  ]}
+  edges={[
+    { from: 'n', to: 's' },
+    { from: 'n', to: 'l' },
+    { from: 's', to: 'u' },
+    { from: 's', to: 'vl' },
+  ]}
+/>
+
+[[nemotron-3-super]] grows this architecture to 88 layers and 22 active of 512 experts <Cite id="nemotron-3-super-report" where="§2.1, Table 1" />. Nemotron 3 Ultra scales Super up again <Cite id="nemotron-3-ultra-report" where="§2.1" />, 3.5 Lightning starts from Nano 3 Base distilled from Super <Cite id="nemotron-3-5-report" where="§1, §2.2" />, and Nemotron 3 Nano Omni keeps this backbone and adds vision and audio <Cite id="nemotron-3-nano-omni-report" where="§1, §2" />. The reading order of the whole line is on [[nemotron-lineage]].

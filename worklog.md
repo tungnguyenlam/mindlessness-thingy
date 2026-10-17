@@ -56,3 +56,13 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: generated model views draw the model's own sizes (T × 7,168, 128 × (128 + 64), √192) with the symbol table mapping numbers back to symbols and sources; concept diagrams use symbols with a shape on every tensor box (mla, gqa, gated-short-conv, hybrid-conv-attention); MLA notation aligned to the paper (c^KV, k^R, d_h^R); AGENTS.md gains a Style section (writing, diagram style, shared symbol table); new no-shape warning for concept diagrams; PRINCIPLES visual-first thresholds now match the check
 - files: src/lib/models/overview.mjs src/components/viz/ModelOverview.astro AGENTS.md PRINCIPLES.md docs/workflow.md scripts/checks/diagram.mjs templates/notes/concept.mdx .agents/skills/write-article/SKILL.md src/content/notes/concepts/{mla,gqa,gated-short-conv,hybrid-conv-attention}.mdx
 - open: other agent's staged notes (latent-moe, Nemotron) should follow AGENTS.md#diagram-style when they land
+
+## 2026-10-17 · content(nemotron): land the staged Nemotron and StableHand drafts
+- did: committed the previous session's staged work: Nemotron 3 Nano/Super/3.5-Super-VL and StableHand notes, the Nemotron lineage path, their sources and fact sheets
+- files: src/content/notes/{systems,concepts,paths}/ research/nemotron-facts.md research/stablehand-facts.md src/content/sources/
+- open: their warnings stay: numbers in hand-drawn diagrams, missing model data for the Nemotron family, baselined prose runs
+
+## 2026-10-17 · content(attention): write the rope, mqa and transformer-block drafts
+- did: completed all 22 remaining stubs (17 concepts, 5 systems) with sourced prose and visual-first diagrams; added model data for DeepSeek-V3.2, V4 and V4.1-Flash; commits: 14279cf attention, 12b69a8 moe, edcaf3d deepseek concepts, c55d49d deepseek-v2, e9899d3 deepseek-v3-2, + v4, generative, vision, mamba-2
+- files: src/content/notes/concepts/*.mdx src/content/notes/systems/deepseek-*.mdx src/content/notes/systems/nemotron-3-nano.mdx src/content/models/deepseek-*.yaml
+- open: MANO vertex count and shape-vector length unverified (left out); V4/V4.1 tokenizer identical to V3's not documented, only its size; nemotron-3-nano shared-expert count differs between report and config; overview.mjs renders expert_groups 0 as "within 0 of 0 groups"
