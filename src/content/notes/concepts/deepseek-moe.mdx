@@ -2,14 +2,82 @@
 title: "DeepSeekMoE"
 kind: concept
 summary: "DeepSeek's MoE design: many small fine-grained experts plus a few shared experts that every token always uses."
-domains: []
+domains: [llm, moe]
 prerequisites: []
 builds_on: [moe]
 contrasts_with: []
 related: []
-sources: [deepseekmoe-paper]
-status: stub
-updated: 2026-10-16
+sources: [deepseekmoe-paper, deepseek-v2-config]
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+A [[moe]] layer grows parameters without growing compute per token, but the standard recipe — a few large experts and a top-$k$ router — spreads knowledge badly across experts. The DeepSeekMoE paper names two symptoms: knowledge hybridity, where an expert that receives many kinds of token stores unrelated things, and knowledge redundancy, where separate experts separately learn the same common facts <Cite id="deepseekmoe-paper" where="§1" />. Two changes address the two symptoms.
+
+## The idea in one picture
+
+<ArchDiagram
+  title="A DeepSeekMoE layer"
+  caption="The shared lane runs for every token without consulting the router; the router picks K_r of the N_r routed experts, and both lanes are summed. Shared experts are drawn last of the N_s identical ones."
+  blocks={[
+    { id: 'x', label: 'Layer input', sub: 'T × d', role: 'activation' },
+    { id: 'router', label: 'Router', sub: 'g: T × N_r', role: 'route' },
+    { id: 'shared', label: 'Shared experts', sub: 'd → d_e', role: 'weight', link: 'transformer-block' },
+    { id: 'routed', label: 'Routed experts', sub: 'd → d_e', role: 'weight', link: 'transformer-block' },
+    { id: 'out', label: 'Sum of both lanes', sub: 'T × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'router' },
+    { from: 'x', to: 'shared' },
+    { from: 'x', to: 'routed' },
+    { from: 'router', to: 'routed', label: 'top-K_r' },
+    { from: 'routed', to: 'out' },
+    { from: 'shared', to: 'out' },
+  ]}
+/>
+
+The routed lane is the [[moe]] mechanism with a finer cut. The shared lane is new: its weights are read by every token, so the router only ever splits the rest of the budget.
+
+## Fine-grained experts
+
+Each expert is a full feed-forward network. DeepSeekMoE cuts each one into $m$ smaller experts by shrinking the intermediate width to $1/m$ of the original, and activates $m$ times as many of them. Total expert parameters stay fixed, and so does the work per token: the layer now holds $mN$ experts where it held $N$, with $mK$ non-zero gates per token instead of $K$ <Cite id="deepseekmoe-paper" where="§3.1" />.
+
+What changes is the choice. With $N = 16$ experts and top-2 routing a token reaches one of 120 combinations. Split each expert into 4 and the same parameter and compute budget offers $\binom{64}{8}$ combinations <Cite id="deepseekmoe-paper" where="§3.1" />. A token can assemble the exact mix it needs instead of picking from a handful of coarse blocks, and at fixed parameters and fixed compute the paper's ablation improves steadily as the grain gets finer <Cite id="deepseekmoe-paper" where="§4.4" />.
+
+<Spec
+  title="Combinations of activated experts, same parameters and same compute"
+  rows={[
+    { label: 'Standard MoE: 16 experts, top-2', value: '120', source: 'deepseekmoe-paper', where: '§3.1' },
+    { label: 'Fine-grained: 64 experts, top-8', value: '4,426,165,368', source: 'deepseekmoe-paper', where: '§3.1' },
+  ]}
+/>
+
+## Shared experts
+
+A finer grain alone still leaves every routed expert relearning the facts that tokens of all kinds need. DeepSeekMoE sets $K_s$ experts aside as shared ones: the router is not consulted and every token runs them, while the routed lane gives up $K_s$ activations to keep the compute budget constant <Cite id="deepseekmoe-paper" where="§3.2" />.
+
+$$
+h_t = \sum_{i=1}^{K_s} \mathrm{FFN}_i(u_t) + \sum_{i=K_s+1}^{mN} g_{i,t} \mathrm{FFN}_i(u_t)
+$$
+
+The shared lane absorbs the common knowledge so the routed experts can specialise in what differs. The paper measures the cost of dropping it: swap the shared expert for one more routed expert at the same compute and the Pile loss rises from 1.808 to 2.414 <Cite id="deepseekmoe-paper" where="§4.5" />.
+
+<Callout type="pitfall">
+Fine-grained does not mean bigger. $m$ experts at $1/m$ the width hold exactly the parameters one full-width expert held; the gain comes from how many of them a token can activate together, not from a larger layer.
+</Callout>
+
+## What a model chose
+
+[[deepseek-v2]] is the first model to ship the design, at a scale far above the paper's validation models: 160 routed experts of which each token reaches 6, plus 2 shared, with expert intermediate width 1536 <Cite id="deepseek-v2-config" where="config.json" />.
+
+<Spec
+  title="DeepSeek-V2 feed-forward layer"
+  rows={[
+    { label: 'Routed experts N_r', value: 160, source: 'deepseek-v2-config', where: 'config.json: n_routed_experts' },
+    { label: 'Shared experts N_s', value: 2, source: 'deepseek-v2-config', where: 'config.json: n_shared_experts' },
+    { label: 'Routed experts per token K_r', value: 6, source: 'deepseek-v2-config', where: 'config.json: num_experts_per_tok' },
+    { label: 'Expert intermediate width d_e', value: 1536, source: 'deepseek-v2-config', where: 'config.json: moe_intermediate_size' },
+  ]}
+/>
+
+With this many routed experts in play, keeping them evenly loaded stops being optional. [[aux-loss-free-balancing]] is how DeepSeek-V3 does it.

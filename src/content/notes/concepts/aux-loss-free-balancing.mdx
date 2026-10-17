@@ -2,14 +2,111 @@
 title: "Auxiliary-loss-free load balancing"
 kind: concept
 summary: "Keeps MoE experts evenly loaded by nudging a per-expert bias on routing scores, instead of adding a balancing loss that fights the main objective."
-domains: []
+domains: [llm, moe]
 prerequisites: [deepseek-moe]
 builds_on: []
 contrasts_with: []
 related: []
-sources: [loss-free-balancing-paper]
-status: stub
-updated: 2026-10-16
+sources: [loss-free-balancing-paper, deepseek-v3-report]
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+A [[moe]] router left to itself converges to sending most tokens to the same few favourite experts: those experts train faster and get picked even more. The usual fix is an auxiliary loss that penalises imbalance, but it adds gradients that pull against the language-modeling objective — a strong coefficient holds the load flat and costs quality, a weak one lets routing collapse <Cite id="loss-free-balancing-paper" where="§2.2" />. This design balances the load without adding anything to the loss.
+
+## The idea in one picture
+
+<ArchDiagram
+  title="Selecting with the bias, weighting without it"
+  caption="The bias joins the affinity for the selection step only. The gate that scales each expert's output is built from the affinity alone, so the bias never reaches the value the layer produces. The bias is stored per expert and nudged after every training step."
+  blocks={[
+    { id: 'x', label: 'Layer input', sub: 'd', role: 'activation' },
+    { id: 'aff', label: 'Affinity s', sub: 's: N_r', role: 'activation' },
+    { id: 'bias', label: 'Bias b_i', sub: 'b: N_r', role: 'route' },
+    { id: 'select', label: 'Select top-K_r', sub: 'score = s + b', role: 'route' },
+    { id: 'gate', label: 'Gate weights', sub: 'K_r values, from s', role: 'activation' },
+    { id: 'experts', label: 'Selected experts', sub: 'd → d_e', role: 'weight', link: 'deepseek-moe' },
+    { id: 'out', label: 'Layer output', sub: 'd', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'aff' },
+    { from: 'aff', to: 'select' },
+    { from: 'bias', to: 'select' },
+    { from: 'aff', to: 'gate' },
+    { from: 'select', to: 'experts' },
+    { from: 'gate', to: 'out' },
+    { from: 'experts', to: 'out' },
+  ]}
+/>
+
+Selection and weighting use two different scores, and that split is the whole idea: the bias can steer who runs without changing what the layer outputs.
+
+## How it works
+
+The biased score decides which experts run. The plain affinity decides how much each one counts:
+
+$$
+g_{i,t} =
+\begin{cases}
+s_{i,t} & \text{if } s_{i,t} + b_i \text{ is among the top } K_r \text{ of } \{ s_{j,t} + b_j \} \\
+0 & \text{otherwise}
+\end{cases}
+$$
+
+$s_{i,t}$ is the affinity between token $t$ and expert $i$, $b_i$ is expert $i$'s stored bias, and $g_{i,t}$ is the weight that multiplies the expert's output <Cite id="loss-free-balancing-paper" where="§3, Eq. (3)" />. The bias never enters $g_{i,t}$, so it steers selection and no gradient flows through it <Cite id="loss-free-balancing-paper" where="§3" />.
+
+## Updating the bias
+
+After each training step the biases move one fixed step $\gamma$ towards balance: down for experts that got more tokens than their share, up for the ones that got less <Cite id="loss-free-balancing-paper" where="§3, Algorithm 1" />.
+
+$$
+b_i \leftarrow b_i + \gamma \cdot \mathrm{sign}(\bar{c} - c_i)
+$$
+
+$c_i$ is the number of tokens expert $i$ received and $\bar{c}$ the average across experts. The count comes from the previous batch, not the current sequence, so no information about future tokens leaks into earlier ones <Cite id="loss-free-balancing-paper" where="§3, §5.2" />. The paper writes the step as $u$; DeepSeek-V3's report calls it $\gamma$ <Cite id="deepseek-v3-report" where="§4.2" />.
+
+<Stepper title="One training step of the bias loop">
+  <Step title="Score and select">
+    Compute the affinity of every token to every routed expert, add the stored bias, and pick the top $K_r$ experts. The gates that scale the outputs come from the affinity alone.
+  </Step>
+  <Step title="Train on the usual loss">
+    Forward and backward pass as normal. The model updates from the language-modeling objective only; the bias is not a parameter and receives no gradient.
+  </Step>
+  <Step title="Count the load">
+    After the step, count how many tokens each expert received across the batch and take the average across experts.
+  </Step>
+  <Step title="Nudge each bias">
+    Overloaded experts get $b_i - \gamma$, underloaded experts get $b_i + \gamma$. The next batch is routed with the updated biases, and the loop repeats.
+  </Step>
+</Stepper>
+
+## Does the load actually hold
+
+The paper trains 1B- and 3B-parameter models and reports validation perplexity next to MaxVio, the most overloaded expert's excess above a perfectly balanced load <Cite id="loss-free-balancing-paper" where="§4.1, Table 2" />. Balance improves by an order of magnitude while perplexity improves slightly, which is the trade the auxiliary loss could not escape.
+
+<Spec
+  title="Auxiliary loss vs loss-free balancing"
+  rows={[
+    { label: 'Validation perplexity, 1B', value: '9.56 → 9.50', source: 'loss-free-balancing-paper', where: 'Table 2, aux loss → loss-free' },
+    { label: 'Validation perplexity, 3B', value: '7.97 → 7.92', source: 'loss-free-balancing-paper', where: 'Table 2, aux loss → loss-free' },
+    { label: 'Global MaxVio, 1B', value: '0.72 → 0.04', source: 'loss-free-balancing-paper', where: 'Table 2, aux loss → loss-free' },
+    { label: 'Global MaxVio, 3B', value: '0.52 → 0.04', source: 'loss-free-balancing-paper', where: 'Table 2, aux loss → loss-free' },
+  ]}
+/>
+
+## What it costs
+
+The gain replaces a loss coefficient with a step size that has to be tuned. Too small and the biases converge slowly, so the load stays uneven early in training; too large and the biases fluctuate late in training and balance degrades again. The paper's sweep settles on $10^{-3}$ between $10^{-4}$ and $10^{-2}$ <Cite id="loss-free-balancing-paper" where="§4.3" />. DeepSeek-V3 also runs the step down to zero at the end, freezing the routing, and still keeps a small loss:
+
+<Spec
+  title="DeepSeek-V3 balancing settings"
+  rows={[
+    { label: 'Bias step γ', value: '0.001, then 0', source: 'deepseek-v3-report', where: '§4.2' },
+    { label: 'γ reaches 0 after', value: '14.3T tokens', source: 'deepseek-v3-report', where: '§4.2' },
+    { label: 'Sequence-wise balance loss α', value: 0.0001, source: 'deepseek-v3-report', where: '§4.2' },
+  ]}
+/>
+
+<Callout type="pitfall">
+Pinning the load exactly instead — every expert gets the same number of tokens — means an earlier token's experts depend on later tokens in the sequence. The paper calls that future-token leakage and estimates it at over 50 bits per token for a 9-layer, 16-expert, top-2 model <Cite id="loss-free-balancing-paper" where="§5.2, Appendix D.1" />. A bias on the scores keeps routing causal.
+</Callout>

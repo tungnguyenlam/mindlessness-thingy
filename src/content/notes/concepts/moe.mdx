@@ -2,14 +2,75 @@
 title: "Mixture of experts"
 kind: concept
 summary: "Replaces one feed-forward network with many experts and a router that sends each token to only a few of them, growing parameters without growing compute per token."
-domains: []
+domains: [llm, moe]
 prerequisites: [transformer-block]
 builds_on: []
 contrasts_with: []
 related: []
 sources: [sparsely-gated-moe-paper]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+The feed-forward network in a [[transformer-block]] carries most of a layer's parameters, and every token pays for all of them. The sparsely-gated MoE layer replaces that one network with $n$ expert networks and a small trainable router that computes a sparse gate per token, so only $k$ experts run <Cite id="sparsely-gated-moe-paper" where="§1.2, §2" />. Parameters then grow with $n$, while the work each token does grows only with $k$.
+
+## The idea in one picture
+
+<ArchDiagram
+  title="One MoE layer"
+  caption="The router scores all n experts and keeps k of them; every expert still sees the token x. Expert n is drawn last of the n identical experts, and the other n − k weights stay idle for this token."
+  blocks={[
+    { id: 'x', label: 'Layer input', sub: 'T × d', role: 'activation' },
+    { id: 'router', label: 'Router', sub: 'g: T × n', role: 'route' },
+    { id: 'e1', label: 'First expert', sub: 'd → d_e', role: 'weight', link: 'transformer-block' },
+    { id: 'en', label: 'Expert n', sub: 'd → d_e', role: 'weight', link: 'transformer-block' },
+    { id: 'sum', label: 'Weighted sum', sub: 'T × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'router' },
+    { from: 'x', to: 'e1' },
+    { from: 'x', to: 'en' },
+    { from: 'router', to: 'e1', label: 'top-k gates' },
+    { from: 'router', to: 'en' },
+    { from: 'e1', to: 'sum' },
+    { from: 'en', to: 'sum' },
+  ]}
+/>
+
+Each expert is a normal feed-forward network from width $d$ to width $d_e$ and back to $d$. The router decides which of them this token reaches, and the layer output is the sum of their results, each scaled by its gate.
+
+## How it works
+
+Turn the picture into a formula. The router is one linear layer $W_g$ that scores every expert for this token, $s(x) = x W_g$ <Cite id="sparsely-gated-moe-paper" where="§2.1" />. Keep the $k$ largest scores and send the rest to $-\infty$ before the softmax, so those gates come out exactly zero while the survivors are renormalised to add up to one:
+
+$$
+y = \sum_{i=1}^{n} g_i E_i(x), \qquad g = \mathrm{softmax}\big(\mathrm{KeepTopK}(s(x), k)\big)
+$$
+
+$E_i$ is expert $i$ and $g_i$ its gate value. Wherever $g_i = 0$ the expert is never computed, which is where the saving comes from <Cite id="sparsely-gated-moe-paper" where="Eq. (1), §2.1" />. The original layer adds tunable Gaussian noise to the scores before the softmax to help balance the load, against the drift that makes the gate settle on a few favourite experts <Cite id="sparsely-gated-moe-paper" where="§2.1, Eq. (4), §4" />.
+
+## What it costs
+
+Per-token cost is set by $k$ alone, so a layer can hold hundreds of times the parameters of a dense feed-forward network while doing the same work per token. In the paper's language models, 4 experts were active per input while the count ran from 4 up to 65536 experts, and at 65536 the test perplexity sat 39% below a compute-matched baseline <Cite id="sparsely-gated-moe-paper" where="§5.1, §5.2" />.
+
+<Calc
+  title="Parameters grow with n, work per token with k"
+  inputs={[
+    { id: 'n', label: 'Experts in the layer', min: 1, max: 65536, value: 256 },
+    { id: 'k', label: 'Experts active per token', min: 1, max: 64, value: 4 },
+    { id: 'esz', label: 'Parameters per expert', min: 1000, max: 10000000, step: 1000, value: 1000000 },
+  ]}
+  outputs={[
+    { label: 'Layer parameters', expr: 'n * esz', format: 'number', role: 'weight' },
+    { label: 'Multiply-adds per token', expr: 'k * esz', format: 'number', role: 'op' },
+    { label: 'Share of the layer a token uses', expr: 'k / n', format: 'percent', role: 'op' },
+  ]}
+  bars
+  note="Defaults are the sparsely-gated paper's language-model MoE: 256 experts, 4 active per input, about 1 million parameters per expert (§5.1). A two-matrix feed-forward network performs one multiply-add per parameter on a single token, so an expert's parameter count is also its per-token work."
+/>
+
+<Callout type="pitfall">
+Sparse routing saves compute, not memory. The layer keeps all $n$ expert weights whether or not a token uses them, and moving those weights between devices is the bottleneck the paper had to design around <Cite id="sparsely-gated-moe-paper" where="§3.2" />.
+</Callout>
+
+Two more costs come with the scheme. Each expert sees only a $k/n$ share of every batch, which thins its training signal as $n$ grows <Cite id="sparsely-gated-moe-paper" where="§3.1" />, and the router tends to settle on a few favourite experts, which the paper patches with extra balancing losses <Cite id="sparsely-gated-moe-paper" where="§4" />. [[aux-loss-free-balancing]] removes the need for those losses. [[deepseek-moe]] changes how the experts themselves are cut up, and keeps one of them running for every token.
