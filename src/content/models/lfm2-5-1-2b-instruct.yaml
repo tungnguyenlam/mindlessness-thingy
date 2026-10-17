@@ -11,7 +11,7 @@ kv_heads: { v: 8, source: lfm2-5-1-2b-instruct-config, where: num_key_value_head
 conv_layers: { v: 10, source: lfm2-5-1-2b-instruct-card, where: Number of layers }
 conv_window: { v: 3, source: lfm2-5-1-2b-instruct-config, where: conv_L_cache }
 ffn: { v: dense, source: lfm2-report, where: "§2.2" }
-ffn_hidden: { v: 12288, source: lfm2-5-1-2b-instruct-config, where: intermediate_size }
+ffn_hidden: { v: 8192, source: lfm2-modeling, where: "Lfm2MLP: config intermediate_size 12288 with block_auto_adjust_ff_dim → int(2·12288/3), rounded up to 256" }
 context_length: { v: 32768, source: lfm2-5-1-2b-instruct-card, where: Context length }
 training_tokens: { v: 28e12, source: lfm2-5-1-2b-instruct-card, where: Training budget }
 knowledge_cutoff: { v: Mid-2024, source: lfm2-5-1-2b-instruct-card, where: Knowledge cutoff }

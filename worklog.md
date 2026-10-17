@@ -71,3 +71,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: pnpm run ci checks out HEAD into a temp dir, installs with --frozen-lockfile and runs pnpm run check like deploy.yml; AGENTS.md lifecycle and finish-task skill now require it after every commit (plus gh run watch when pushing)
 - files: scripts/ci-local.mjs package.json AGENTS.md .agents/skills/finish-task/SKILL.md
 - open: none
+
+## 2026-10-17 · content(lfm2): use the FFN width the model builds; V4.1-Flash total
+- did: LFM2.5-350M and 1.2B set block_auto_adjust_ff_dim, so Lfm2MLP builds int(2·ff/3) rounded to 256: 4608 and 8192, not config intermediate_size 6656/12288 (now matches report Table 1 and the cards' 350M/1.17B); V4.1-Flash no longer inherits V4's 1.6T total (552B backbone + 196B Engram, report abstract)
+- files: src/content/models/{lfm2-5-350m,lfm2-5-1-2b-instruct,lfm2-5-1-2b-thinking,deepseek-v4-1-flash}.yaml src/content/sources/lfm2-modeling.yaml src/content/notes/systems/lfm2-5-{350m,230m,1-2b-instruct}.mdx
+- open: none

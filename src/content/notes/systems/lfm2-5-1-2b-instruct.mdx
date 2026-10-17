@@ -18,7 +18,7 @@ LFM2.5-1.2B-Instruct is the general-purpose chat checkpoint in the 1.2B LFM2.5 f
 
 <ModelOverview
   model="lfm2-5-1-2b-instruct"
-  caption="Same 16-layer conv/attention split as the 350M. Hidden size 2048, 32 query heads sharing 8 key/value heads, SwiGLU width 12288."
+  caption="Same 16-layer conv/attention split as the 350M. Hidden size 2048, 32 query heads sharing 8 key/value heads, SwiGLU width 8192."
 />
 
 <LayerStrip model="lfm2-5-1-2b-instruct" />
@@ -26,7 +26,7 @@ LFM2.5-1.2B-Instruct is the general-purpose chat checkpoint in the 1.2B LFM2.5 f
 <ModelSpec model="lfm2-5-1-2b-instruct" />
 
 <Callout type="pitfall">
-The LFM2 report lists feed-forward width 8192 for LFM2-1.2B <Cite id="lfm2-report" where="Table 1" />. This checkpoint's config has `intermediate_size: 12288`. Use the config. `max_position_embeddings` is 128000; the card's supported context is 32,768.
+The LFM2 report lists feed-forward width 8192 for LFM2-1.2B <Cite id="lfm2-report" where="Table 1" />. This checkpoint's config has `intermediate_size: 12288` with `block_auto_adjust_ff_dim` set, so the model builds int(2 · 12288 / 3) = 8192 <Cite id="lfm2-modeling" where="Lfm2MLP" />: the report and the checkpoint agree. `max_position_embeddings` is 128000; the card's supported context is 32,768.
 </Callout>
 
 ## What is new

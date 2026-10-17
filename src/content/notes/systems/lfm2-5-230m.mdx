@@ -37,7 +37,7 @@ The 14-layer pattern in `layer_types` is two convolutions, then attention and co
 
 The 230M is not a from-scratch 14-layer LFM2. The blog's recipe is three stages after 19T tokens of pretraining (including a 32K context-extension phase): supervised fine-tuning with distillation from LFM2.5-350M, direct preference optimization, then multi-domain reinforcement learning <Cite id="lfm2-5-230m-blog" />.
 
-Relative to the teacher, the visible shrink is width in the feed-forward (2560 vs 6656) and two fewer convolution layers, with hidden size and head counts unchanged <Cite id="lfm2-5-230m-config" where="intermediate_size" />. The card still points the model at extraction and lightweight tool use, and away from heavy math, code, or creative writing <Cite id="lfm2-5-230m-card" />.
+Relative to the teacher, the visible shrink is width in the feed-forward (2560 vs 4608, after the teacher's width adjustment <Cite id="lfm2-modeling" where="Lfm2MLP" />) and two fewer convolution layers, with hidden size and head counts unchanged <Cite id="lfm2-5-230m-config" where="intermediate_size" />. The card still points the model at extraction and lightweight tool use, and away from heavy math, code, or creative writing <Cite id="lfm2-5-230m-card" />.
 
 ## Tokenizer
 

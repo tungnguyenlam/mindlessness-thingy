@@ -8,6 +8,7 @@
 title: DeepSeek-V4.1-Flash
 family: deepseek
 extends: deepseek-v4
+params_total: { v: 552e9, display: "552B backbone + 196B Engram", source: deepseek-v4-1-flash-report, where: "Abstract; §2.1" }
 params_active: { v: 16e9, display: "8B prefill / 16B decode", source: deepseek-v4-1-flash-report, where: "Abstract; §2.1; §4.2.1" }
 layers: { v: 40, source: deepseek-v4-1-flash-config, where: "text_config.num_hidden_layers" }
 layer_pattern: { v: "AE*40", source: deepseek-v4-1-flash-config, where: "text_config (MoE in every block; 20 causal encoder + 20 decoder layers)" }

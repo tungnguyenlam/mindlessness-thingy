@@ -26,7 +26,7 @@ LFM2.5-350M is the 350M LFM2 hybrid trained further. The block recipe is still [
 <ModelSpec model="lfm2-5-350m" />
 
 <Callout type="pitfall">
-The LFM2 report lists feed-forward width 4608 for LFM2-350M <Cite id="lfm2-report" where="Table 1" />. The released LFM2.5-350M config has `intermediate_size: 6656`. Use the config for this checkpoint. The same config sets `max_position_embeddings` to 128000; the card's supported context is 32,768.
+The LFM2 report lists feed-forward width 4608 for LFM2-350M <Cite id="lfm2-report" where="Table 1" />. The released LFM2.5-350M config has `intermediate_size: 6656`, but it also sets `block_auto_adjust_ff_dim`, so the model builds width int(2 · 6656 / 3) rounded up to a multiple of 256, which is 4608 <Cite id="lfm2-modeling" where="Lfm2MLP" />. The two agree, and only 4608 makes the matrices add up to the card's 350M. The same config sets `max_position_embeddings` to 128000; the card's supported context is 32,768.
 </Callout>
 
 ## What is new

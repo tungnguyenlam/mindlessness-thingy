@@ -1,0 +1,8 @@
+title: transformers modeling_lfm2.py (Hugging Face)
+short: LFM2 modeling code
+authors: Hugging Face, Liquid AI
+year: 2025
+url: https://github.com/huggingface/transformers/blob/main/src/transformers/models/lfm2/modeling_lfm2.py
+type: repo
+accessed: 2026-10-17
+notes: Lfm2MLP. When block_auto_adjust_ff_dim is true, the FFN width is int(2 · intermediate_size / 3), times block_ffn_dim_multiplier, rounded up to a multiple of block_multiple_of. So intermediate_size 12288 builds width 8192 and 6656 builds 4608, matching LFM2 report Table 1 and the cards' parameter counts.
