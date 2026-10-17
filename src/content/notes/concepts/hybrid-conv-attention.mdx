@@ -22,15 +22,15 @@ Each layer is a pre-norm residual block: a mixer, then a SwiGLU feed-forward. Th
   title="One LFM2 layer: two mixer choices"
   caption="Every layer has the same residual shape. Only the attention choice writes keys and values that grow with context. Convolution layers keep a short window instead."
   blocks={[
-    { id: 'in', label: 'Hidden state', role: 'activation', col: 1, row: 0 },
+    { id: 'in', label: 'Hidden state', sub: 'T × d', role: 'activation', col: 1, row: 0 },
     { id: 'n1', label: 'RMSNorm', role: 'op', col: 1, row: 1 },
     { id: 'conv', label: 'Gated short conv', sub: 'most layers', role: 'op', col: 0, row: 2, link: 'gated-short-conv' },
     { id: 'attn', label: 'Grouped-query attn', sub: 'few layers', role: 'op', col: 2, row: 2, link: 'gqa' },
-    { id: 'cwin', label: 'Conv window', sub: 'fixed', role: 'cache', col: 0, row: 3 },
-    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
+    { id: 'cwin', label: 'Conv window', sub: 'k × d, fixed', role: 'cache', col: 0, row: 3 },
+    { id: 'kv', label: 'KV cache', sub: 'K, V: T × n_kv × d_h', role: 'cache', col: 2, row: 3, link: 'kv-cache' },
     { id: 'add1', label: 'Add', role: 'op', col: 1, row: 4 },
     { id: 'n2', label: 'RMSNorm', role: 'op', col: 1, row: 5 },
-    { id: 'ffn', label: 'SwiGLU FFN', role: 'weight', col: 1, row: 6 },
+    { id: 'ffn', label: 'SwiGLU FFN', sub: 'd → d_ff → d', role: 'weight', col: 1, row: 6 },
     { id: 'add2', label: 'Add', role: 'op', col: 1, row: 7 },
   ]}
   edges={[

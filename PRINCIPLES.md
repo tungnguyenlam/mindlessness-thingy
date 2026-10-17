@@ -60,7 +60,7 @@ The implementation is `src/scripts/trail.ts`. `scripts/checks/site.mjs` checks p
 
 - Pick the visual by the question it answers: `<ArchDiagram>` for "what connects to what", `<Calc>` for "how does this scale", `<Stepper>` for "what happens, in order".
 - Colours mean the same thing everywhere (activation, weight, cache, route, op), so a reader learns them once.
-- A written concept or system note without a visual fails the check. More than about 650 words of prose between two visuals gets a warning: split the idea or draw the key step.
+- A written concept or system note without a visual fails the check. The first visual comes within 120 words; more than 400 words of prose between two visuals fails (250 warns), and a `##` section over 150 words needs its own visual or table: split the idea or draw the key step.
 - Agents check their visuals by looking at them: `pnpm run shot /notes/<slug>/` writes a screenshot to `.scratch/shots/`. Open it before finishing.
 
 ---

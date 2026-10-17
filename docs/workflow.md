@@ -51,7 +51,7 @@ A tokenizer is shared by every model that uses it, so it is described once:
 
 ## Writing a concept note
 
-Same as above without model data. Plan two to four visuals before writing (`<ArchDiagram>` structure, `<Calc>` scaling, `<Stepper>` procedure), then write the prose around them. Don't put numbers in diagram labels; cite them in prose or a `<Spec>`.
+Same as above without model data. Plan two to four visuals before writing (`<ArchDiagram>` structure, `<Calc>` scaling, `<Stepper>` procedure), then write the prose around them. Draw with symbols and give every tensor its shape (`T × d`, `d → d_c`); numbers go in prose or a `<Spec>`, never in the boxes. Conventions and the shared symbol table: [AGENTS.md#style](../AGENTS.md#style).
 
 ## Comparing models
 

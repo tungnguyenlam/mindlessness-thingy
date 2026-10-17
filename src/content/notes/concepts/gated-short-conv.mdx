@@ -20,18 +20,18 @@ Liquid's LFM2 search kept this operator as the local mixer and dropped the extra
 
 <ArchDiagram
   title="One gated short convolution"
-  caption="A position-wise linear map splits the hidden state into two gates and a value. The value is gated, mixed along the sequence by a depthwise convolution of kernel 3, gated again, and projected back."
+  caption="A position-wise linear map splits the hidden state into two gates and a value. The value is gated, mixed along the sequence by a depthwise convolution with a short kernel, gated again, and projected back. Sizes are symbols: T tokens, width d, kernel k."
   blocks={[
-    { id: 'h', label: 'Hidden state', sub: 'L × d', role: 'activation', col: 1, row: 0 },
-    { id: 'lin', label: 'Linear → 3d', role: 'weight', col: 1, row: 1 },
-    { id: 'b', label: 'Gate B', role: 'activation', col: 0, row: 2 },
-    { id: 'ht', label: 'Value h̃', role: 'activation', col: 1, row: 2 },
-    { id: 'c', label: 'Gate C', role: 'activation', col: 2, row: 2 },
-    { id: 'mul1', label: 'B ⊙ h̃', role: 'op', col: 1, row: 3 },
-    { id: 'conv', label: 'Depthwise Conv_k', sub: 'k = 3', role: 'op', col: 1, row: 4 },
-    { id: 'cache', label: 'Conv window', sub: 'conv_L_cache', role: 'cache', col: 2, row: 4 },
-    { id: 'mul2', label: 'C ⊙ z', role: 'op', col: 1, row: 5 },
-    { id: 'out', label: 'Linear out', role: 'weight', col: 1, row: 6 },
+    { id: 'h', label: 'Hidden state', sub: 'T × d', role: 'activation', col: 1, row: 0 },
+    { id: 'lin', label: 'Linear in', sub: 'd → 3d, split', role: 'weight', col: 1, row: 1 },
+    { id: 'b', label: 'Gate B', sub: 'T × d', role: 'activation', col: 0, row: 2 },
+    { id: 'ht', label: 'Value h̃', sub: 'T × d', role: 'activation', col: 1, row: 2 },
+    { id: 'c', label: 'Gate C', sub: 'T × d', role: 'activation', col: 2, row: 2 },
+    { id: 'mul1', label: 'B ⊙ h̃', sub: 'T × d', role: 'op', col: 1, row: 3 },
+    { id: 'conv', label: 'Depthwise Conv_k', sub: 'kernel k, along T', role: 'op', col: 1, row: 4 },
+    { id: 'cache', label: 'Conv window', sub: 'last k inputs, k × d', role: 'cache', col: 2, row: 4 },
+    { id: 'mul2', label: 'C ⊙ z', sub: 'T × d', role: 'op', col: 1, row: 5 },
+    { id: 'out', label: 'Linear out', sub: 'd → d', role: 'weight', col: 1, row: 6 },
   ]}
   edges={[
     { from: 'h', to: 'lin' },

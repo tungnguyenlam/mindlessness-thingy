@@ -39,12 +39,12 @@ Only $c^{KV}_t$ goes into the cache. Keys and values are a deterministic functio
   caption="Only the two thick-bordered blocks are stored per token. Keys and values are rebuilt from the latent, and at inference time the up-projections can be folded into neighbouring matrices."
   blocks={[
     { id: 'h', label: 'Hidden state h_t', sub: 'd', role: 'activation', col: 1, row: 0 },
-    { id: 'wdkv', label: 'W^DKV', sub: 'down-project', role: 'weight', col: 0, row: 1 },
-    { id: 'wkr', label: 'W^KR + RoPE', sub: 'shared across heads', role: 'weight', col: 2, row: 1, link: 'rope' },
+    { id: 'wdkv', label: 'W^DKV', sub: 'd → d_c', role: 'weight', col: 0, row: 1 },
+    { id: 'wkr', label: 'W^KR + RoPE', sub: 'd → d_h^R, all heads', role: 'weight', col: 2, row: 1, link: 'rope' },
     { id: 'c', label: 'Latent c^KV_t', sub: 'd_c', role: 'cache', col: 0, row: 2, link: 'kv-cache' },
     { id: 'kr', label: 'RoPE key k^R_t', sub: 'd_h^R', role: 'cache', col: 2, row: 2, link: 'kv-cache' },
-    { id: 'wuk', label: 'W^UK', sub: 'up-project', role: 'weight', col: 0, row: 3 },
-    { id: 'wuv', label: 'W^UV', sub: 'up-project', role: 'weight', col: 1, row: 3 },
+    { id: 'wuk', label: 'W^UK', sub: 'd_c → n_h·d_h', role: 'weight', col: 0, row: 3 },
+    { id: 'wuv', label: 'W^UV', sub: 'd_c → n_h·d_h', role: 'weight', col: 1, row: 3 },
     { id: 'kc', label: 'Content keys', sub: 'n_h × d_h', role: 'activation', col: 0, row: 4 },
     { id: 'v', label: 'Values', sub: 'n_h × d_h', role: 'activation', col: 1, row: 4 },
     { id: 'att', label: 'Attention', sub: 'keys = [k^C ; k^R]', role: 'op', col: 1, row: 5, link: 'mha' },

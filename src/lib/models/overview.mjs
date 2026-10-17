@@ -8,24 +8,35 @@
 //
 // ctx = { has(slug) → boolean, tokenizer: { title, note } | null }
 //
-// Diagrams use symbols (d, n_h, d_c), never numbers: the values sit next to the picture in the
-// symbol table, each with its source. The only numbers drawn are layer counts and ranges taken from
-// the layer pattern, which is sourced.
+// These are pictures of one specific model, so sizes are drawn as that model's numbers (T × 7,168,
+// not T × d). Every number comes from the model data, which is sourced; the symbol table under the
+// picture maps each number back to its symbol (as the concept notes write it) and its source. Only
+// T, the sequence length, stays a symbol. A size the data lacks falls back to its symbol.
+// Hand-drawn concept diagrams do the opposite: symbols only (rule diagram-geometry).
 import { parsePattern } from './data.mjs';
 
 const ATTN_SHORT = { mla: 'MLA', gqa: 'GQA', mha: 'MHA', mqa: 'MQA' };
 const ATTN_LABEL = { mla: 'Latent attention (MLA)', gqa: 'Grouped-query attn', mha: 'Multi-head attn', mqa: 'Multi-query attn' };
+
+const n = (x) => (typeof x === 'number' ? x.toLocaleString('en-US') : String(x));
 
 function access(m) {
   const v = (k) => m.values[k]?.v ?? m.derived?.[k]?.v;
   const layers = m.values.layer_pattern ? parsePattern(m.values.layer_pattern.v) : null;
   const count = (c) => (layers ? layers.filter((l) => l.includes(c)).length : 0);
   const present = (codes) => [...codes].filter((c) => count(c) > 0);
-  return { v, layers, count, present };
+  /** A size as drawn: the model's number for `key`, or `sym` when the data doesn't have it. */
+  const z = (key, sym) => (v(key) != null ? n(v(key)) : sym);
+  /** a·b (or a+b) as one number when both are known, else the symbolic expression. */
+  const zz = (op, [ka, sa], [kb, sb]) => {
+    const [a, b] = [v(ka), v(kb)];
+    if (typeof a === 'number' && typeof b === 'number') return n(op === '+' ? a + b : a * b);
+    return `${z(ka, sa)}${op === '+' ? ' + ' : '·'}${z(kb, sb)}`;
+  };
+  return { v, z, zz, layers, count, present };
 }
 
 const join = (...parts) => parts.filter(Boolean).join(' · ');
-const n = (x) => (typeof x === 'number' ? x.toLocaleString('en-US') : String(x));
 const linkIf = (ctx, slug) => (slug && ctx.has(slug) ? slug : undefined);
 
 function mixerInfo(m, ctx, c) {
@@ -54,7 +65,7 @@ const normName = (m) => (/rmsnorm/i.test(String(m.values.norm?.v ?? 'RMSNorm')) 
 
 /** One layer: norm → mixer (+ cache) → add → norm → FFN → add, one column per sublayer kind. */
 export function layerDiagram(m, ctx, { title } = {}) {
-  const { v, layers, count, present } = access(m);
+  const { v, z, layers, count, present } = access(m);
   if (!layers) throw new Error(`model "${m.id}" needs a layer_pattern`);
   const mixers = present('ACM');
   const ffns = present('DE');
@@ -66,7 +77,7 @@ export function layerDiagram(m, ctx, { title } = {}) {
   const R2 = { n2: R.add1 + 1, ffn: R.add1 + 2, add2: R.add1 + 3 };
   const norm = normName(m);
   const blocks = [
-    { id: 'in', label: 'Hidden state', sub: v('hidden_size') ? 'T × d' : undefined, role: 'activation', col: center, row: R.in },
+    { id: 'in', label: 'Hidden state', sub: `T × ${z('hidden_size', 'd')}`, role: 'activation', col: center, row: R.in },
     { id: 'n1', label: norm, role: 'op', col: center, row: R.n1 },
     { id: 'add1', label: 'Add', role: 'op', col: center, row: R.add1 },
     { id: 'n2', label: norm, role: 'op', col: center, row: R2.n2 },
@@ -83,8 +94,8 @@ export function layerDiagram(m, ctx, { title } = {}) {
     const info = mixerInfo(m, ctx, c);
     const col = spread(mixers.length)[i];
     let sub = times(c, mixers);
-    if (c === 'A') sub = join(sub, attn === 'gqa' || attn === 'mqa' ? 'n_h Q / n_kv KV heads' : v('heads') && 'n_h heads');
-    if (c === 'C') sub = join(sub, v('conv_window') && 'kernel k');
+    if (c === 'A') sub = join(sub, attn === 'gqa' || attn === 'mqa' ? `${z('heads', 'n_h')} Q / ${z('kv_heads', 'n_kv')} KV heads` : `${z('heads', 'n_h')} heads`);
+    if (c === 'C') sub = join(sub, `kernel ${z('conv_window', 'k')}`);
     blocks.push({ id: `mix-${c}`, label: info.label, sub: sub || undefined, role: 'op', col, row: R.mix, link: info.link });
     blocks.push({ id: `cache-${c}`, label: info.cache, sub: c === 'A' ? 'grows with context' : 'fixed size', role: 'cache', col, row: R.cache, link: info.cacheLink });
     edges.push({ from: 'n1', to: `mix-${c}` }, { from: `mix-${c}`, to: `cache-${c}`, dashed: true }, { from: `mix-${c}`, to: 'add1' });
@@ -92,8 +103,8 @@ export function layerDiagram(m, ctx, { title } = {}) {
   ffns.forEach((c, i) => {
     const info = ffnInfo(m, ctx, c);
     let sub = times(c, ffns);
-    if (c === 'D') sub = join(sub, v('ffn_hidden') && 'width d_ff');
-    if (c === 'E') sub = join(sub, v('active_experts') && `K_r of N_r${v('shared_experts') ? ' + N_s' : ''}`);
+    if (c === 'D') sub = join(sub, `width ${z('ffn_hidden', 'd_ff')}`);
+    if (c === 'E') sub = join(sub, `${z('active_experts', 'K_r')} of ${z('routed_experts', 'N_r')}${v('shared_experts') ? ` + ${z('shared_experts', 'N_s')}` : ''}`);
     blocks.push({ id: `ffn-${c}`, label: info.label, sub: sub || undefined, role: info.role, col: spread(ffns.length)[i], row: R2.ffn, link: info.link });
     edges.push({ from: 'n2', to: `ffn-${c}` }, { from: `ffn-${c}`, to: 'add2' });
   });
@@ -114,8 +125,9 @@ function runs(layers) {
 
 /** Text to logits: tokenizer, embedding, the layer stack, final norm, output head, sampling. */
 function wholeModel(m, ctx) {
-  const { v, layers, present } = access(m);
+  const { v, z, layers, present } = access(m);
   const C = 1;
+  const [V, d] = [z('vocab_size', 'V'), z('hidden_size', 'd')];
   const blocks = [];
   const edges = [];
   let row = 0;
@@ -128,8 +140,8 @@ function wholeModel(m, ctx) {
   add({ id: 'text', label: 'Input text', sub: 'a string', role: 'op' });
   add({ id: 'tok', label: 'Tokenizer', sub: String(tok?.algorithm ?? 'splits text into ids'), role: 'op', link: tok?.note && ctx.has(tok.note) ? tok.note : undefined });
   add({ id: 'ids', label: 'Token ids', sub: 'T integers', role: 'activation' });
-  add({ id: 'emb', label: 'Embedding table', sub: 'V × d', role: 'weight' });
-  add({ id: 'h0', label: 'Hidden states', sub: 'T × d', role: 'activation' });
+  add({ id: 'emb', label: 'Embedding table', sub: `${V} × ${d}`, role: 'weight' });
+  add({ id: 'h0', label: 'Hidden states', sub: `T × ${d}`, role: 'activation' });
   chain('text', 'tok', 'ids', 'emb', 'h0');
 
   const stack = [];
@@ -142,7 +154,7 @@ function wholeModel(m, ctx) {
     }
   } else {
     const mix = present('ACM').map((c) => `${access(m).count(c)} ${mixerInfo(m, ctx, c).short}`);
-    stack.push(add({ id: 'stack', label: 'Layer stack', sub: layers ? `${mix.join(' · ')}, interleaved` : 'L layers', role: 'op' }));
+    stack.push(add({ id: 'stack', label: 'Layer stack', sub: layers ? `${mix.join(' · ')}, interleaved` : `${z('layers', 'L')} layers`, role: 'op' }));
   }
   chain('h0', ...stack);
   // What decoding keeps between steps, beside the stack.
@@ -151,9 +163,9 @@ function wholeModel(m, ctx) {
     blocks.push({ id: 'cache', label: caches.length > 1 ? 'Per-layer caches' : caches[0], sub: caches.length > 1 ? caches.join(' + ') : 'kept between steps', role: 'cache', col: 2, row: blocks.find((b) => b.id === stack[0]).row, link: present('A').length ? linkIf(ctx, 'kv-cache') : undefined });
     edges.push({ from: stack[0], to: 'cache', dashed: true });
   }
-  add({ id: 'fnorm', label: `Final ${normName(m)}`, sub: 'T × d', role: 'op' });
-  add({ id: 'head', label: 'Output head', sub: v('tie_embeddings') === true ? 'd × V, tied to embedding' : 'd × V', role: 'weight' });
-  add({ id: 'logits', label: 'Logits', sub: 'T × V', role: 'activation' });
+  add({ id: 'fnorm', label: `Final ${normName(m)}`, sub: `T × ${d}`, role: 'op' });
+  add({ id: 'head', label: 'Output head', sub: v('tie_embeddings') === true ? `${d} × ${V}, tied` : `${d} × ${V}`, role: 'weight' });
+  add({ id: 'logits', label: 'Logits', sub: `T × ${V}`, role: 'activation' });
   add({ id: 'sample', label: 'Softmax, sample', sub: 'next token id', role: 'op' });
   chain(stack.at(-1), 'fnorm', 'head', 'logits', 'sample');
   // Decoding loops: the sampled id is appended and the model runs again on one more token.
@@ -171,19 +183,21 @@ function wholeModel(m, ctx) {
 
 /** Multi-head latent attention: queries and keys/values squeezed through latents, RoPE on a side path. */
 function mlaDetail(m, ctx) {
-  const { v } = access(m);
+  const { v, z, zz } = access(m);
   const sparse = v('sparse_topk') != null;
   const norm = v('latent_norm') === true ? ', RMSNorm' : '';
+  const [d, nh, dh, dR, dv] = [z('hidden_size', 'd'), z('heads', 'n_h'), z('head_dim', 'd_h'), z('rope_head_dim', 'd_h^R'), z('v_head_dim', 'd_v')];
+  const qk = zz('+', ['head_dim', 'd_h'], ['rope_head_dim', 'd_h^R']);
   const blocks = [
-    { id: 'h', label: 'Normed hidden h', sub: 'T × d', role: 'activation', col: 1, row: 0, span: 2 },
-    { id: 'cq', label: 'Query latent c_Q', sub: `T × d_q${norm}`, role: 'activation', col: 0, row: 1 },
-    { id: 'ckv', label: 'KV latent c_KV', sub: `T × d_c${norm}`, role: 'cache', col: 2, row: 1, link: linkIf(ctx, 'kv-cache') },
-    { id: 'kr', label: 'RoPE key k_R', sub: 'T × d_R, all heads', role: 'cache', col: 3, row: 1, link: linkIf(ctx, 'rope') },
-    { id: 'q', label: 'Queries', sub: 'T × n_h × (d_h + d_R)', role: 'activation', col: 0, row: 2 },
-    { id: 'kv', label: 'Keys and values', sub: 'T × n_h × d_h', role: 'activation', col: 2, row: 2 },
-    { id: 'attn', label: sparse ? 'Sparse causal attention' : 'Causal attention', sub: sparse ? 'over k_top picked tokens' : 'softmax(q·kᵀ / √(d_h + d_R)) · v', role: 'op', col: 1, row: 3, span: 2 },
-    { id: 'o', label: 'Heads concatenated', sub: 'T × n_h·d_v', role: 'activation', col: 1, row: 4, span: 2 },
-    { id: 'out', label: 'Attention output', sub: 'T × d', role: 'activation', col: 1, row: 5, span: 2 },
+    { id: 'h', label: 'Normed hidden h', sub: `T × ${d}`, role: 'activation', col: 1, row: 0, span: 2 },
+    { id: 'cq', label: 'Query latent c^Q', sub: `T × ${z('q_lora_rank', 'd_q')}${norm}`, role: 'activation', col: 0, row: 1 },
+    { id: 'ckv', label: 'KV latent c^KV', sub: `T × ${z('kv_lora_rank', 'd_c')}${norm}`, role: 'cache', col: 2, row: 1, link: linkIf(ctx, 'kv-cache') },
+    { id: 'kr', label: 'RoPE key k^R', sub: `T × ${dR}, all heads`, role: 'cache', col: 3, row: 1, link: linkIf(ctx, 'rope') },
+    { id: 'q', label: 'Queries', sub: `T × ${nh} × (${dh} + ${dR})`, role: 'activation', col: 0, row: 2 },
+    { id: 'kv', label: 'Keys and values', sub: dh === dv ? `T × ${nh} × ${dh}` : `T × ${nh} × ${dh} / ${dv}`, role: 'activation', col: 2, row: 2 },
+    { id: 'attn', label: sparse ? 'Sparse causal attention' : 'Causal attention', sub: sparse ? `over ${z('sparse_topk', 'k_top')} picked tokens` : `softmax(q·kᵀ / √${/\D/.test(qk) ? `(${qk})` : qk}) · v`, role: 'op', col: 1, row: 3, span: 2 },
+    { id: 'o', label: 'Heads concatenated', sub: `T × ${zz('*', ['heads', 'n_h'], ['v_head_dim', 'd_v'])}`, role: 'activation', col: 1, row: 4, span: 2 },
+    { id: 'out', label: 'Attention output', sub: `T × ${d}`, role: 'activation', col: 1, row: 5, span: 2 },
   ];
   const edges = [
     { from: 'h', to: 'cq', label: 'W^DQ' },
@@ -198,7 +212,7 @@ function mlaDetail(m, ctx) {
     { from: 'o', to: 'out', label: 'W^O' },
   ];
   if (sparse) {
-    blocks.push({ id: 'idx', label: 'Lightning indexer', sub: 'n_I heads', role: 'route', col: 3, row: 2, link: linkIf(ctx, 'dsa') });
+    blocks.push({ id: 'idx', label: 'Lightning indexer', sub: `${z('index_heads', 'n_I')} heads`, role: 'route', col: 3, row: 2, link: linkIf(ctx, 'dsa') });
     edges.push({ from: 'kr', to: 'idx', dashed: true }, { from: 'idx', to: 'attn', label: 'top k_top' });
   }
   return { title: `${m.title}: inside latent attention`, blocks, edges };
@@ -206,20 +220,22 @@ function mlaDetail(m, ctx) {
 
 /** Grouped-query (or multi-head) attention with optional QK-Norm and the KV cache. */
 function gqaDetail(m, ctx) {
-  const { v } = access(m);
+  const { v, z } = access(m);
   const attn = String(v('attention') ?? '');
-  const kvh = attn === 'mha' ? 'n_h' : attn === 'mqa' ? '1' : 'n_kv';
+  const [d, nh, dh] = [z('hidden_size', 'd'), z('heads', 'n_h'), z('head_dim', 'd_h')];
+  const kvh = attn === 'mha' ? nh : attn === 'mqa' ? '1' : z('kv_heads', 'n_kv');
+  const share = typeof v('heads') === 'number' && typeof v('kv_heads') === 'number' ? n(v('heads') / v('kv_heads')) : 'n_h / n_kv';
   const pos = v('qk_norm') === true ? 'QK-Norm, RoPE' : 'RoPE';
   const blocks = [
-    { id: 'h', label: 'Normed hidden h', sub: 'T × d', role: 'activation', col: 1, row: 0 },
-    { id: 'q', label: 'Queries', sub: 'T × n_h × d_h', role: 'activation', col: 0, row: 1 },
-    { id: 'k', label: 'Keys', sub: `T × ${kvh} × d_h`, role: 'activation', col: 1, row: 1 },
-    { id: 'v', label: 'Values', sub: `T × ${kvh} × d_h`, role: 'activation', col: 2, row: 1 },
+    { id: 'h', label: 'Normed hidden h', sub: `T × ${d}`, role: 'activation', col: 1, row: 0 },
+    { id: 'q', label: 'Queries', sub: `T × ${nh} × ${dh}`, role: 'activation', col: 0, row: 1 },
+    { id: 'k', label: 'Keys', sub: `T × ${kvh} × ${dh}`, role: 'activation', col: 1, row: 1 },
+    { id: 'v', label: 'Values', sub: `T × ${kvh} × ${dh}`, role: 'activation', col: 2, row: 1 },
     { id: 'qn', label: pos, sub: 'per query head', role: 'op', col: 0, row: 2, link: linkIf(ctx, 'rope') },
     { id: 'kn', label: pos, sub: 'per key head', role: 'op', col: 1, row: 2, link: linkIf(ctx, 'rope') },
     { id: 'cache', label: 'KV cache', sub: 'keys, values of past tokens', role: 'cache', col: 1, row: 3, span: 2, link: linkIf(ctx, 'kv-cache') },
-    { id: 'attn', label: 'Causal attention', sub: attn === 'gqa' ? 'n_h / n_kv query heads share a KV head' : 'softmax(q·kᵀ / √d_h) · v', role: 'op', col: 0, row: 4, span: 2, link: linkIf(ctx, attn) },
-    { id: 'out', label: 'Attention output', sub: 'T × d', role: 'activation', col: 0, row: 5, span: 2 },
+    { id: 'attn', label: 'Causal attention', sub: attn === 'gqa' ? `${share} query heads share a KV head` : `softmax(q·kᵀ / √${dh}) · v`, role: 'op', col: 0, row: 4, span: 2, link: linkIf(ctx, attn) },
+    { id: 'out', label: 'Attention output', sub: `T × ${d}`, role: 'activation', col: 0, row: 5, span: 2 },
   ];
   const edges = [
     { from: 'h', to: 'q', label: 'W_Q' },
@@ -238,17 +254,19 @@ function gqaDetail(m, ctx) {
 
 /** LFM2's gated short convolution: (B, C, h̃) = Linear(h); y = B ⊙ h̃; z = Conv_k(y); out = W(C ⊙ z). */
 function convDetail(m, ctx) {
+  const { z } = access(m);
+  const [d, k] = [z('hidden_size', 'd'), z('conv_window', 'k')];
   const blocks = [
-    { id: 'h', label: 'Normed hidden h', sub: 'T × d', role: 'activation', col: 1, row: 0 },
-    { id: 'lin', label: 'Linear in', sub: 'd → 3 · d, split', role: 'weight', col: 1, row: 1 },
-    { id: 'b', label: 'Gate B', sub: 'T × d', role: 'activation', col: 0, row: 2 },
-    { id: 'ht', label: 'Input h̃', sub: 'T × d', role: 'activation', col: 1, row: 2 },
-    { id: 'c', label: 'Gate C', sub: 'T × d', role: 'activation', col: 2, row: 2 },
-    { id: 'y', label: 'y = B ⊙ h̃', sub: 'T × d', role: 'op', col: 1, row: 3 },
-    { id: 'conv', label: 'Depthwise conv', sub: 'kernel k, along T', role: 'op', col: 1, row: 4, link: linkIf(ctx, 'gated-short-conv') },
-    { id: 'state', label: 'Conv window', sub: 'last k inputs y', role: 'cache', col: 0, row: 4 },
-    { id: 'gate', label: 'C ⊙ z', sub: 'T × d', role: 'op', col: 1, row: 5 },
-    { id: 'out', label: 'Linear out', sub: 'T × d', role: 'weight', col: 1, row: 6 },
+    { id: 'h', label: 'Normed hidden h', sub: `T × ${d}`, role: 'activation', col: 1, row: 0 },
+    { id: 'lin', label: 'Linear in', sub: `${d} → 3 × ${d}, split`, role: 'weight', col: 1, row: 1 },
+    { id: 'b', label: 'Gate B', sub: `T × ${d}`, role: 'activation', col: 0, row: 2 },
+    { id: 'ht', label: 'Input h̃', sub: `T × ${d}`, role: 'activation', col: 1, row: 2 },
+    { id: 'c', label: 'Gate C', sub: `T × ${d}`, role: 'activation', col: 2, row: 2 },
+    { id: 'y', label: 'y = B ⊙ h̃', sub: `T × ${d}`, role: 'op', col: 1, row: 3 },
+    { id: 'conv', label: 'Depthwise conv', sub: `kernel ${k}, along T`, role: 'op', col: 1, row: 4, link: linkIf(ctx, 'gated-short-conv') },
+    { id: 'state', label: 'Conv window', sub: `last ${k} inputs y`, role: 'cache', col: 0, row: 4 },
+    { id: 'gate', label: 'C ⊙ z', sub: `T × ${d}`, role: 'op', col: 1, row: 5 },
+    { id: 'out', label: 'Linear out', sub: `T × ${d}`, role: 'weight', col: 1, row: 6 },
   ];
   const edges = [
     { from: 'h', to: 'lin' },
@@ -267,15 +285,16 @@ function convDetail(m, ctx) {
 }
 
 /** Dense gated FFN (SwiGLU when the data says so). */
-function denseDetail(m, ctx, { title, width = 'd_ff' } = {}) {
-  const { v } = access(m);
+function denseDetail(m, ctx, { title } = {}) {
+  const { v, z } = access(m);
+  const [d, width] = [z('hidden_size', 'd'), z('ffn_hidden', 'd_ff')];
   const swiglu = /swiglu/i.test(String(v('ffn_activation') ?? ''));
   const blocks = [
-    { id: 'u', label: 'Normed hidden u', sub: 'T × d', role: 'activation', col: 1, row: 0 },
+    { id: 'u', label: 'Normed hidden u', sub: `T × ${d}`, role: 'activation', col: 1, row: 0 },
     { id: 'g', label: 'Gate projection', sub: `T × ${width}`, role: 'weight', col: 0, row: 1 },
     { id: 'up', label: 'Up projection', sub: `T × ${width}`, role: 'weight', col: 2, row: 1 },
     { id: 'act', label: swiglu ? 'SiLU(gate) ⊙ up' : 'act(gate) ⊙ up', sub: `T × ${width}`, role: 'op', col: 1, row: 2 },
-    { id: 'down', label: 'Down projection', sub: 'T × d', role: 'weight', col: 1, row: 3 },
+    { id: 'down', label: 'Down projection', sub: `T × ${d}`, role: 'weight', col: 1, row: 3 },
   ];
   const edges = [
     { from: 'u', to: 'g' },
@@ -289,17 +308,18 @@ function denseDetail(m, ctx, { title, width = 'd_ff' } = {}) {
 
 /** DeepSeekMoE-style MoE: router → top-K_r (group-limited) → routed experts, plus shared experts. */
 function moeDetail(m, ctx) {
-  const { v } = access(m);
+  const { v, z } = access(m);
+  const [d, K] = [z('hidden_size', 'd'), z('active_experts', 'K_r')];
   const scoring = String(v('router_scoring') ?? 'score');
   const grouped = v('expert_groups') != null;
   const shared = v('shared_experts') != null;
   const blocks = [
-    { id: 'u', label: 'Normed hidden u', sub: 'T × d', role: 'activation', col: 1, row: 0, span: 2 },
+    { id: 'u', label: 'Normed hidden u', sub: `T × ${d}`, role: 'activation', col: 1, row: 0, span: 2 },
     { id: 'router', label: 'Router', sub: `${scoring}(u · e_i)`, role: 'route', col: 0, row: 1, link: linkIf(ctx, 'moe') },
-    { id: 'topk', label: 'Top-K_r experts', sub: grouped ? 'within M of G groups' : 'highest scores', role: 'route', col: 0, row: 2, link: linkIf(ctx, 'aux-loss-free-balancing') },
-    { id: 'experts', label: 'Routed experts', sub: 'K_r of N_r run, width d_e', role: 'weight', col: 1, row: 3, span: 2, link: linkIf(ctx, 'deepseek-moe') },
+    { id: 'topk', label: `Top-${K} experts`, sub: grouped ? `within ${z('expert_groups_active', 'M')} of ${z('expert_groups', 'G')} groups` : 'highest scores', role: 'route', col: 0, row: 2, link: linkIf(ctx, 'aux-loss-free-balancing') },
+    { id: 'experts', label: 'Routed experts', sub: `${K} of ${z('routed_experts', 'N_r')} run, width ${z('expert_hidden', 'd_e')}`, role: 'weight', col: 1, row: 3, span: 2, link: linkIf(ctx, 'deepseek-moe') },
     { id: 'sum', label: 'Weighted sum', sub: shared ? 'shared + Σ g_i · expert_i(u)' : 'Σ g_i · expert_i(u)', role: 'op', col: 1, row: 4, span: 2 },
-    { id: 'out', label: 'FFN output', sub: 'T × d', role: 'activation', col: 1, row: 5, span: 2 },
+    { id: 'out', label: 'FFN output', sub: `T × ${d}`, role: 'activation', col: 1, row: 5, span: 2 },
   ];
   const edges = [
     { from: 'u', to: 'router' },
@@ -311,7 +331,7 @@ function moeDetail(m, ctx) {
     { from: 'sum', to: 'out' },
   ];
   if (shared) {
-    blocks.push({ id: 'shared', label: 'Shared experts', sub: 'N_s, every token', role: 'weight', col: 3, row: 2, link: linkIf(ctx, 'deepseek-moe') });
+    blocks.push({ id: 'shared', label: 'Shared experts', sub: `${z('shared_experts', 'N_s')}, every token`, role: 'weight', col: 3, row: 2, link: linkIf(ctx, 'deepseek-moe') });
     edges.push({ from: 'u', to: 'shared' }, { from: 'shared', to: 'sum' });
   }
   return { title: `${m.title}: inside the MoE FFN`, blocks, edges };
@@ -320,13 +340,14 @@ function moeDetail(m, ctx) {
 /** DeepSeek-V3's multi-token prediction module (one per depth k). */
 function mtpDetail(m, ctx) {
   const norm = normName(m);
+  const d = access(m).z('hidden_size', 'd');
   const blocks = [
-    { id: 'hm', label: 'Hidden from depth k−1', sub: 'h_i, T × d', role: 'activation', col: 0, row: 0 },
+    { id: 'hm', label: 'Hidden from depth k−1', sub: `h_i, T × ${d}`, role: 'activation', col: 0, row: 0 },
     { id: 'e', label: 'Embedding of t_(i+k)', sub: 'table shared with main', role: 'weight', col: 2, row: 0 },
     { id: 'n1', label: norm, role: 'op', col: 0, row: 1 },
     { id: 'n2', label: norm, role: 'op', col: 2, row: 1 },
-    { id: 'cat', label: 'Concatenate, project', sub: 'M_k: [·;·] → d', role: 'weight', col: 1, row: 2 },
-    { id: 'trm', label: 'Transformer block', sub: 'TRM_k, T × d', role: 'op', col: 1, row: 3, link: linkIf(ctx, 'transformer-block') },
+    { id: 'cat', label: 'Concatenate, project', sub: `M_k: 2 × ${d} → ${d}`, role: 'weight', col: 1, row: 2 },
+    { id: 'trm', label: 'Transformer block', sub: `TRM_k, T × ${d}`, role: 'op', col: 1, row: 3, link: linkIf(ctx, 'transformer-block') },
     { id: 'head', label: 'Output head', sub: 'shared with main', role: 'weight', col: 1, row: 4 },
     { id: 'p', label: 'Predicts t_(i+k+1)', sub: 'extra training loss', role: 'activation', col: 1, row: 5, link: linkIf(ctx, 'mtp') },
   ];
@@ -373,7 +394,7 @@ const SYMBOLS = [
   ['d_v', 'value head dimension', 'v_head_dim'],
   ['d_q', 'query latent width', 'q_lora_rank'],
   ['d_c', 'KV latent width (cached)', 'kv_lora_rank'],
-  ['d_R', 'decoupled RoPE width', 'rope_head_dim'],
+  ['d_h^R', 'decoupled RoPE width', 'rope_head_dim'],
   ['k_top', 'tokens each query reads', 'sparse_topk'],
   ['n_I', 'indexer heads', 'index_heads'],
   ['k', 'conv kernel size', 'conv_window'],

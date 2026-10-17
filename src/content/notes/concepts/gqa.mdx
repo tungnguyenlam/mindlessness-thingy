@@ -21,16 +21,16 @@ updated: 2026-10-16
 The cache per token per layer becomes $2 \cdot n_g \cdot d_h$, a factor of $n_h / n_g$ smaller than MHA.
 
 <ArchDiagram
-  title="Eight query heads sharing two key/value heads"
-  caption="With n_h = 8 and n_g = 2, each key/value head serves four query heads, so the cache is four times smaller than full multi-head attention."
+  title="n_h query heads sharing n_g key/value heads"
+  caption="Each key/value head serves a group of n_h / n_g query heads, so the cache is n_h / n_g times smaller than full multi-head attention. Two of the n_g groups are drawn; with n_h = 8 and n_g = 2 each group has four query heads."
   blocks={[
-    { id: 'q1', label: 'Query heads 1–4', role: 'activation', col: 0, row: 0 },
-    { id: 'q2', label: 'Query heads 5–8', role: 'activation', col: 2, row: 0 },
-    { id: 'kv1', label: 'Key/value head A', role: 'cache', col: 0, row: 1, link: 'kv-cache' },
-    { id: 'kv2', label: 'Key/value head B', role: 'cache', col: 2, row: 1, link: 'kv-cache' },
-    { id: 'a1', label: 'Attention', sub: '4 heads', role: 'op', col: 0, row: 2 },
-    { id: 'a2', label: 'Attention', sub: '4 heads', role: 'op', col: 2, row: 2 },
-    { id: 'o', label: 'Concat, then W^O', role: 'weight', col: 1, row: 3 },
+    { id: 'q1', label: 'First query group', sub: 'n_h / n_g heads × d_h', role: 'activation', col: 0, row: 0 },
+    { id: 'q2', label: 'Query group n_g', sub: 'n_h / n_g heads × d_h', role: 'activation', col: 2, row: 0 },
+    { id: 'kv1', label: 'First KV head', sub: 'K, V: T × d_h', role: 'cache', col: 0, row: 1, link: 'kv-cache' },
+    { id: 'kv2', label: 'KV head n_g', sub: 'K, V: T × d_h', role: 'cache', col: 2, row: 1, link: 'kv-cache' },
+    { id: 'a1', label: 'Attention', sub: 'n_h / n_g heads', role: 'op', col: 0, row: 2 },
+    { id: 'a2', label: 'Attention', sub: 'n_h / n_g heads', role: 'op', col: 2, row: 2 },
+    { id: 'o', label: 'Concat, then W^O', sub: 'n_h·d_h → d', role: 'weight', col: 1, row: 3 },
   ]}
   edges={[
     { from: 'q1', to: 'a1', side: 'left' },

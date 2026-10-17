@@ -25,7 +25,7 @@ Each rule has an id. When `pnpm run check`, a test, a git hook or an agent hook 
 7. `visual-first`: **Every written concept or system note has a visual**, placed before the prose it illustrates. The check enforces the shape: first visual within 120 words, at most 400 words of prose between visuals, every `##` section over 150 words has its own visual or table (warnings at 250-word runs, 90-word paragraphs and more than two callouts). See `PRINCIPLES.md#visual-first`.
 8. `keep-place`: **Never break the return trail.** Pages render inside `Base`, interactive components are restorable, navigation uses real links. See the contract in `PRINCIPLES.md#keep-place`.
 9. `template-complete`: **No `{/* TODO */}` markers left in a written note.** Templates use them as fill-in prompts; the check fails until each one is replaced.
-10. `diagram-geometry`: **Diagrams must lay out cleanly.** The fast check runs the same layout code as `<ArchDiagram>` and fails on overlapping blocks, edges through blocks, edges drawn on top of each other, labels wider than their box and diagrams too wide for the column. Edges are routed around blocks automatically and blocks without `col`/`row` are placed for you, so prefer leaving positions out. Numbers in diagram labels get a `sourced-numbers` warning: use symbols in pictures and put values in `<Spec>`.
+10. `diagram-geometry`: **Diagrams must lay out cleanly.** The fast check runs the same layout code as `<ArchDiagram>` and fails on overlapping blocks, edges through blocks, edges drawn on top of each other, labels wider than their box and diagrams too wide for the column. Edges are routed around blocks automatically and blocks without `col`/`row` are placed for you, so prefer leaving positions out. Hand-drawn diagrams use symbols, never numbers (`sourced-numbers` warning), and in concept notes every tensor box shows its shape (`no-shape` warning). Generated model diagrams draw that model's real numbers from its data. See [Style](#style).
 11. `render-clean`: **What renders must be clean at 1280 px and 390 px.** `scripts/test-visual.mjs` (part of `pnpm run check`) loads every page with real fonts and fails on sideways page scroll, diagram text wider than its block, colliding labels, labels rendered too small, KaTeX errors and script errors. Wide content scrolls inside its own figure, never the page.
 12. `model-card`: **A system note with model data shows the whole model and its tokenizer.** `<ModelOverview model="...">` near the top (text → tokenizer → embedding → layers → head → next token, with one tab per part drawn down to projections and tensor shapes), `<ModelSpec>` for the numbers, and a `## Tokenizer` section with `<Tokenizer model="...">`. Tokenizers live in `src/content/tokenizers/` and are shared by every model that uses them; the shared tokenizer note explains how it splits text. The generated diagrams of every model are linted on each check.
 13. `commit-when-done`: **Finish every task with `pnpm run check` passing and a commit of only your own files.** See the task lifecycle below.
@@ -125,7 +125,7 @@ Available in every note without imports. Full props are in each file under `src/
 | `<Timeline>` | In a path note: the models along the path, what each adds, their layer strips and headline numbers from model data. |
 | `<Stepper>` + `<Step>` | Walking through an algorithm one step at a time. |
 | `<ModelSpec>` | A model's numbers from `src/content/models/<model>.yaml`, grouped, sourced, with derived rows (KV cache per token, active share). `diff` shows only what changed from the model it `extends`. System notes use this, never a retyped `<Spec>`. |
-| `<ModelOverview>` | A model's whole architecture from its data: text to next token, then tabs for one layer, each mixer (MLA, GQA, gated conv) and FFN (dense, MoE) and MTP, down to projections and tensor shapes, with a symbol table giving each value and its source. Every system note with model data opens with it. |
+| `<ModelOverview>` | A model's whole architecture from its data: text to next token, then tabs for one layer, each mixer (MLA, GQA, gated conv) and FFN (dense, MoE) and MTP, down to projections and tensor shapes drawn with the model's real numbers, plus a table mapping each number to its symbol and source. Every system note with model data opens with it. |
 | `<ModelDiagram>` | A model's layer block generated from its data: one column per mixer kind with the cache it keeps, the FFN kinds, residuals, counts from the layer pattern. Use it instead of hand-drawing a system's block. |
 | `<LayerStrip>` | Where each layer type sits, one column per layer (`model=` or `models={[...]}` stacked). Essential for hybrids and dense-then-MoE stacks. |
 | `<Compare>` | Models side by side from their data files; the first is the baseline and differing cells are marked. `fields={[...]}` picks rows, `onlyDiff` hides equal rows. The `/compare/` page does the same for any models. |
@@ -150,3 +150,51 @@ Raspberry (`--place`) is reserved for the reader's place (the return trail) and 
 Math uses `$inline$` and `$$display$$` (KaTeX). Don't use `\(...\)`.
 
 A new interactive component must be restorable (`data-restorable` + `snapshot()`/`restore()`); see `PRINCIPLES.md#keep-place`.
+
+## Style
+
+Read this before writing a note or drawing a diagram. The checks catch shape and structure; these conventions are what makes notes read alike.
+
+### Writing
+
+- **Reader:** knows basic linear algebra and what a transformer is, but not this idea. Don't explain matrix multiplication; do explain why a latent is cached.
+- **Order inside a section:** the problem in two or three sentences, linking whatever left it open → the visual → the intuition in plain words → the equation → what it implies (cost, tradeoff, what a model chose).
+- **Sentences:** short paragraphs (under 90 words), plain verbs, active voice, no hype ("revolutionary", "simply", "just"). Prefer a concrete sentence ("the cache holds 576 numbers per token") over an abstract one ("the cache is much smaller").
+- **Symbols:** define each symbol on first use in a note, in words ("$d_c$, the latent width"). Use the shared vocabulary below so the same letter means the same thing on every page.
+- **Numbers:** every architecture number is cited where it appears (`<Cite>`, `<Spec>`, `<ModelSpec>`). When sources disagree, say so and prefer the released `config.json`. When you can't source a number, leave it out and write that it's unverified.
+- **Claims about behaviour** (why a design works, what it costs) need a source or a visible derivation (a `<Calc>`, a formula). Mark your own reasoning as such ("this suggests…").
+- **One idea per note:** reuse by linking (`[[slug]]`) on first mention in each section, never by re-explaining.
+
+### Diagram style
+
+Two kinds of picture, two rules for sizes:
+
+| | Concept note (`<ArchDiagram>`, `<ShapeFlow>`) | System note (`<ModelOverview>`, `<ModelDiagram>`) |
+| --- | --- | --- |
+| Sizes | Symbols: `T × d`, `n_h × d_h`, `d → d_c` | That model's numbers: `T × 7,168`, `7,168 → 512` |
+| Drawn by | Hand, linted | Generated from `src/content/models/<slug>.yaml`, linted |
+| Where values live | Prose or a `<Spec>` with a source | The model data; the symbol table under the picture maps each number back to its symbol and source |
+
+- **Every tensor gets its shape.** In a concept diagram, an `activation` or `cache` block's `sub` is its shape in symbols (`T × d`, `K, V: T × n_kv × d_h`), and a `weight` block's `sub` is the map it applies (`d → d_c`, `d_c → n_h·d_h`). A per-token picture may drop `T` (`h_t: d`) if the title says per token.
+- **No numbers inside concept diagrams.** A small worked example ("with $n_h = 8$ and $n_g = 2$, four heads per group") goes in the caption or prose. Draw first/last of a repeated thing with symbols (`First query group`, `Query group n_g`) instead of numbering boxes.
+- **Never hand-draw a model's architecture.** Fix or extend the data or `src/lib/models/overview.mjs` instead, so every model gets the improvement. Hand-drawn diagrams in a system note are for what is new and isn't architecture (a training pipeline, a data recipe); they keep numbers out of the boxes.
+- **Labels:** `label` names the thing ("KV latent c^KV"), `sub` gives its shape or one short fact. Keep labels short enough that the lint doesn't complain; never shrink fonts to fit.
+- **Edges:** solid for data flow, dashed for a write to a cache, an optional path or the decoding loop. Label an edge with the weight it applies (`W^DKV`) when the weight has no box of its own.
+- **Roles and colours** are fixed (see the list above). Link a block to the note that explains it (`link: 'kv-cache'`).
+- **Captions:** one or two sentences that say what to look at, not a restatement of the labels.
+- **Look at it:** `pnpm run shot /notes/<slug>/ --select figure.arch` and open every PNG you changed.
+
+Shared symbols (the generated symbol table, `SYMBOLS` in `src/lib/models/overview.mjs`, uses the same ones; follow the paper's notation where it has one):
+
+| Symbol | Meaning | Symbol | Meaning |
+| --- | --- | --- | --- |
+| `T` | tokens in the sequence | `d` | hidden size (residual width) |
+| `V` | vocabulary / embedding rows | `L` | layers |
+| `n_h` | query heads | `n_kv` | key/value heads (`n_g` groups in GQA) |
+| `d_h` | head dimension | `d_v` | value head dimension |
+| `d_c` | MLA KV latent width (cached) | `d_q` | MLA query latent width |
+| `d_h^R` | MLA decoupled RoPE width | `c^KV`, `c^Q`, `k^R` | MLA latents and RoPE key |
+| `d_ff` | dense FFN hidden size | `d_e` | expert hidden size |
+| `N_r`, `K_r`, `N_s` | routed experts, routed per token, shared | `k` | conv kernel size |
+
+A new symbol goes in this table and in `SYMBOLS` in the same commit.

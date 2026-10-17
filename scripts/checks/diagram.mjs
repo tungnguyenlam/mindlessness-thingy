@@ -16,6 +16,9 @@ export default function diagram({ notes, bySlug }, { error, warn }) {
         (p.level === 'error' ? error : warn)(p.rule, n.file, `line ${line}: ${p.msg}`, p.fix, { code: p.code });
       }
       for (const b of use.props.blocks ?? []) {
+        // Concept diagrams teach sizes: a tensor box says its shape in symbols (AGENTS.md#diagram-style).
+        // System notes also draw pipelines (training stages) where a shape means nothing, so only concepts.
+        if (n.data.kind === 'concept' && (b.role === 'activation' || b.role === 'cache') && !b.sub) warn('diagram-geometry', n.file, `line ${line}: ${b.role} block "${b.id}" ("${b.label}") has no shape`, "add sub: 'T × d' (symbols: T, d, n_h, d_h, d_c ...) so the reader sees the tensor's size", { code: 'no-shape' });
         if (b.link && !bySlug.has(b.link)) error('no-dangling', n.file, `line ${line}: diagram block "${b.id}" links to unknown note "${b.link}"`, `create it with pnpm run new concept ${b.link} "Title"`, { code: 'diagram-link' });
       }
     }

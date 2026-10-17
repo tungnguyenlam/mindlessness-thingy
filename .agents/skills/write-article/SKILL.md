@@ -54,7 +54,7 @@ Before writing paragraphs, list the note's main ideas (usually two to four) and 
 | How does it read text? | `<Tokenizer>`, `<TokenizerFlow>`, `<TokenizerCompare>` |
 | How does it differ from X? | `<ModelSpec diff>`, `<Compare>` |
 
-Use the fixed roles (activation, weight, cache, route, op) and link diagram blocks to their notes.
+Use the fixed roles (activation, weight, cache, route, op) and link diagram blocks to their notes. Follow [Diagram style](../../../AGENTS.md#diagram-style): in a concept diagram every tensor box shows its shape in the shared symbols (`T × d`, `n_h × d_h`) and every weight its map (`d → d_c`), with no numbers in the boxes; a model's architecture is never hand-drawn, because `<ModelOverview>` draws it from the data with the model's real numbers.
 
 ## 6. Write
 
@@ -73,7 +73,7 @@ It scaffolds the sections with `{/* TODO */}` prompts in the right order, pictur
 - Use `[[slug]]` for every mention of another note's idea on first use in a section. `[[slug|custom text]]` changes the link text. Never link with a raw URL.
 - Set `status: draft` and `updated:` to today.
 
-Style: short paragraphs, plain verbs, no hype. Write for a reader who knows basic linear algebra and what a transformer is, but not this specific idea.
+Style: follow [Writing](../../../AGENTS.md#writing) (reader, order, symbols, numbers). In short: short paragraphs, plain verbs, no hype, every symbol defined on first use, every number cited.
 
 ## 7. Check and look
 

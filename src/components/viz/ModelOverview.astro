@@ -1,8 +1,9 @@
 ---
 // A model's whole architecture, generated from its data: text → tokenizer → embedding → layer
 // stack → final norm → output head → next token, then one tab per part (a layer, each mixer, each
-// FFN kind, MTP) drawn down to the projections and tensor shapes. Diagrams use symbols; the table
-// under them gives each symbol's value with its source, so nothing is retyped.
+// FFN kind, MTP) drawn down to the projections and tensor shapes. Sizes are drawn as this model's
+// numbers, read from its data (only T, the sequence length, stays a symbol); the table under them
+// maps each number to the symbol the concept notes use, with its source, so nothing is retyped.
 //   <ModelOverview model="deepseek-v3" />
 // Generators: src/lib/models/overview.mjs (also linted by scripts/checks/models.mjs).
 import ArchDiagram from './ArchDiagram.astro';
@@ -29,16 +30,23 @@ for (const p of parts) {
 }
 
 const attn = String(m.values.attention?.v ?? '');
+// A size in a caption: the model's number, or the symbol when the data doesn't have it.
+const z = (key: string, sym: string) => {
+  const x = m.values[key]?.v ?? m.derived[key]?.v;
+  return typeof x === 'number' ? x.toLocaleString('en-US') : sym;
+};
 const CAPTIONS: Record<string, string> = {
   model: 'From text to the next token. The dashed arrow on the left is decoding: the sampled id is appended and the model runs again, and only the new token passes through the stack because the caches hold the earlier ones.',
-  layer: 'One layer. Each sublayer reads a normalized copy of the residual stream and adds its result back (the arrows on the left), so the stream keeps shape T × d all the way up.',
+  layer: `One layer. Each sublayer reads a normalized copy of the residual stream and adds its result back (the arrows on the left), so the stream keeps shape T × ${z('hidden_size', 'd')} all the way up.`,
   'mixer-A':
     attn === 'mla'
-      ? 'Queries and keys/values pass through narrow latents. Only c_KV and the shared RoPE key k_R are cached; the full keys and values are rebuilt from c_KV, and the up-projections can be folded into the query and output projections at inference.'
-      : 'Each query head scores every earlier token. With grouped-query attention several query heads share one cached key/value head, so the cache holds n_kv heads instead of n_h.',
-  'mixer-C': 'Two gates around a depthwise convolution with a short kernel. While decoding, the layer only keeps the last k inputs, so its cache never grows with context.',
+      ? 'Queries and keys/values pass through narrow latents. Only c^KV and the shared RoPE key k^R are cached; the full keys and values are rebuilt from c^KV, and the up-projections can be folded into the query and output projections at inference.'
+      : attn === 'gqa'
+        ? `Each query head scores every earlier token. With grouped-query attention several query heads share one cached key/value head, so the cache holds ${z('kv_heads', 'n_kv')} heads instead of ${z('heads', 'n_h')}.`
+        : 'Each query head scores every earlier token, reading the keys and values of past tokens from the cache.',
+  'mixer-C': `Two gates around a depthwise convolution with a short kernel. While decoding, the layer only keeps the last ${z('conv_window', 'k')} inputs, so its cache never grows with context.`,
   'ffn-D': 'A gated FFN: the gate path goes through the activation and multiplies the up path element by element, then the down projection returns to width d.',
-  'ffn-E': 'The router scores all N_r routed experts and keeps K_r; their outputs are mixed by the gate weights g. Shared experts run for every token.',
+  'ffn-E': `The router scores all ${z('routed_experts', 'N_r')} routed experts and keeps ${z('active_experts', 'K_r')}; their outputs are mixed by the gate weights g.${m.values.shared_experts ? ' Shared experts run for every token.' : ''}`,
   mtp: 'Used in training: predicts one token further ahead, reusing the main model’s embedding table and output head.',
 };
 
@@ -75,7 +83,7 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
       </div>
     ))
   }
-  <p class="symcap">Symbols in these diagrams, with {m.title}’s values (hover a value for its source):</p>
+  <p class="symcap">Where the numbers come from: each size in {m.title}’s diagrams, the symbol the concept notes use for it, and its source (hover or follow the value). T is the number of tokens in the sequence.</p>
   <dl class="symbols">
     {
       symbols.map((s: any) => (
