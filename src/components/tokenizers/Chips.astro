@@ -1,0 +1,90 @@
+---
+// A row of token (or piece) chips. Whitespace is drawn (· space, ↵ line break), so a reader sees
+// that " fox" and "fox" are different tokens. A chip holding one character split across several
+// tokens shows how many, with the bytes on hover.
+import { visible, type Chip } from '../../lib/tokenizers/samples';
+
+interface Props {
+  chips?: Chip[];
+  pieces?: string[];
+  /** Show each token's id under it. */
+  ids?: boolean;
+  /** [isSpecial, text] runs, e.g. a rendered chat template. */
+  parts?: [boolean, string][];
+}
+const { chips, pieces, ids = false, parts } = Astro.props;
+const items = parts
+  ? parts.map(([special, text]) => ({ text, special, title: special ? 'special token' : undefined, ids: [] as number[], split: false }))
+  : chips
+    ? chips.map((c) => ({ text: c.text, special: false, ids: c.ids, split: c.ids.length > 1, title: c.bytes ? `${c.ids.length} tokens split inside a character: ${c.bytes.join(' + ')} (hex bytes)` : `id ${c.ids[0]}` }))
+    : (pieces ?? []).map((p) => ({ text: p, special: false, ids: [] as number[], split: false, title: undefined }));
+---
+
+<span class:list={['chips', { parts: !!parts }]}>
+  {
+    items.map((c) => (
+      <span class:list={['chip', { special: c.special, split: c.split }]} title={c.title}>
+        <span class="t">
+          {visible(c.text).map((r) => (r.ws ? <span class="ws">{r.t}</span> : r.t))}
+          {c.split && <sup>×{c.ids.length}</sup>}
+        </span>
+        {ids && c.ids.length > 0 && <span class="id">{c.ids.join(' ')}</span>}
+      </span>
+    ))
+  }
+</span>
+
+<style>
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.25;
+  }
+  .chip {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.12rem 0.3rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--paper-raised);
+    white-space: pre;
+    max-width: 100%;
+  }
+  .t {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .chip:nth-child(even) {
+    background: color-mix(in srgb, var(--ink) 7%, var(--paper-raised));
+  }
+  .chip.split {
+    border-style: dashed;
+    border-color: var(--ink-soft);
+  }
+  .chip.special {
+    border: 1.5px solid var(--ink);
+    font-weight: 600;
+  }
+  .parts .chip:not(.special) {
+    border-color: transparent;
+    background: transparent;
+    padding-inline: 0.05rem;
+    white-space: pre-wrap;
+  }
+  .ws {
+    color: var(--ink-faint);
+  }
+  sup {
+    margin-left: 0.15rem;
+    font-size: 0.62rem;
+    color: var(--ink-soft);
+  }
+  .id {
+    font-size: 0.62rem;
+    color: var(--ink-faint);
+  }
+</style>

@@ -23,3 +23,15 @@ expert_hidden: { v: 2048, source: deepseek-v3-config, where: moe_intermediate_si
 mtp_depth: { v: 1, source: deepseek-v3-config, where: num_nextn_predict_layers }
 context_length: { v: 128000, display: 128K, source: deepseek-v3-report, where: "§4.3" }
 training_tokens: { v: 14.8e12, source: deepseek-v3-report, where: Abstract }
+tokenizer: { v: deepseek-v3, source: deepseek-v3-tokenizer, where: tokenizer.json }
+tie_embeddings: { v: false, source: deepseek-v3-config, where: tie_word_embeddings }
+norm: { v: "RMSNorm, before each sublayer", source: deepseek-v3-report, where: "Figure 2" }
+latent_norm: { v: true, source: deepseek-v3-report, where: "§4.2" }
+v_head_dim: { v: 128, source: deepseek-v3-config, where: v_head_dim }
+rope_theta: { v: 10000, source: deepseek-v3-config, where: rope_theta }
+rope_scaling: { v: "YaRN, factor 40 over a 4K original window", source: deepseek-v3-config, where: rope_scaling }
+ffn_activation: { v: SwiGLU, source: deepseek-v3-modeling, where: "DeepseekV3MLP.forward" }
+router_scoring: { v: sigmoid, source: deepseek-v3-report, where: "§2.1.2, eq. 15" }
+routed_scaling: { v: 2.5, source: deepseek-v3-config, where: routed_scaling_factor }
+expert_groups: { v: 8, source: deepseek-v3-config, where: n_group }
+expert_groups_active: { v: 4, source: deepseek-v3-config, where: topk_group }

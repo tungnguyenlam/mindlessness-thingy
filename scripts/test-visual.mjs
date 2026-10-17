@@ -32,6 +32,8 @@ const baseline = JSON.parse(fs.readFileSync(path.join(root, 'scripts/baseline.js
 
 // Runs in the page. Returns [{ code, msg }].
 const INSPECT = `(() => {
+  // Tabbed components mark their hidden panels data-test-reveal: show them all so every view is inspected.
+  for (const el of document.querySelectorAll('[data-test-reveal]')) el.hidden = false;
   const out = [];
   const push = (code, msg) => out.push({ code, msg });
   const doc = document.documentElement;

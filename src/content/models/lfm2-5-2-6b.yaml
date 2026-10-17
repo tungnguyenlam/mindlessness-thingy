@@ -11,3 +11,4 @@ ffn_hidden: { v: 10752, source: lfm2-5-2-6b-config, where: intermediate_size }
 vocab_size: { v: 128000, source: lfm2-5-2-6b-config, where: vocab_size }
 context_length: { v: 131072, source: lfm2-5-2-6b-card, where: Context length }
 training_tokens: { v: 34e12, source: lfm2-5-2-6b-card, where: Training budget }
+tokenizer: { v: lfm2-5-128k, source: lfm2-5-2-6b-tokenizer, where: tokenizer.json }

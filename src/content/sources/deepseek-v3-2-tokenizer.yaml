@@ -1,0 +1,8 @@
+title: DeepSeek-V3.2 tokenizer files (Hugging Face)
+short: DeepSeek-V3.2 tokenizer
+authors: DeepSeek-AI
+year: 2025
+url: https://huggingface.co/deepseek-ai/DeepSeek-V3.2/tree/main
+type: config
+accessed: 2026-10-17
+notes: tokenizer.json has the same vocabulary and merges as DeepSeek-V3; tokenizer_config.json sets add_bos_token false and has no chat template (the repo ships encoding/encoding_dsv32.py instead).

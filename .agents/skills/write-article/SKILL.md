@@ -17,7 +17,7 @@ Read `AGENTS.md` first for the rules, frontmatter fields and component catalog, 
 ## 2. Decide the shape
 
 - **Concept**: one idea that can be reused across models. Explain the problem it solves, how it works, a diagram or calculator, and its tradeoffs.
-- **System**: one specific model. Write mostly about what is *new* relative to what it `builds_on`. Link to concepts for everything it reuses. Its numbers go in `src/content/models/<slug>.yaml` (see `docs/workflow.md#writing-a-model-system-note`) and appear through `<ModelSpec>`; add an `<ArchDiagram>` of the overall block. The `one-idea` check fails a system note that has model data but retypes it.
+- **System**: one specific model. Write mostly about what is *new* relative to what it `builds_on`. Link to concepts for everything it reuses. Its numbers go in `src/content/models/<slug>.yaml` (see `docs/workflow.md#writing-a-model-system-note`) and appear through `<ModelSpec>`. Open with `<ModelOverview>` (generated whole-model view) and give the tokenizer a `## Tokenizer` section with `<Tokenizer model=...>` (rule `model-card`). The `one-idea` check fails a system note that has model data but retypes it.
 - **Path**: an ordered list of `steps` plus a short framing paragraph. Paths contain no explanations of their own.
 
 Split it into several notes if you find yourself explaining two ideas, and link between them.
@@ -50,6 +50,8 @@ Before writing paragraphs, list the note's main ideas (usually two to four) and 
 | How does this grow or compare? | `<Calc>` |
 | What happens, in what order? | `<Stepper>` + `<Step>` |
 | What are the numbers? | `<ModelSpec>` for a model, `<Spec>` for anything else (every row sourced) |
+| How is the whole model wired? | `<ModelOverview>` (tabs down to projections and shapes) |
+| How does it read text? | `<Tokenizer>`, `<TokenizerFlow>`, `<TokenizerCompare>` |
 | How does it differ from X? | `<ModelSpec diff>`, `<Compare>` |
 
 Use the fixed roles (activation, weight, cache, route, op) and link diagram blocks to their notes.

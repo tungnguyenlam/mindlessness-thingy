@@ -1,0 +1,184 @@
+---
+// Text becoming token ids, stage by stage, for one tokenizer: the raw text, the pieces the
+// pre-tokenizer cuts it into, the same pieces as byte-level characters, and the tokens BPE merges
+// them into (with ids). Tabs switch between sample texts. Everything is generated from the
+// released tokenizer.json by scripts/tokenizer-samples.py.
+//   <TokenizerFlow tokenizer="deepseek-v3" />
+//   <TokenizerFlow tokenizer="lfm2" samples={["english", "vietnamese"]} />
+import { requireTokenizer } from '../../lib/models/load';
+import { samplesFor, SAMPLES, GENERATOR } from '../../lib/tokenizers/samples';
+import Chips from '../tokenizers/Chips.astro';
+
+interface Props {
+  tokenizer: string;
+  /** Sample ids to offer, in order (default: all). */
+  samples?: string[];
+  caption?: string;
+}
+const { tokenizer, samples: pick, caption } = Astro.props;
+const t = await requireTokenizer(tokenizer, '<TokenizerFlow>');
+const gen = samplesFor(tokenizer, '<TokenizerFlow>');
+const list = pick ? pick.map((id) => SAMPLES.find((s) => s.id === id) ?? (() => { throw new Error(`<TokenizerFlow>: unknown sample "${id}"`); })()) : SAMPLES;
+const config = JSON.stringify({ samples: list.map((s) => s.id) });
+---
+
+<x-tokenizerflow class="tokflow ui" data-restorable>
+  <script type="application/json" set:html={config} />
+  <p class="title">How the {t.title} turns text into ids</p>
+  <div class="tabs" role="tablist">
+    {
+      list.map((s, i) => (
+        <button type="button" role="tab" data-sample={s.id} aria-selected={i === 0 ? 'true' : 'false'}>
+          {s.label}
+        </button>
+      ))
+    }
+  </div>
+  {
+    list.map((s, i) => {
+      const r = gen.samples[s.id];
+      return (
+        <ol class="stages" data-panel={s.id} hidden={i !== 0} data-test-reveal>
+          <li>
+            <span class="stage">Text</span>
+            <Chips pieces={[s.text]} />
+          </li>
+          <li>
+            <span class="stage">
+              Pre-tokenizer
+              <small>{r.pieces.length} pieces</small>
+            </span>
+            <Chips pieces={r.pieces} />
+          </li>
+          <li>
+            <span class="stage">
+              As bytes
+              <small>one symbol per byte: Ġ is a space, a non-ASCII letter takes two or three</small>
+            </span>
+            <Chips pieces={r.bytePieces} />
+          </li>
+          <li>
+            <span class="stage">
+              BPE tokens
+              <small>{r.count} ids</small>
+            </span>
+            <Chips chips={r.chips} ids />
+          </li>
+        </ol>
+      );
+    })
+  }
+  <p class="caption">
+    {caption ?? 'Each stage only splits further or merges inside a piece; BPE never merges across the pre-tokenizer’s cuts. A dashed chip is one character spread over several tokens.'}{' '}
+    <span class="gen">Computed by {GENERATOR} from {gen.repo}.</span>
+  </p>
+</x-tokenizerflow>
+
+<script>
+  // Restorable (src/scripts/trail.ts): the chosen sample comes back on return.
+  class XTokenizerFlow extends HTMLElement {
+    cur = '';
+    first = '';
+    snapshot() {
+      return this.cur && this.cur !== this.first ? { s: this.cur } : null;
+    }
+    restore(st: unknown) {
+      const s = st as { s?: string };
+      if (s?.s) this.show(s.s);
+    }
+    show(_id: string) {}
+    connectedCallback() {
+      const cfg = JSON.parse(this.querySelector('script[type="application/json"]')!.textContent!);
+      this.first = cfg.samples[0];
+      this.show = (id: string) => {
+        if (!cfg.samples.includes(id)) return;
+        this.cur = id;
+        this.querySelectorAll<HTMLElement>('[data-panel]').forEach((p) => (p.hidden = p.dataset.panel !== id));
+        this.querySelectorAll('[data-sample]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.sample === id)));
+      };
+      this.querySelector('.tabs')!.addEventListener('click', (e) => {
+        const b = (e.target as HTMLElement).closest<HTMLElement>('[data-sample]');
+        if (b) this.show(b.dataset.sample!);
+      });
+      if (!this.cur) this.cur = this.first;
+    }
+  }
+  customElements.define('x-tokenizerflow', XTokenizerFlow);
+</script>
+
+<style>
+  .tokflow {
+    display: block;
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .title {
+    margin: 0 0 0.6rem;
+    font-weight: 600;
+  }
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.9rem;
+  }
+  .tabs button {
+    font: inherit;
+    font-size: var(--step--1);
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .tabs button[aria-selected='true'] {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper-raised);
+  }
+  .stages {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .stages li {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr;
+    gap: 0.4rem 0.8rem;
+    align-items: start;
+    padding: 0.55rem 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .stages li + li .stage::before {
+    content: '↓ ';
+    color: var(--ink-faint);
+  }
+  .stage {
+    font-size: var(--step--1);
+    font-weight: 500;
+  }
+  .stage small {
+    display: block;
+    font-weight: 400;
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+  }
+  @media (max-width: 520px) {
+    .stages li {
+      grid-template-columns: 1fr;
+    }
+  }
+  .caption {
+    margin: 0.7rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .gen {
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+  }
+</style>

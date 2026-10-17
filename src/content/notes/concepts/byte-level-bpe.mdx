@@ -1,0 +1,52 @@
+---
+title: Byte-level BPE
+kind: concept
+summary: How most LLM tokenizers turn text into ids. A regex cuts text into pieces, each piece becomes bytes, and learned merge rules join frequent byte pairs into tokens.
+domains: [llm, tokenization]
+prerequisites: []
+builds_on: []
+contrasts_with: []
+related: [deepseek-v3-tokenizer, lfm2-tokenizer, lfm2-5-128k-tokenizer]
+sources: [sennrich-bpe-paper, gpt2-paper, deepseek-v3-report, lfm2-report, deepseek-v3-tokenizer, deepseek-v2-tokenizer]
+status: draft
+updated: 2026-10-17
+---
+
+A language model never reads text. It reads integer ids, one per token, each picking a row of the embedding table. The tokenizer decides where tokens begin and end, which fixes what a sentence costs, which languages are cheap and what the model sees inside a number. DeepSeek and LFM both use byte-level BPE <Cite id="deepseek-v3-report" where="§4.1" /> <Cite id="lfm2-report" where="§2.2" />.
+
+## The idea in one picture
+
+<TokenizerFlow tokenizer="lfm2" samples={["english", "numbers", "code", "vietnamese"]} />
+
+Read it top to bottom. The pre-tokenizer cuts the text into pieces with a regular expression. Each piece is turned into bytes, drawn as one printable character per byte, so a space shows as `Ġ`. Then the merge rules join bytes into tokens inside each piece, and each token is looked up to get its id. The Vietnamese tab shows the byte fallback: a character the vocabulary doesn't cover is spread over several byte tokens (the dashed chips).
+
+## How the merges are learned
+
+<Stepper title="Learning merge rules on a toy corpus">
+  <Step title="Start from bytes">
+    Every word in the training text is written as its bytes. The starting vocabulary is the 256 possible byte values, so nothing is ever out of vocabulary.
+  </Step>
+  <Step title="Count adjacent pairs">
+    Count every pair of neighbouring symbols across the corpus. In a corpus full of "lower", "lowest" and "newer", the pair `e r` is frequent.
+  </Step>
+  <Step title="Merge the most frequent pair">
+    Add `er` to the vocabulary as a new symbol and rewrite the corpus with it. Record the rule: merge `e` + `r`.
+  </Step>
+  <Step title="Repeat until the vocabulary is full">
+    Count again, merge again. After enough rounds, frequent words like `Ġthe` are a single token and rare words stay split into pieces. Encoding new text replays the recorded merges in the order they were learned.
+  </Step>
+</Stepper>
+
+BPE as a subword method comes from machine translation <Cite id="sennrich-bpe-paper" />. GPT-2 ran it on bytes instead of Unicode characters, which keeps the base vocabulary at 256 symbols and makes every string encodable. It also blocked merges across character categories, so a word and the punctuation after it don't fuse into one token <Cite id="gpt2-paper" where="§2.2" />. That second job is what modern pre-tokenizer regexes do.
+
+## The pre-tokenizer decides what can merge
+
+<TokenizerCompare tokenizers={["deepseek-v2", "deepseek-v3", "lfm2", "lfm2-5-128k"]} />
+
+Merges never cross a pre-tokenizer cut, so the regex sets hard limits. The clearest case is digits. The DeepSeek-V2 tokenizer cuts every digit apart <Cite id="deepseek-v2-tokenizer" where="pre_tokenizer Digits" />, so "1234567" costs seven tokens. DeepSeek-V3 cuts runs of up to three digits <Cite id="deepseek-v3-tokenizer" where="pre_tokenizer Split" />, so the same number costs three. The Numbers row above shows the difference.
+
+Each model's tokenizer note lists its rules in order: [[deepseek-v3-tokenizer]], [[lfm2-tokenizer]] and [[lfm2-5-128k-tokenizer]].
+
+## Ids, special tokens and embedding rows
+
+After the merges, a tokenizer adds special tokens that no text can produce: begin and end of sequence, chat turn markers, tool-call markers, fill-in-the-middle markers. Each one has its own id and embedding row. The embedding table is often larger than the number of ids, padded to a round size, so some rows are never used. The tokenizer card in each model note shows both numbers.

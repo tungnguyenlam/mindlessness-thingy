@@ -54,6 +54,10 @@ export const RULES = {
     title: 'Diagrams lay out cleanly: no overlaps, no edges through blocks, labels fit, not too wide',
     doc: 'AGENTS.md#rules',
   },
+  'model-card': {
+    title: 'A system note with model data shows the whole model (ModelOverview) and its tokenizer (Tokenizer)',
+    doc: 'AGENTS.md#rules',
+  },
   'render-clean': {
     title: 'Pages render cleanly at desktop and phone width: no sideways scroll, clipped or colliding text, math or script errors',
     doc: 'AGENTS.md#rules',

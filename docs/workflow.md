@@ -33,10 +33,21 @@ flowchart TD
 1. **Facts.** Check `research/` for a fact sheet. If none, write `research/<family>-facts.md`: every number with source id and section or config key.
 2. **Sources.** One YAML per source in `src/content/sources/`.
 3. **Model data.** Write `src/content/models/<slug>.yaml` with keys from `src/lib/models/fields.mjs`; `extends` the parent model and state only what you sourced; every value is `{ v, source, where }` (add `display` when the source writes it differently, e.g. `128K`). Layer patterns use sublayer codes (`AD*3 AE*58`, `CD*2 AD ...`); the check verifies the count against `layers`. Show it in the note with `<ModelSpec model="<slug>" />`, and `<ModelSpec model="<slug>" diff />` for what changed from the parent.
-4. **Stubs.** `pnpm run new concept <slug> "Title"` for each missing concept, with a real summary.
-5. **Note.** `pnpm run new system <slug> "Title" --draft`. Put the model card first, then one section per thing that is new, each with its visual before its prose. Link everything reused.
-6. **Fast check** after each edit: `pnpm run check:graph --files <your files>`.
-7. Finish with `.agents/skills/finish-task/SKILL.md`.
+   Fill the architecture fields too (`tokenizer`, `tie_embeddings`, `norm`, `qk_norm` or `latent_norm`, `ffn_activation`, router fields for MoE): `<ModelOverview>` draws the whole model from them, and the check lints every generated view.
+4. **Tokenizer.** Point `tokenizer:` at a file in `src/content/tokenizers/` (see [Tokenizers](#tokenizers)); if the model brings a new one, add it.
+5. **Stubs.** `pnpm run new concept <slug> "Title"` for each missing concept, with a real summary.
+6. **Note.** `pnpm run new system <slug> "Title" --draft`. Open with `<ModelOverview model="<slug>" />`, then the numbers, then one section per thing that is new, each with its visual before its prose, and a `## Tokenizer` section with `<Tokenizer model="<slug>" />` (rule `model-card`). Link everything reused.
+7. **Fast check** after each edit: `pnpm run check:graph --files <your files>`.
+8. Finish with `.agents/skills/finish-task/SKILL.md`.
+
+## Tokenizers
+
+A tokenizer is shared by every model that uses it, so it is described once:
+
+1. **Files.** Add the model repo's tokenizer files as a source (`type: config`, url to the repo tree).
+2. **Data.** `src/content/tokenizers/<id>.yaml` with keys from `src/lib/tokenizers/fields.mjs`. Counts come from `tokenizer.json` (`where:` the JSON path); what it was trained for comes from the report. List the pre-tokenizer rules in plain words with their regex, and the named special tokens with ids.
+3. **Samples.** Add the repo to `TOKENIZERS` in `scripts/tokenizer-samples.py` and run `python3 scripts/tokenizer-samples.py` (needs `pip install tokenizers jinja2`). It writes `src/data/tokenizer-samples.json`: each sample text split stage by stage, the chat format rendered, and vocabulary overlap with a predecessor. Never edit that file by hand.
+4. **Note.** One system note per tokenizer (`note:` in the data) with `<TokenizerFlow>`, `<Tokenizer id="<id>" full />` and, when it replaced another, `<TokenizerCompare>`. Models link to it through their `<Tokenizer model=...>` card.
 
 ## Writing a concept note
 

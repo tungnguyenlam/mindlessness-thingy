@@ -1,0 +1,33 @@
+title: DeepSeek-V3 tokenizer
+note: deepseek-v3-tokenizer
+family: deepseek
+file: deepseek-v3-tokenizer
+algorithm: { v: Byte-level BPE, source: deepseek-v3-report, where: "§4.1" }
+base_vocab: { v: 128000, source: deepseek-v3-tokenizer, where: "tokenizer.json model.vocab" }
+merges: { v: 127741, source: deepseek-v3-tokenizer, where: "tokenizer.json model.merges" }
+added_tokens: { v: 818, source: deepseek-v3-tokenizer, where: "tokenizer.json added_tokens (800 placeholders, 18 named)" }
+max_id: { v: 128814, source: deepseek-v3-tokenizer, where: "tokenizer.json added_tokens" }
+normalizer: { v: none, source: deepseek-v3-tokenizer, where: "tokenizer.json normalizer (empty sequence)" }
+digits: { v: runs of up to three digits, source: deepseek-v3-tokenizer, where: "pre_tokenizer Split \\p{N}{1,3}" }
+add_bos: { v: "yes", source: deepseek-v3-tokenizer, where: "tokenizer_config.json add_bos_token" }
+chat_format: { v: "<｜User｜> and <｜Assistant｜> markers", source: deepseek-v3-tokenizer, where: "tokenizer_config.json chat_template" }
+trained_for: { v: multilingual compression efficiency, source: deepseek-v3-report, where: "§4.1" }
+pretokenizer:
+  - { v: "Runs of up to three digits are cut off first", regex: "\\p{N}{1,3}", source: deepseek-v3-tokenizer, where: "pre_tokenizer Split 1" }
+  - { v: "A run of Chinese ideographs or Japanese kana is its own piece", regex: "[一-龥ぁ-ゟ゠-ヿ]+", source: deepseek-v3-tokenizer, where: "pre_tokenizer Split 2" }
+  - { v: "One ASCII punctuation mark glued to the letters after it, like .com or 's", regex: "[!-~punct][A-Za-z]+", source: deepseek-v3-tokenizer, where: "pre_tokenizer Split 3, first branch" }
+  - { v: "A word: letters and marks, with at most one space or symbol in front", regex: "[^\\r\\n\\p{L}\\p{P}\\p{S}]?[\\p{L}\\p{M}]+", source: deepseek-v3-tokenizer, where: "pre_tokenizer Split 3" }
+  - { v: "Punctuation together with the line breaks after it (new in V3)", regex: " ?[\\p{P}\\p{S}]+[\\r\\n]*", source: deepseek-v3-tokenizer, where: "pre_tokenizer Split 3" }
+  - { v: "Whitespace that ends in line breaks, then any other whitespace", regex: "\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+", source: deepseek-v3-tokenizer, where: "pre_tokenizer Split 3, last branches" }
+specials:
+  source: deepseek-v3-tokenizer
+  where: tokenizer.json added_tokens
+  tokens:
+    - { token: "<｜begin▁of▁sentence｜>", id: 0, use: begin of sequence }
+    - { token: "<｜end▁of▁sentence｜>", id: 1, use: end of sequence }
+    - { token: "<｜▁pad▁｜>", id: 2, use: padding }
+    - { token: "<｜place▁holder▁no▁0｜>", id: 128000, use: "first of 800 reserved placeholders (to 128799)" }
+    - { token: "<｜fim▁hole｜>", id: 128800, use: fill-in-the-middle }
+    - { token: "<｜User｜>", id: 128803, use: user turn }
+    - { token: "<｜Assistant｜>", id: 128804, use: assistant turn }
+    - { token: "<｜tool▁calls▁begin｜>", id: 128806, use: "tool calls (eight tool tokens to 128814)" }

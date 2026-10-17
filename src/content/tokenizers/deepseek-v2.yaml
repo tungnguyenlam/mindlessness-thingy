@@ -1,0 +1,26 @@
+title: DeepSeek-V2 tokenizer
+family: deepseek
+file: deepseek-v2-tokenizer
+algorithm: { v: Byte-level BPE, source: deepseek-v2-report, where: "§3.1.1" }
+base_vocab: { v: 100000, source: deepseek-v2-tokenizer, where: "tokenizer.json model.vocab" }
+merges: { v: 99757, source: deepseek-v2-tokenizer, where: "tokenizer.json model.merges" }
+added_tokens: { v: 2, source: deepseek-v2-tokenizer, where: "tokenizer.json added_tokens" }
+max_id: { v: 100001, source: deepseek-v2-tokenizer, where: "tokenizer.json added_tokens" }
+normalizer: { v: none, source: deepseek-v2-tokenizer, where: "tokenizer.json normalizer (empty sequence)" }
+digits: { v: every digit on its own, source: deepseek-v2-tokenizer, where: "pre_tokenizer Digits, individual_digits: true" }
+add_bos: { v: "yes", source: deepseek-v2-tokenizer, where: "tokenizer_config.json add_bos_token" }
+chat_format: { v: "plain-text User: / Assistant: turns", source: deepseek-v2-tokenizer, where: "tokenizer_config.json chat_template" }
+trained_for: { v: "the DeepSeek 67B tokenizer, reused", source: deepseek-v2-report, where: "§3.1.1" }
+pretokenizer:
+  - { v: "Every line break is its own piece", regex: "[\\r\\n]", source: deepseek-v2-tokenizer, where: "pre_tokenizer Split 1" }
+  - { v: "A run of Latin, Greek or Cyrillic letters, with at most one space in front", regex: "\\s?[A-Za-z…]+", source: deepseek-v2-tokenizer, where: "pre_tokenizer Split 2" }
+  - { v: "A run of punctuation, ASCII or full-width, with at most one space in front", regex: "\\s?[!-/:-~！-／：-～…]+", source: deepseek-v2-tokenizer, where: "pre_tokenizer Split 3" }
+  - { v: "Whitespace at the very end", regex: "\\s+$", source: deepseek-v2-tokenizer, where: "pre_tokenizer Split 4" }
+  - { v: "A run of CJK ideographs or Hangul", regex: "[一-龥ࠀ-一가-힣]+", source: deepseek-v2-tokenizer, where: "pre_tokenizer Split 5" }
+  - { v: "Each digit separately", source: deepseek-v2-tokenizer, where: "pre_tokenizer Digits" }
+specials:
+  source: deepseek-v2-tokenizer
+  where: tokenizer.json added_tokens
+  tokens:
+    - { token: "<｜begin▁of▁sentence｜>", id: 100000, use: begin of sequence }
+    - { token: "<｜end▁of▁sentence｜>", id: 100001, use: end of sequence and padding }

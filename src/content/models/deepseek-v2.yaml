@@ -21,3 +21,14 @@ shared_experts: { v: 2, source: deepseek-v2-config, where: n_shared_experts }
 expert_hidden: { v: 1536, source: deepseek-v2-config, where: moe_intermediate_size }
 context_length: { v: 128000, display: 128K, source: deepseek-v2-report, where: Abstract }
 training_tokens: { v: 8.1e12, source: deepseek-v2-report, where: Abstract }
+tokenizer: { v: deepseek-v2, source: deepseek-v2-tokenizer, where: tokenizer.json }
+tie_embeddings: { v: false, source: deepseek-v2-config, where: tie_word_embeddings }
+norm: { v: "RMSNorm, before each sublayer", source: deepseek-v2-report, where: "Figure 2" }
+latent_norm: { v: true, source: deepseek-v2-report, where: "§3.1.2" }
+v_head_dim: { v: 128, source: deepseek-v2-config, where: v_head_dim }
+rope_theta: { v: 10000, source: deepseek-v2-config, where: rope_theta }
+rope_scaling: { v: "YaRN, factor 40 over a 4K original window", source: deepseek-v2-config, where: rope_scaling }
+router_scoring: { v: softmax, source: deepseek-v2-config, where: scoring_func }
+routed_scaling: { v: 16, source: deepseek-v2-config, where: routed_scaling_factor }
+expert_groups: { v: 8, source: deepseek-v2-config, where: n_group }
+expert_groups_active: { v: 3, source: deepseek-v2-config, where: topk_group }

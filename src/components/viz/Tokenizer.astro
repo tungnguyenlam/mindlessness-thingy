@@ -1,0 +1,250 @@
+---
+// A model's tokenizer, from src/content/tokenizers/<id>.yaml and the generated samples: what kind
+// of tokenizer it is, how many ids it has against the embedding rows the model allocates, how one
+// sentence and one chat turn come out, and which other models share it.
+//   <Tokenizer model="deepseek-v3" />           in a model note: compact card
+//   <Tokenizer id="deepseek-v3" full />         in a tokenizer note: every fact, splitting rules, special tokens
+import { modelData, requireModel, requireTokenizer, modelsUsingTokenizer } from '../../lib/models/load';
+import { TOKENIZER_FIELDS, unusedRows } from '../../lib/tokenizers/fields.mjs';
+import { formatValue } from '../../lib/models/fields.mjs';
+import { samplesFor, SAMPLES } from '../../lib/tokenizers/samples';
+import { noteUrl } from '../../lib/url';
+import Chips from '../tokenizers/Chips.astro';
+
+interface Props {
+  model?: string;
+  id?: string;
+  full?: boolean;
+  /** Sample shown in the card (an id from scripts/tokenizer-samples.py SAMPLES). */
+  sample?: string;
+}
+const { model: modelId, id: idProp, full = false, sample = 'english' } = Astro.props;
+const d = await modelData();
+const model = modelId ? await requireModel(modelId, '<Tokenizer>') : null;
+const id = idProp ?? (model?.values.tokenizer?.v as string | undefined);
+if (!id) throw new Error(`<Tokenizer model="${modelId}">: the model has no tokenizer field (add tokenizer: { v, source, where } to its data)`);
+const t = await requireTokenizer(id, '<Tokenizer>');
+const gen = samplesFor(id, '<Tokenizer>');
+const s = SAMPLES.find((x) => x.id === sample);
+if (!s) throw new Error(`<Tokenizer>: unknown sample "${sample}" (one of ${SAMPLES.map((x) => x.id).join(', ')})`);
+const users = await modelsUsingTokenizer(id);
+const others = users.filter((u) => u.id !== model?.id);
+
+const src = (v: any) => {
+  const so = d.sources.get(v.source);
+  return { url: so?.url, title: `${so?.short ?? v.source}, ${v.where}` };
+};
+const keys = full ? TOKENIZER_FIELDS.map((f) => f.key) : ['algorithm', 'base_vocab', 'added_tokens', 'digits', 'add_bos', 'chat_format'];
+const facts: { label: string; text: string; url?: string; title?: string; concept?: string }[] = TOKENIZER_FIELDS.filter((f) => keys.includes(f.key) && (t as any)[f.key]).map((f) => {
+  const v = (t as any)[f.key];
+  return { label: f.label, text: formatValue(f, v), ...src(v), concept: f.concept && d.notes.has(f.concept) ? f.concept : undefined };
+});
+// In a model note, set the ids against the rows the model's embedding table actually has.
+if (model?.values.vocab_size) {
+  const rows = model.values.vocab_size;
+  facts.push({ label: 'Embedding rows in this model', text: formatValue({ kind: 'count' }, rows), ...src(rows) });
+  const un = unusedRows(model, t);
+  if (un && un.v > 0) facts.push({ label: 'Rows no token id reaches', text: un.v.toLocaleString('en-US'), title: `derived: ${un.formula}` });
+}
+const row = gen.samples[sample];
+const tokNote = t.note && d.notes.has(t.note) ? t.note : null;
+---
+
+<figure class:list={['tokcard ui', { full }]}>
+  <header>
+    {
+      model ? (
+        <p class="lead">
+          {model.title} reads text through the {tokNote && !full ? <a href={noteUrl(tokNote)} data-slug={tokNote}>{t.title}</a> : <b>{t.title}</b>}
+          {others.length > 0 && (
+            <>
+              , shared with{' '}
+              {others.map((o, i) => (
+                <>
+                  {i > 0 && (i === others.length - 1 ? ' and ' : ', ')}
+                  <a href={noteUrl(o.note)} data-slug={o.note}>{o.title}</a>
+                </>
+              ))}
+            </>
+          )}
+          .
+        </p>
+      ) : (
+        <p class="lead">
+          Used by{' '}
+          {users.map((o, i) => (
+            <>
+              {i > 0 && (i === users.length - 1 ? ' and ' : ', ')}
+              {d.notes.has(o.note) ? <a href={noteUrl(o.note)} data-slug={o.note}>{o.title}</a> : o.title}
+            </>
+          ))}
+          {users.length === 0 && 'no model with data yet'}.
+        </p>
+      )
+    }
+  </header>
+  <dl class="facts">
+    {
+      facts.map((f) => (
+        <div>
+          <dt>{f.concept ? <a href={noteUrl(f.concept)} data-slug={f.concept}>{f.label}</a> : f.label}</dt>
+          <dd>{f.url ? <a href={f.url} title={f.title} rel="noopener">{f.text}</a> : <span title={f.title}>{f.text}</span>}</dd>
+        </div>
+      ))
+    }
+  </dl>
+  <div class="sample">
+    <p class="k">
+      {s.label} sample, {row.count} tokens:
+    </p>
+    <Chips chips={row.chips} ids={full} />
+  </div>
+  {
+    gen.chat && (
+      <div class="sample">
+        <p class="k">
+          One chat exchange as the model sees it ({gen.chat.tokens} tokens; outlined chips are control tokens that no text can produce):
+        </p>
+        <Chips parts={gen.chat.parts} />
+      </div>
+    )
+  }
+  {
+    full && t.pretokenizer.length > 0 && (
+      <div class="rules">
+        <p class="k">Splitting rules, in order (BPE never merges across these pieces):</p>
+        <ol>
+          {t.pretokenizer.map((r: any) => (
+            <li>
+              <a href={src(r).url} title={src(r).title} rel="noopener">
+                {r.v}
+              </a>
+              {r.regex && <code>{r.regex}</code>}
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
+  {
+    full && t.specials && (
+      <div class="specials">
+        <p class="k">
+          Named special tokens (<a href={d.sources.get(t.specials.source)?.url} title={`${d.sources.get(t.specials.source)?.short}, ${t.specials.where}`} rel="noopener">source</a>):
+        </p>
+        <table>
+          <tbody>
+            {t.specials.tokens.map((x: any) => (
+              <tr>
+                <td class="tokname">
+                  <code>{x.token}</code>
+                </td>
+                <td class="num">{x.id.toLocaleString('en-US')}</td>
+                <td>{x.use}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+  <figcaption>
+    Facts link to the tokenizer files or report they come from. Samples are computed from the released tokenizer.json ({gen.repo}).
+    {!full && tokNote && (
+      <>
+        {' '}
+        How it splits text, rule by rule: <a href={noteUrl(tokNote)} data-slug={tokNote}>{t.title}</a>.
+      </>
+    )}
+  </figcaption>
+</figure>
+
+<style>
+  .tokcard {
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .lead {
+    margin: 0 0 0.8rem;
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+    gap: 0.5rem 1.2rem;
+    margin: 0 0 1rem;
+  }
+  .facts div {
+    border-top: 1px solid var(--rule-soft);
+    padding-top: 0.3rem;
+  }
+  dt {
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+  }
+  dt a {
+    color: inherit;
+  }
+  dd {
+    margin: 0;
+    font-size: var(--step--1);
+  }
+  dd a {
+    color: var(--ink);
+  }
+  .sample,
+  .rules,
+  .specials {
+    margin-top: 0.9rem;
+  }
+  .k {
+    margin: 0 0 0.35rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .rules ol {
+    margin: 0;
+    padding-left: 1.3rem;
+    font-size: var(--step--1);
+  }
+  .rules li {
+    margin-bottom: 0.3rem;
+  }
+  .rules a {
+    color: var(--ink);
+  }
+  .rules code {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+  }
+  .specials {
+    overflow-x: auto;
+  }
+  .specials table {
+    border-collapse: collapse;
+    font-size: var(--step--1);
+  }
+  .specials td {
+    padding: 0.2rem 0.8rem 0.2rem 0;
+    border-top: 1px solid var(--rule-soft);
+    vertical-align: baseline;
+  }
+  .num {
+    font-family: var(--font-mono);
+    text-align: right;
+  }
+  .tokname code {
+    white-space: nowrap;
+  }
+  figcaption {
+    margin-top: 0.9rem;
+    font-size: 0.75rem;
+    color: var(--ink-faint);
+  }
+</style>

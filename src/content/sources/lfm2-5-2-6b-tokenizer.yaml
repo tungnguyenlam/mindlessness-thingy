@@ -1,0 +1,8 @@
+title: LFM2.5-2.6B tokenizer files (Hugging Face)
+short: LFM2.5-2.6B tokenizer
+authors: Liquid AI
+year: 2026
+url: https://huggingface.co/LiquidAI/LFM2.5-2.6B/tree/main
+type: config
+accessed: 2026-10-17
+notes: tokenizer.json, tokenizer_config.json and chat_template.jinja.

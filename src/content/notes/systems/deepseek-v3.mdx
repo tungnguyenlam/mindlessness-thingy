@@ -14,39 +14,11 @@ updated: 2026-10-16
 
 DeepSeek-V3 is a scaled-up [[deepseek-v2]]. The attention design is the same [[mla]], and the feed-forward layers are still [[deepseek-moe]]. What changed is mostly about training a model this large cheaply and stably: how experts are kept evenly loaded, an extra training objective, and 8-bit arithmetic. This note covers those differences. For anything it reuses, follow the links.
 
-## One layer
+## The whole model
 
-Each of the 61 layers is a standard pre-norm [[transformer-block]]: attention, then a feed-forward network, each with a residual connection. In all but the first three layers, the feed-forward network is a mixture of experts <Cite id="deepseek-v3-report" where="§4.2" />.
+Each of the 61 layers is a standard pre-norm [[transformer-block]]: attention, then a feed-forward network, each with a residual connection. In all but the first three layers, the feed-forward network is a mixture of experts <Cite id="deepseek-v3-report" where="§4.2" />. The tabs open each part down to its projections.
 
-<ArchDiagram
-  title="A DeepSeek-V3 layer"
-  caption="Each token goes through attention, then one shared expert plus the top k of N_r routed experts chosen by the router; the values are in the table below. Click a block to open its note."
-  blocks={[
-    { id: 'in', label: 'Hidden state', sub: 'width d', role: 'activation' },
-    { id: 'n1', label: 'RMSNorm', role: 'op' },
-    { id: 'att', label: 'Multi-head latent attn', sub: 'n_h heads', role: 'op', link: 'mla' },
-    { id: 'add1', label: 'Add', role: 'op' },
-    { id: 'n2', label: 'RMSNorm', role: 'op' },
-    { id: 'shared', label: 'Shared expert', sub: 'every token', role: 'weight', link: 'deepseek-moe' },
-    { id: 'router', label: 'Router', sub: 'sigmoid + bias', role: 'route', link: 'aux-loss-free-balancing' },
-    { id: 'routed', label: 'Routed experts', sub: 'top-k of N_r', role: 'weight', link: 'deepseek-moe' },
-    { id: 'sum', label: 'Weighted sum + Add', role: 'op' },
-  ]}
-  edges={[
-    { from: 'in', to: 'n1' },
-    { from: 'n1', to: 'att' },
-    { from: 'att', to: 'add1' },
-    { from: 'in', to: 'add1', side: 'left' },
-    { from: 'add1', to: 'n2' },
-    { from: 'n2', to: 'shared' },
-    { from: 'n2', to: 'router' },
-    { from: 'router', to: 'routed', label: 'top-k gates' },
-    { from: 'shared', to: 'sum' },
-    { from: 'routed', to: 'sum' },
-    { from: 'add1', to: 'sum', side: 'left' },
-  ]}
-  groups={[{ label: 'L layers; the first few use a dense FFN', blocks: ['n1', 'shared', 'routed', 'sum'] }]}
-/>
+<ModelOverview model="deepseek-v3" />
 
 <LayerStrip model="deepseek-v3" />
 
@@ -100,6 +72,12 @@ Most large matrix multiplies run in 8-bit floating point, using the E4M3 format 
 ### No token dropping
 
 V2 dropped tokens that overflowed an expert's capacity during training. Because balancing works well enough, V3 drops none, in training or inference <Cite id="deepseek-v3-report" where="§2.1.2" />.
+
+## Tokenizer
+
+<Tokenizer model="deepseek-v3" />
+
+V3 shipped a new tokenizer rather than reusing V2's: a 128K byte-level BPE vocabulary whose pre-tokenizer fuses punctuation with line breaks and cuts numbers into three-digit runs <Cite id="deepseek-v3-report" where="§4.1" />. How it splits text, rule by rule, and what changed from V2 is in [[deepseek-v3-tokenizer]]; [[deepseek-v3-2]] uses it unchanged.
 
 ## What came next
 

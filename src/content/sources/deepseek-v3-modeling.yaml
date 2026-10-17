@@ -1,0 +1,8 @@
+title: DeepSeek-V3 modeling_deepseek.py (Hugging Face)
+short: DeepSeek-V3 modeling code
+authors: DeepSeek-AI
+year: 2024
+url: https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py
+type: repo
+accessed: 2026-10-17
+notes: Reference implementation. DeepseekV3MLP computes down(silu(gate(x)) * up(x)); attention applies q_a_layernorm and kv_a_layernorm (RMSNorm) to the query and KV latents.

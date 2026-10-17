@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 export const NOTES_DIR = path.join(root, 'src/content/notes');
 export const SOURCES_DIR = path.join(root, 'src/content/sources');
@@ -100,6 +100,15 @@ export function noteLookup() {
 }
 
 export const MODELS_DIR = path.join(root, 'src/content/models');
+export const TOKENIZERS_DIR = path.join(root, 'src/content/tokenizers');
+
+export function loadTokenizers() {
+  return walk(TOKENIZERS_DIR, '.yaml').map((file) => ({
+    id: path.basename(file, '.yaml'),
+    file: path.relative(root, file),
+    data: YAML.parse(fs.readFileSync(file, 'utf8')) ?? {},
+  }));
+}
 
 export function loadModels() {
   return walk(MODELS_DIR, '.yaml').map((file) => ({

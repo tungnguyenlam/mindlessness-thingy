@@ -15,3 +15,9 @@ ffn_hidden: { v: 6656, source: lfm2-5-350m-config, where: intermediate_size }
 context_length: { v: 32768, source: lfm2-5-350m-card, where: Context length }
 training_tokens: { v: 28e12, source: lfm2-5-350m-card, where: Training budget }
 knowledge_cutoff: { v: Mid-2024, source: lfm2-5-350m-card, where: Knowledge cutoff }
+tokenizer: { v: lfm2, source: lfm2-5-350m-tokenizer, where: tokenizer.json }
+tie_embeddings: { v: true, source: lfm2-5-350m-config, where: tie_embedding }
+norm: { v: "RMSNorm, before each sublayer", source: lfm2-report, where: "§2.2" }
+qk_norm: { v: true, source: lfm2-report, where: "§2.2" }
+ffn_activation: { v: SwiGLU, source: lfm2-report, where: "§2.2" }
+rope_theta: { v: 1000000, source: lfm2-5-350m-config, where: rope_parameters.rope_theta }

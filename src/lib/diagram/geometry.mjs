@@ -266,7 +266,19 @@ function routeEdges(edges, boxes) {
       lx = (p[0] + q[0]) / 2 - textWidth(e.label, 'edge') / 2;
       ly = p[1] - 9;
     }
-    done.push({ edge: e, pts, d: `M${pts.map((p) => p.join(',')).join(' L')}`, lx, ly });
+    done.push({ edge: e, pts, d: `M${pts.map((p) => p.join(',')).join(' L')}`, lx, ly, vert: vert && !e.side ? vert : null });
+  }
+  // A label sitting on another edge's line is hard to read. Slide it along its own vertical segment
+  // to the first spot that crosses no other edge.
+  for (const r of done) {
+    if (!r.edge.label || !r.vert) continue;
+    const others = done.filter((o) => o !== r).flatMap((o) => segments(o.pts));
+    const w = textWidth(r.edge.label, 'edge');
+    const clear = (ly) => !others.some((sg) => segHitsRect(sg, { x: r.lx - 2, y: ly - 8, w: w + 4, h: 16 }, 0));
+    if (clear(r.ly)) continue;
+    const [y0, y1] = [Math.min(r.vert[0][1], r.vert[1][1]), Math.max(r.vert[0][1], r.vert[1][1])];
+    const spot = [0.25, 0.75, 0.15, 0.85].map((f) => y0 + (y1 - y0) * f).find((y) => y - 8 >= y0 && y + 8 <= y1 && clear(y));
+    if (spot != null) r.ly = spot;
   }
   return done;
 }
@@ -366,6 +378,13 @@ export function lintDiagram(props) {
       const lr = { x: r.lx, y: r.ly - 7, w: textWidth(e.label, 'edge'), h: 14, name };
       for (const b of boxes) if (rectsOverlap(lr, b)) err('edge-label-overlap', `${where}: label "${e.label}" on edge ${name} overlaps block "${b.id}"`, 'shorten the label or put the explanation in the caption');
       for (const o of labelRects) if (rectsOverlap(lr, o)) err('edge-label-overlap', `${where}: labels on edges ${o.name} and ${name} overlap`, 'drop one label or move one of the blocks');
+      for (const o of L.routes) {
+        if (o === r) continue;
+        if (segments(o.pts).some((sg) => segHitsRect(sg, { x: lr.x - 2, y: lr.y - 1, w: lr.w + 4, h: lr.h + 2 }, 0))) {
+          err('edge-label-overlap', `${where}: label "${e.label}" on edge ${name} sits on edge ${o.edge.from} → ${o.edge.to}`, 'move a block so the edges separate, or drop the label and say it in the caption');
+          break;
+        }
+      }
       labelRects.push(lr);
     }
   }
@@ -392,6 +411,10 @@ export function lintDiagram(props) {
     if (tw > g.w - 16) err('group-label-overflow', `${where}: group label "${g.label}" is wider than the group`, 'shorten it and move detail to the caption');
     const lr = { x: g.x + g.w - 12 - tw, y: g.y + g.h - 6, w: tw, h: 12 };
     for (const b of boxes) if (rectsOverlap(lr, b)) err('group-label-overlap', `${where}: group label "${g.label}" overlaps block "${b.id}"`, 'shorten the label');
+    for (const r of L.routes) {
+      // A few px of slack: the label has a halo and an edge grazing it reads as crossing it.
+      if (segments(r.pts).some((sg) => segHitsRect(sg, { x: lr.x - 3, y: lr.y - 4, w: lr.w + 6, h: lr.h + 8 }, 0))) err('group-label-overlap', `${where}: edge ${r.edge.from} → ${r.edge.to} crosses group label "${g.label}"`, 'move the edge\'s end blocks so it leaves the group elsewhere, or shorten the label');
+    }
   }
   return out;
 }

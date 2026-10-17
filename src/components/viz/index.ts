@@ -9,11 +9,15 @@ import Figure from './Figure.astro';
 import LayerStrip from './LayerStrip.astro';
 import MaskGrid from './MaskGrid.astro';
 import ModelDiagram from './ModelDiagram.astro';
+import ModelOverview from './ModelOverview.astro';
 import ModelSpec from './ModelSpec.astro';
 import ShapeFlow from './ShapeFlow.astro';
 import Spec from './Spec.astro';
 import Step from './Step.astro';
 import Stepper from './Stepper.astro';
 import Timeline from './Timeline.astro';
+import Tokenizer from './Tokenizer.astro';
+import TokenizerCompare from './TokenizerCompare.astro';
+import TokenizerFlow from './TokenizerFlow.astro';
 
-export const vizComponents = { ArchDiagram, Calc, Callout, Cite, Compare, Figure, LayerStrip, MaskGrid, ModelDiagram, ModelSpec, ShapeFlow, Spec, Step, Stepper, Timeline };
+export const vizComponents = { ArchDiagram, Calc, Callout, Cite, Compare, Figure, LayerStrip, MaskGrid, ModelDiagram, ModelOverview, ModelSpec, ShapeFlow, Spec, Step, Stepper, Timeline, Tokenizer, TokenizerCompare, TokenizerFlow };

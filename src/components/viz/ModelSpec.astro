@@ -58,7 +58,7 @@ const heading = title ?? (diff ? `What changed from ${parent!.title}` : `${m.tit
               <th scope="row">{conceptHref(d, r.concept) ? <a href={conceptHref(d, r.concept)} data-slug={r.concept}>{r.label}</a> : r.label}</th>
               {diff && <td class="value old">{p ? (r.key === 'layer_pattern' ? <PatternStrip pattern={p.raw} mini /> : p.text) : '—'}</td>}
               <td class="value" title={c!.formula ? `derived: ${c!.formula}` : undefined}>
-                {r.key === 'layer_pattern' ? <PatternStrip pattern={c!.raw} mini /> : c!.href ? <a href={c!.href} data-slug={c!.raw}>{c!.text}</a> : c!.text}
+                {r.key === 'layer_pattern' ? <PatternStrip pattern={c!.raw} mini /> : c!.href ? <a href={c!.href} data-slug={c!.slug}>{c!.text}</a> : c!.text}
               </td>
               <td class="src">
                 {c!.formula && <span class="tag">derived</span>}

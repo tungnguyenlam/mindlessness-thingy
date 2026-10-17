@@ -78,7 +78,7 @@ const provenance = (c: Cell) =>
                       r.key === 'layer_pattern' ? (
                         <a class="srcv" href={c.sources[0].url} rel="noopener"><PatternStrip pattern={c.raw} mini /></a>
                       ) : c.href ? (
-                        <a href={c.href} data-slug={c.raw}>{c.text}</a>
+                        <a href={c.href} data-slug={c.slug}>{c.text}</a>
                       ) : (
                         <a class="srcv" href={c.sources[0]?.url} rel="noopener">{c.text}</a>
                       )

@@ -1,0 +1,203 @@
+---
+// A model's whole architecture, generated from its data: text → tokenizer → embedding → layer
+// stack → final norm → output head → next token, then one tab per part (a layer, each mixer, each
+// FFN kind, MTP) drawn down to the projections and tensor shapes. Diagrams use symbols; the table
+// under them gives each symbol's value with its source, so nothing is retyped.
+//   <ModelOverview model="deepseek-v3" />
+// Generators: src/lib/models/overview.mjs (also linted by scripts/checks/models.mjs).
+import ArchDiagram from './ArchDiagram.astro';
+import { requireModel, modelData } from '../../lib/models/load';
+import { overviewParts, symbolRows } from '../../lib/models/overview.mjs';
+import { lintDiagram } from '../../lib/diagram/geometry.mjs';
+import { FIELD, formatValue } from '../../lib/models/fields.mjs';
+import { DERIVED, formatDerived } from '../../lib/models/data.mjs';
+import { noteUrl } from '../../lib/url';
+
+interface Props {
+  model: string;
+  caption?: string;
+}
+const { model: id, caption } = Astro.props;
+const d = await modelData();
+const m = await requireModel(id, '<ModelOverview>');
+const tok = d.tokenizers.get(m.values.tokenizer?.v);
+const ctx = { has: (s: string) => d.notes.has(s), tokenizer: tok ? { title: tok.title, note: tok.note, algorithm: tok.algorithm?.v } : null };
+const parts = overviewParts(m, ctx);
+for (const p of parts) {
+  const errors = lintDiagram(p.props).filter((x: any) => x.level === 'error');
+  if (errors.length) throw new Error(`<ModelOverview model="${id}"> part "${p.id}" fails diagram-geometry:\n${errors.map((e: any) => `  ${e.msg}`).join('\n')}`);
+}
+
+const attn = String(m.values.attention?.v ?? '');
+const CAPTIONS: Record<string, string> = {
+  model: 'From text to the next token. The dashed arrow on the left is decoding: the sampled id is appended and the model runs again, and only the new token passes through the stack because the caches hold the earlier ones.',
+  layer: 'One layer. Each sublayer reads a normalized copy of the residual stream and adds its result back (the arrows on the left), so the stream keeps shape T × d all the way up.',
+  'mixer-A':
+    attn === 'mla'
+      ? 'Queries and keys/values pass through narrow latents. Only c_KV and the shared RoPE key k_R are cached; the full keys and values are rebuilt from c_KV, and the up-projections can be folded into the query and output projections at inference.'
+      : 'Each query head scores every earlier token. With grouped-query attention several query heads share one cached key/value head, so the cache holds n_kv heads instead of n_h.',
+  'mixer-C': 'Two gates around a depthwise convolution with a short kernel. While decoding, the layer only keeps the last k inputs, so its cache never grows with context.',
+  'ffn-D': 'A gated FFN: the gate path goes through the activation and multiplies the up path element by element, then the down projection returns to width d.',
+  'ffn-E': 'The router scores all N_r routed experts and keeps K_r; their outputs are mixed by the gate weights g. Shared experts run for every token.',
+  mtp: 'Used in training: predicts one token further ahead, reusing the main model’s embedding table and output head.',
+};
+
+const value = (key: string | null) => {
+  if (!key) return { text: 'varies' };
+  const v = m.values[key];
+  if (v) {
+    const s = d.sources.get(v.source);
+    return { text: formatValue(FIELD[key], v), url: s?.url, title: `${s?.short ?? v.source}, ${v.where}${v.inherited ? ` (from ${v.from})` : ''}` };
+  }
+  const dv = m.derived[key];
+  if (dv) return { text: formatDerived(DERIVED.find((x) => x.key === key)!, dv.v), title: `derived: ${dv.formula}` };
+  return { text: '—' };
+};
+const symbols = symbolRows(m).map((r: any) => ({ ...r, ...value(r.key) }));
+const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
+---
+
+<x-modeloverview class="overview ui" data-restorable>
+  <script type="application/json" set:html={config} />
+  <div class="tabs" role="tablist" aria-label={`${m.title} architecture views`}>
+    {
+      parts.map((p, i) => (
+        <button type="button" role="tab" data-tab={p.id} aria-selected={i === 0 ? 'true' : 'false'}>
+          {p.tab}
+        </button>
+      ))
+    }
+  </div>
+  {
+    parts.map((p, i) => (
+      <div class="panel" role="tabpanel" data-panel={p.id} hidden={i !== 0} data-test-reveal>
+        <ArchDiagram {...p.props} caption={CAPTIONS[p.id]} />
+      </div>
+    ))
+  }
+  <p class="symcap">Symbols in these diagrams, with {m.title}’s values (hover a value for its source):</p>
+  <dl class="symbols">
+    {
+      symbols.map((s: any) => (
+        <div>
+          <dt>{s.sym}</dt>
+          <dd class="val">{s.url ? <a href={s.url} title={s.title} rel="noopener">{s.text}</a> : <span title={s.title}>{s.text}</span>}</dd>
+          <dd class="meaning">{s.meaning}</dd>
+        </div>
+      ))
+    }
+  </dl>
+  <p class="foot">
+    {caption ?? 'Generated from the model data, so it always matches the numbers table.'}{' '}
+    {tok?.note && d.notes.has(tok.note) && (
+      <>
+        Tokenizer: <a href={noteUrl(tok.note)} data-slug={tok.note}>{tok.title}</a>.
+      </>
+    )}
+  </p>
+</x-modeloverview>
+
+<script>
+  // Restorable (src/scripts/trail.ts): the open tab comes back on return.
+  class XModelOverview extends HTMLElement {
+    tab = '';
+    first = '';
+    snapshot() {
+      return this.tab && this.tab !== this.first ? { tab: this.tab } : null;
+    }
+    restore(s: unknown) {
+      const st = s as { tab?: string };
+      if (st?.tab) this.show(st.tab);
+    }
+    show(_id: string) {}
+    connectedCallback() {
+      const cfg = JSON.parse(this.querySelector('script[type="application/json"]')!.textContent!);
+      this.first = cfg.tabs[0];
+      this.show = (id: string) => {
+        if (!cfg.tabs.includes(id)) return;
+        this.tab = id;
+        this.querySelectorAll<HTMLElement>('[data-panel]').forEach((p) => (p.hidden = p.dataset.panel !== id));
+        this.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.tab === id)));
+      };
+      this.querySelector('.tabs')!.addEventListener('click', (e) => {
+        const b = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
+        if (b) this.show(b.dataset.tab!);
+      });
+      if (!this.tab) this.tab = this.first;
+    }
+  }
+  customElements.define('x-modeloverview', XModelOverview);
+</script>
+
+<style>
+  .overview {
+    display: block;
+    margin: 2rem 0;
+  }
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.2rem;
+  }
+  .tabs button {
+    font: inherit;
+    font-size: var(--step--1);
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .tabs button[aria-selected='true'] {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper-raised);
+  }
+  .panel :global(figure.arch) {
+    margin-top: 0.6rem;
+  }
+  .symcap {
+    margin: 0.4rem 0 0.4rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .symbols {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+    gap: 0.15rem 1rem;
+    margin: 0;
+    font-size: var(--step--1);
+  }
+  .symbols div {
+    display: grid;
+    grid-template-columns: 2.6rem auto;
+    column-gap: 0.4rem;
+    padding: 0.25rem 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .symbols dt {
+    grid-row: span 2;
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+  .symbols dd {
+    margin: 0;
+  }
+  .val {
+    font-family: var(--font-mono);
+  }
+  .val a {
+    color: var(--ink);
+  }
+  .meaning {
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+  }
+  .foot {
+    margin: 0.6rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+</style>

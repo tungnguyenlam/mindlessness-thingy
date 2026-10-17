@@ -14,9 +14,9 @@ updated: 2026-10-16
 
 LFM2.5-1.2B-Instruct is the general-purpose chat checkpoint in the 1.2B LFM2.5 family. The stack is the same [[hybrid-conv-attention]] interleaving as [[lfm2-5-350m]] — 10 [[gated-short-conv]] layers and 6 [[gqa]] layers — at twice the hidden width <Cite id="lfm2-5-1-2b-instruct-card" where="Number of layers" />. Pretraining is 28T tokens, up from the 10T LFM2 budget, then SFT, preference alignment, and multi-stage RL <Cite id="lfm2-5-intro-blog" />. [[lfm2-5-1-2b-thinking]] is this backbone with a reasoning post-train.
 
-## The block
+## The whole model
 
-<ModelDiagram
+<ModelOverview
   model="lfm2-5-1-2b-instruct"
   caption="Same 16-layer conv/attention split as the 350M. Hidden size 2048, 32 query heads sharing 8 key/value heads, SwiGLU width 12288."
 />
@@ -38,6 +38,12 @@ Hidden size doubles from the 350M's 1024 to 2048, query heads from 16 to 32, KV 
 The January 2026 family announcement describes Instruct as the default chat variant, trained with supervised fine-tuning, preference alignment, and large-scale multi-stage reinforcement learning <Cite id="lfm2-5-intro-blog" />. The card recommends it for agentic tasks, extraction and RAG, and not for knowledge-heavy work or programming <Cite id="lfm2-5-1-2b-instruct-card" />.
 
 A 296M speculative-decoding drafter (LFM2.5-1.2B-Instruct-DSpark) is released alongside; the card quotes about 2.1× faster decode in SGLang with identical outputs <Cite id="lfm2-5-1-2b-instruct-card" />.
+
+## Tokenizer
+
+<Tokenizer model="lfm2-5-1-2b-instruct" />
+
+It shares the [[lfm2-tokenizer]] with the other small LFM2.5 models: same vocabulary, same merges, same chat format.
 
 ## What it reuses
 

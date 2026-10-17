@@ -1,0 +1,161 @@
+---
+// The same sample texts through several tokenizers: one bar per tokenizer per sample, length =
+// tokens needed. Fewer tokens means more text fits in the context window and less compute per
+// sentence. Counts are generated from the released tokenizer files (scripts/tokenizer-samples.py).
+//   <TokenizerCompare tokenizers={["deepseek-v2", "deepseek-v3"]} />
+import { modelData } from '../../lib/models/load';
+import { samplesFor, SAMPLES, GENERATOR } from '../../lib/tokenizers/samples';
+import { noteUrl } from '../../lib/url';
+
+interface Props {
+  tokenizers: string[];
+  samples?: string[];
+  caption?: string;
+}
+const { tokenizers, samples: pick, caption } = Astro.props;
+if (!tokenizers?.length || tokenizers.length < 2) throw new Error('<TokenizerCompare> needs at least two tokenizers');
+const d = await modelData();
+const toks = tokenizers.map((id) => {
+  const t = d.tokenizers.get(id);
+  if (!t) throw new Error(`<TokenizerCompare>: unknown tokenizer "${id}"`);
+  return { id, t, gen: samplesFor(id, '<TokenizerCompare>') };
+});
+const list = pick ? SAMPLES.filter((s) => pick.includes(s.id)) : SAMPLES;
+const max = Math.max(...list.flatMap((s) => toks.map((k) => k.gen.samples[s.id].count)));
+const totals = toks.map((k) => list.reduce((a, s) => a + k.gen.samples[s.id].count, 0));
+const best = Math.min(...totals);
+---
+
+<figure class="tokcmp ui">
+  <ul class="legend">
+    {
+      toks.map((k, i) => (
+        <li>
+          <span class:list={['sw', `s${i}`]} />
+          {k.t.note && d.notes.has(k.t.note) ? <a href={noteUrl(k.t.note)} data-slug={k.t.note}>{k.t.title}</a> : k.t.title}
+        </li>
+      ))
+    }
+  </ul>
+  <div class="rows">
+    {
+      list.map((s) => {
+        const counts = toks.map((k) => k.gen.samples[s.id].count);
+        const low = Math.min(...counts);
+        return (
+          <div class="row">
+            <span class="name" title={s.text}>
+              {s.label}
+            </span>
+            <span class="bars">
+              {toks.map((k, i) => (
+                <span class="bar">
+                  <span class:list={['fill', `s${i}`]} style={`width:${(counts[i] / max) * 100}%`} />
+                  <span class:list={['n', { low: counts[i] === low }]}>{counts[i]}</span>
+                </span>
+              ))}
+            </span>
+          </div>
+        );
+      })
+    }
+    <div class="row total">
+      <span class="name">All samples</span>
+      <span class="totals">
+        {
+          toks.map((k, i) => (
+            <span class:list={{ low: totals[i] === best }}>
+              <span class:list={['sw', `s${i}`]} /> {totals[i]}
+            </span>
+          ))
+        }
+      </span>
+    </div>
+  </div>
+  <figcaption>
+    {caption ?? 'Tokens needed for the same short texts (hover a sample name for its text; bold is the fewest).'} <span class="gen">Counted by {GENERATOR} on the released tokenizer files; a handful of short samples, not a benchmark.</span>
+  </figcaption>
+</figure>
+
+<style>
+  .tokcmp {
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1.2rem;
+    list-style: none;
+    margin: 0 0 0.8rem;
+    padding: 0;
+    font-size: var(--step--1);
+  }
+  .sw {
+    display: inline-block;
+    width: 0.8rem;
+    height: 0.8rem;
+    margin-right: 0.3rem;
+    border-radius: 2px;
+    vertical-align: -0.1rem;
+  }
+  /* Neutral inks: these are tokenizers, not diagram roles. */
+  .s0 { background: var(--ink); }
+  .s1 { background: var(--ink-soft); }
+  .s2 { background: var(--ink-faint); }
+  .s3 { background: var(--rule); }
+  .row {
+    display: grid;
+    grid-template-columns: 6.5rem 1fr;
+    gap: 0.6rem;
+    align-items: center;
+    padding: 0.35rem 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .name {
+    font-size: var(--step--1);
+  }
+  .bars {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .fill {
+    height: 0.55rem;
+    border-radius: 2px;
+    min-width: 2px;
+  }
+  .n {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+  }
+  .low {
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1rem;
+    font-family: var(--font-mono);
+    font-size: var(--step--1);
+  }
+  figcaption {
+    margin-top: 0.7rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .gen {
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+  }
+</style>

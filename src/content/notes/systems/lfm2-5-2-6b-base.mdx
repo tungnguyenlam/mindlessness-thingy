@@ -14,9 +14,9 @@ updated: 2026-10-16
 
 LFM2.5-2.6B-Base is the pretrained 2.6B hybrid that [[lfm2-5-2-6b]] is post-trained from. It is still [[hybrid-conv-attention]], but deeper than the 16-layer 350M/1.2B models: 22 [[gated-short-conv]] blocks and 8 [[gqa]] blocks <Cite id="lfm2-5-2-6b-base-card" where="Number of layers" />. Pretraining is about 34T tokens, the vocabulary is doubled to 128K, and mid-training extends context to 128K <Cite id="lfm2-5-2-6b-blog" />. The card is for further fine-tuning, not chat out of the box <Cite id="lfm2-5-2-6b-base-card" />.
 
-## The block
+## The whole model
 
-<ModelDiagram
+<ModelOverview
   model="lfm2-5-2-6b-base"
   caption="Thirty layers. Twenty-two mix with a kernel-3 gated convolution; eight mix with grouped-query attention. Hidden size stays 2048, the same as the 1.2B."
 />
@@ -38,6 +38,12 @@ The card lists context 131,072. This Base config has `max_position_embeddings: 1
 The 16-layer models stop at 6 attention blocks and a 65,536-token vocabulary. Base adds two attention blocks and twelve convolution blocks, trains on 34T tokens, and doubles the tokenizer to 128K by extending the existing vocabulary in place rather than retraining from scratch — the same procedure used for LFM2.5-8B-A1B <Cite id="lfm2-5-2-6b-blog" />. Mid-training includes a dedicated 128K context-extension phase <Cite id="lfm2-5-2-6b-blog" />. [[rope]] θ is $10^7$ here versus $10^6$ on the 1.2B configs <Cite id="lfm2-5-2-6b-base-config" where="rope_parameters.rope_theta" />.
 
 Original LFM2-2.6B was a 32K-context dense model <Cite id="lfm2-report" where="Table 1, §2.2" />. The 2.5 Base checkpoint is that depth and width with the longer window and the larger vocabulary.
+
+## Tokenizer
+
+<Tokenizer model="lfm2-5-2-6b-base" />
+
+This is the first LFM2.5 model on the [[lfm2-5-128k-tokenizer]]: the LFM2 vocabulary doubled in place for non-Latin scripts <Cite id="lfm2-5-2-6b-blog" where="Training" />. The instruct checkpoint keeps it.
 
 ## What it reuses
 

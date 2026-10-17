@@ -46,3 +46,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: MaskGrid (restorable; MHA causal vs full, conv window vs attention), ShapeFlow (MLA squeeze/cache/expand), Timeline (models on a path with what each adds, sourced stats, layer strips); props lint; all roadmap phases done
 - files: src/components/viz/{MaskGrid,ShapeFlow,Timeline}.astro scripts/checks/viz-props.mjs
 - open: content backlog: Nemotron/StableHand model data after their drafts land, DeepSeek-V4/V4.1 data, baselined notes in scripts/baseline.json; dsa stub would suit a topk MaskGrid
+
+## 2026-10-17 · feat(models): whole-model overviews and shared tokenizer notes
+- did: ModelOverview draws every model from its data (text to next token, then tabs for layer, MLA/GQA/conv, dense/MoE FFN, MTP, down to projections and shapes, with a sourced symbol table); tokenizers collection with generated samples (scripts/tokenizer-samples.py); Tokenizer card, TokenizerFlow, TokenizerCompare; byte-level-bpe concept and three tokenizer notes; model-card rule requires overview and tokenizer section; geometry lint now catches labels on edges and edges through group labels
+- files: src/lib/models/overview.mjs src/components/viz/{ModelOverview,Tokenizer,TokenizerFlow,TokenizerCompare}.astro src/content/tokenizers/ src/data/tokenizer-samples.json scripts/checks/models.mjs
+- open: Nemotron/StableHand still need model + tokenizer data (other agent's drafts); DeepSeek-V2 has tokenizer data but its note is a stub; Mamba-2 mixer has no detail view yet

@@ -50,6 +50,10 @@ LFM2.5-2.6B is [[lfm2-5-2-6b-base]] after agentic post-training. The 30-layer [[
 The card calls this checkpoint a pure reasoning model: the chat template starts the assistant turn with a think tag, so it always reasons before answering <Cite id="lfm2-5-2-6b-card" where="Chat Template" />.
 </Callout>
 
+## The whole model
+
+<ModelOverview model="lfm2-5-2-6b" />
+
 ## What is new
 
 ### Four-stage agent post-training
@@ -70,6 +74,12 @@ The card calls this checkpoint a pure reasoning model: the chat template starts 
 </Stepper>
 
 A 328M speculative-decoding drafter (LFM2.5-2.6B-DSpark) is released with the weights; the card quotes about 2.6× faster decode with identical outputs <Cite id="lfm2-5-2-6b-card" />. The card recommends agentic workloads, tool use, extraction, RAG and long-context work, and not agentic coding or knowledge-heavy tasks <Cite id="lfm2-5-2-6b-card" />.
+
+## Tokenizer
+
+<Tokenizer model="lfm2-5-2-6b" />
+
+Same as Base: the [[lfm2-5-128k-tokenizer]], whose chat template writes the begin-of-sequence token and the ChatML turn markers.
 
 ## What it reuses
 

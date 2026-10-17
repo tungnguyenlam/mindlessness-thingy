@@ -1,0 +1,46 @@
+---
+title: LFM2.5 128K tokenizer
+kind: system
+summary: The LFM2.5-2.6B tokenizer. The 65K LFM2 tokenizer doubled to 128K in place for non-Latin scripts, keeping every old merge but renumbering every id.
+domains: [llm, tokenization]
+prerequisites: [byte-level-bpe, lfm2-tokenizer]
+builds_on: [lfm2-tokenizer]
+contrasts_with: []
+related: [lfm2-5-2-6b-base, lfm2-5-2-6b]
+sources: [lfm2-5-2-6b-blog, lfm2-5-2-6b-tokenizer, lfm2-5-2-6b-base-tokenizer, lfm2-5-1-2b-instruct-tokenizer, lfm2-5-2-6b-config]
+status: draft
+updated: 2026-10-17
+---
+
+[[lfm2-5-2-6b-base]] and [[lfm2-5-2-6b]] read text through a bigger version of the [[lfm2-tokenizer]]. To better support non-Latin scripts, Liquid doubled the vocabulary to 128K by extending the existing tokenizer in place instead of retraining the model from scratch <Cite id="lfm2-5-2-6b-blog" where="Training" />. The pre-tokenizer rules are the same.
+
+## How it splits text
+
+<TokenizerFlow tokenizer="lfm2-5-128k" samples={["vietnamese", "chinese", "japanese", "english", "code"]} />
+
+On Vietnamese, most words are now one token and no letter falls back to byte pieces; the 65K tokenizer spread each of those accented letters over two byte tokens. One more rule changes the lookup itself: a piece that is already a whole token is taken as is, before any merges run <Cite id="lfm2-5-2-6b-tokenizer" where="model.ignore_merges" />.
+
+## At a glance
+
+<Tokenizer id="lfm2-5-128k" full />
+
+## What doubling bought
+
+<TokenizerCompare tokenizers={["lfm2", "lfm2-5-128k"]} caption="The same samples through the 65K and 128K LFM tokenizers. English, numbers, code and Japanese cost the same; Vietnamese gets far cheaper, Chinese and JSON slightly." />
+
+<Spec
+  title="The 65K tokenizer inside the 128K one"
+  rows={[
+    { label: 'LFM2 merge rules', value: '63,683', source: 'lfm2-5-1-2b-instruct-tokenizer', where: 'tokenizer.json model.merges' },
+    { label: 'Of those, kept in 128K', value: '63,683', source: 'lfm2-5-2-6b-tokenizer', where: 'model.merges compared by scripts/tokenizer-samples.py' },
+    { label: 'LFM2 learned tokens', value: '64,400', source: 'lfm2-5-1-2b-instruct-tokenizer', where: 'tokenizer.json model.vocab' },
+    { label: 'Of those, kept in 128K', value: '63,893', source: 'lfm2-5-2-6b-tokenizer', where: 'model.vocab compared by scripts/tokenizer-samples.py' },
+    { label: 'Of those, same id', value: '0', source: 'lfm2-5-2-6b-tokenizer', where: 'model.vocab compared by scripts/tokenizer-samples.py' },
+  ]}
+/>
+
+"In place" holds for the merges: every old rule is still in the list, so the new tokenizer only adds ways to merge. The ids moved, though. No old token kept its id, and the special tokens moved from the start of the table to the end. An LFM2 embedding row therefore doesn't line up with the same id here.
+
+## Ids and embedding rows
+
+The ids run to 125,016 <Cite id="lfm2-5-2-6b-tokenizer" where="added_tokens" /> and the embedding table has 128,000 rows <Cite id="lfm2-5-2-6b-config" where="vocab_size" />. Unlike the 65K files, this tokenizer doesn't add the begin-of-sequence token by itself; the chat template writes it <Cite id="lfm2-5-2-6b-tokenizer" where="post_processor; chat_template.jinja" />. The Base model's file has the same vocabulary and merges, with a slightly different regex for contractions and line breaks <Cite id="lfm2-5-2-6b-base-tokenizer" />.

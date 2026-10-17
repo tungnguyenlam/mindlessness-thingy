@@ -14,9 +14,9 @@ updated: 2026-10-16
 
 LFM2.5-230M is a compressed [[lfm2-5-350m]]. It keeps the [[hybrid-conv-attention]] recipe — [[gated-short-conv]] plus [[gqa]] — but drops two convolution layers, narrows the feed-forward, and is distilled from the 350M rather than trained as a from-scratch sibling <Cite id="lfm2-5-230m-blog" />. This note is those cuts. The mixers are unchanged; follow the links.
 
-## The block
+## The whole model
 
-<ModelDiagram
+<ModelOverview
   model="lfm2-5-230m"
   caption="Fourteen layers instead of the 350M's sixteen. Eight mix with a kernel-3 gated convolution; six still mix with grouped-query attention, so the KV cache layer count does not shrink."
 />
@@ -38,6 +38,12 @@ The 14-layer pattern in `layer_types` is two convolutions, then attention and co
 The 230M is not a from-scratch 14-layer LFM2. The blog's recipe is three stages after 19T tokens of pretraining (including a 32K context-extension phase): supervised fine-tuning with distillation from LFM2.5-350M, direct preference optimization, then multi-domain reinforcement learning <Cite id="lfm2-5-230m-blog" />.
 
 Relative to the teacher, the visible shrink is width in the feed-forward (2560 vs 6656) and two fewer convolution layers, with hidden size and head counts unchanged <Cite id="lfm2-5-230m-config" where="intermediate_size" />. The card still points the model at extraction and lightweight tool use, and away from heavy math, code, or creative writing <Cite id="lfm2-5-230m-card" />.
+
+## Tokenizer
+
+<Tokenizer model="lfm2-5-230m" />
+
+It shares the [[lfm2-tokenizer]] with the other small LFM2.5 models: same vocabulary, same merges, same chat format.
 
 ## What it reuses
 

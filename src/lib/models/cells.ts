@@ -12,6 +12,8 @@ export interface Cell {
   /** Raw value for comparing across models. */
   raw: string;
   href?: string;
+  /** Note slug the link points to (for hover previews). */
+  slug?: string;
   sources: { short: string; url: string; title: string; where?: string }[];
   inheritedFrom?: string;
   formula?: string;
@@ -43,11 +45,15 @@ export function cell(d: Data, model: any, row: RowDef): Cell | null {
   const v = model.values[row.key];
   if (v) {
     const f = FIELD[row.key];
-    const text = f.kind === 'slug' ? (d.notes.get(v.v)?.title ?? String(v.v)) : formatValue(f, v);
+    // slug → the note's title; tokenizer → the tokenizer's title, linking to its note when it has one.
+    const tok = f.kind === 'tokenizer' ? d.tokenizers.get(v.v) : null;
+    const target = f.kind === 'slug' ? v.v : tok?.note;
+    const text = f.kind === 'slug' ? (d.notes.get(v.v)?.title ?? String(v.v)) : tok ? tok.title : formatValue(f, v);
     return {
       text,
       raw: String(v.v),
-      href: f.kind === 'slug' && d.notes.has(v.v) ? noteUrl(v.v) : undefined,
+      href: target && d.notes.has(target) ? noteUrl(target) : undefined,
+      slug: target && d.notes.has(target) ? target : undefined,
       sources: [src(v.source, v.where)],
       inheritedFrom: v.inherited ? v.from : undefined,
     };

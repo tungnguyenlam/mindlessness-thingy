@@ -1,0 +1,35 @@
+---
+title: LFM2 tokenizer
+kind: system
+summary: The 65K byte-level BPE tokenizer of the small LFM2.5 models (230M, 350M, 1.2B). Trained for seven languages plus JSON and code, with ChatML, tool-call and image tokens.
+domains: [llm, tokenization]
+prerequisites: [byte-level-bpe]
+builds_on: []
+contrasts_with: [lfm2-5-128k-tokenizer]
+related: [lfm2-5-230m, lfm2-5-350m, lfm2-5-1-2b-instruct, lfm2-5-1-2b-thinking]
+sources: [lfm2-report, lfm2-5-1-2b-instruct-tokenizer, lfm2-5-230m-tokenizer, lfm2-5-350m-tokenizer, lfm2-5-1-2b-instruct-config]
+status: draft
+updated: 2026-10-17
+---
+
+[[lfm2-5-230m]], [[lfm2-5-350m]], [[lfm2-5-1-2b-instruct]] and [[lfm2-5-1-2b-thinking]] share one tokenizer, the one LFM2 introduced: [[byte-level-bpe]] with a 65,536-token vocabulary <Cite id="lfm2-report" where="§2.2" />. Their tokenizer.json files carry the same vocabulary and merges. The 2.6B models moved to the [[lfm2-5-128k-tokenizer]].
+
+## How it splits text
+
+<TokenizerFlow tokenizer="lfm2" />
+
+The pre-tokenizer regex splits off English contractions; words keep one leading space, digits go in runs of up to three, and punctuation keeps the line breaks that follow it. Switch to Vietnamese to see where it runs thin: accented letters it has no token for fall back to byte tokens, two per letter (the dashed chips). Chinese gets roughly one token per character.
+
+## At a glance
+
+<Tokenizer id="lfm2" full />
+
+## What it was trained for
+
+Liquid trained it on the LFM2 pre-training data, aiming for compact encoding of English, Japanese, Arabic, Korean, Spanish, French and German, plus JSON and other code-like text for structured formats <Cite id="lfm2-report" where="§2.2" />. Its special tokens cover fill-in-the-middle training, tool calling and the ChatML chat template <Cite id="lfm2-report" where="§2.2" />.
+
+The released files also reserve tokens for other inputs: an `<image>` placeholder with tile tokens `<|img_row_r_col_c|>`, and audio and text segment markers <Cite id="lfm2-5-1-2b-instruct-tokenizer" where="tokenizer.json added_tokens" />. A text-only checkpoint never produces them, but their embedding rows are there.
+
+## Ids and embedding rows
+
+The ids run from 0 to 64,401 <Cite id="lfm2-5-1-2b-instruct-tokenizer" where="added_tokens" /> and the embedding table has 65,536 rows <Cite id="lfm2-5-1-2b-instruct-config" where="vocab_size" />. The configs tie the output head to that table, so the same rows turn the last hidden state back into logits <Cite id="lfm2-5-1-2b-instruct-config" where="tie_embedding" />.

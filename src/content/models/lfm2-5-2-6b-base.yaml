@@ -15,3 +15,8 @@ ffn: { v: dense, source: lfm2-report, where: "§2.2" }
 ffn_hidden: { v: 10752, source: lfm2-5-2-6b-base-config, where: intermediate_size }
 context_length: { v: 131072, source: lfm2-5-2-6b-base-card, where: Context length }
 training_tokens: { v: 34e12, source: lfm2-5-2-6b-base-card, where: Training budget }
+tokenizer: { v: lfm2-5-128k, source: lfm2-5-2-6b-base-tokenizer, where: tokenizer.json }
+tie_embeddings: { v: true, source: lfm2-5-2-6b-base-config, where: tie_word_embeddings }
+norm: { v: "RMSNorm, before each sublayer", source: lfm2-report, where: "§2.2" }
+qk_norm: { v: true, source: lfm2-report, where: "§2.2" }
+ffn_activation: { v: SwiGLU, source: lfm2-report, where: "§2.2" }

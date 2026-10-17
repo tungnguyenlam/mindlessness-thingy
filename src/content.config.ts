@@ -2,6 +2,7 @@ import { defineCollection } from 'astro:content';
 import { glob } from 'astro/loaders';
 import { z } from 'astro/zod';
 import { FIELDS } from './lib/models/fields.mjs';
+import { TOKENIZER_FIELDS } from './lib/tokenizers/fields.mjs';
 
 const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slugs are kebab-case');
 const slugs = z.array(slug).default([]);
@@ -52,7 +53,7 @@ const sources = defineCollection({
 // written down (sourced-numbers). Field keys come from src/lib/models/fields.mjs.
 const sourced = z
   .object({
-    v: z.union([z.number(), z.string()]),
+    v: z.union([z.number(), z.string(), z.boolean()]),
     source: slug,
     where: z.string().min(1),
     /** Show this instead of the formatted number, e.g. "128K" when that is what the source says. */
@@ -73,4 +74,29 @@ const models = defineCollection({
     .strict(),
 });
 
-export const collections = { notes, sources, models };
+// One file per tokenizer, shared by every model that uses it (`tokenizer:` in the model file).
+// Facts are sourced like model values; how it splits sample text is generated into
+// src/data/tokenizer-samples.json by scripts/tokenizer-samples.py.
+const tokenizers = defineCollection({
+  loader: glob({ base: './src/content/tokenizers', pattern: '*.yaml' }),
+  schema: z
+    .object({
+      title: z.string(),
+      note: slug.optional(),
+      family: z.string(),
+      /** Source id of the tokenizer.json the facts and samples come from. */
+      file: slug,
+      ...Object.fromEntries(TOKENIZER_FIELDS.map((f) => [f.key, sourced.optional()])),
+      pretokenizer: z.array(sourced.extend({ regex: z.string().optional() })).default([]),
+      specials: z
+        .object({
+          source: slug,
+          where: z.string(),
+          tokens: z.array(z.object({ token: z.string(), id: z.number().int(), use: z.string() })),
+        })
+        .optional(),
+    })
+    .strict(),
+});
+
+export const collections = { notes, sources, models, tokenizers };

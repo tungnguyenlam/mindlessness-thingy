@@ -1,0 +1,33 @@
+title: LFM2 tokenizer
+note: lfm2-tokenizer
+family: lfm2-5
+file: lfm2-5-1-2b-instruct-tokenizer
+algorithm: { v: Byte-level BPE, source: lfm2-report, where: "§2.2 Tokenizer and special tokens" }
+base_vocab: { v: 64400, source: lfm2-5-1-2b-instruct-tokenizer, where: "tokenizer.json model.vocab" }
+merges: { v: 63683, source: lfm2-5-1-2b-instruct-tokenizer, where: "tokenizer.json model.merges" }
+added_tokens: { v: 509, source: lfm2-5-1-2b-instruct-tokenizer, where: "tokenizer.json added_tokens (375 reserved, 134 named)" }
+max_id: { v: 64401, source: lfm2-5-1-2b-instruct-tokenizer, where: "tokenizer.json added_tokens (</think>)" }
+normalizer: { v: none, source: lfm2-5-1-2b-instruct-tokenizer, where: "tokenizer.json normalizer: null" }
+digits: { v: runs of up to three digits, source: lfm2-5-1-2b-instruct-tokenizer, where: "pre_tokenizer Split \\p{N}{1,3}" }
+add_bos: { v: "yes", source: lfm2-5-1-2b-instruct-tokenizer, where: "tokenizer_config.json add_bos_token; post_processor TemplateProcessing" }
+chat_format: { v: ChatML, source: lfm2-report, where: "§2.2 Tokenizer and special tokens" }
+trained_for: { v: "English, Japanese, Arabic, Korean, Spanish, French, German, plus JSON and code", source: lfm2-report, where: "§2.2 Tokenizer and special tokens" }
+pretokenizer:
+  - { v: "English contractions ('s, 't, 're, 've, 'm, 'll, 'd) split off", regex: "(?i:'s|'t|'re|'ve|'m|'ll|'d)", source: lfm2-5-1-2b-instruct-tokenizer, where: "pre_tokenizer Split, branch 1" }
+  - { v: "A word: letters, with at most one space or symbol in front", regex: "[^\\r\\n\\p{L}\\p{N}]?\\p{L}+", source: lfm2-5-1-2b-instruct-tokenizer, where: "pre_tokenizer Split, branch 2" }
+  - { v: "Runs of up to three digits", regex: "\\p{N}{1,3}", source: lfm2-5-1-2b-instruct-tokenizer, where: "pre_tokenizer Split, branch 3" }
+  - { v: "Punctuation with an optional space in front and the line breaks after it", regex: " ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*", source: lfm2-5-1-2b-instruct-tokenizer, where: "pre_tokenizer Split, branch 4" }
+  - { v: "Whitespace that ends in line breaks, then any other whitespace", regex: "\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+", source: lfm2-5-1-2b-instruct-tokenizer, where: "pre_tokenizer Split, last branches" }
+specials:
+  source: lfm2-5-1-2b-instruct-tokenizer
+  where: tokenizer.json added_tokens
+  tokens:
+    - { token: "<|pad|>", id: 0, use: padding }
+    - { token: "<|startoftext|>", id: 1, use: begin of sequence }
+    - { token: "<|endoftext|>", id: 2, use: end of document }
+    - { token: "<|fim_pre|>", id: 3, use: "fill-in-the-middle (with fim_mid, fim_suf)" }
+    - { token: "<|im_start|>", id: 6, use: start of a chat turn }
+    - { token: "<|im_end|>", id: 7, use: end of a turn; the eos for chat }
+    - { token: "<|tool_call_start|>", id: 10, use: tool call }
+    - { token: "<image>", id: 396, use: "image placeholder, then tile tokens <|img_row_r_col_c|>" }
+    - { token: "<think>", id: 64400, use: start of reasoning }

@@ -42,6 +42,10 @@ LFM2.5-1.2B-Thinking is [[lfm2-5-1-2b-instruct]] with a reasoning post-train. Th
   ]}
 />
 
+## The whole model
+
+<ModelOverview model="lfm2-5-1-2b-thinking" />
+
 ## What is new
 
 ### Reason first, without doom loops
@@ -69,6 +73,12 @@ Small models that emit traces tend to repeat themselves instead of finishing. Th
 On the card's suite, math moves the most versus Instruct: MATH-500 63.20 → 87.96 and AIME25 14.00 → 31.73. Multi-IF and BFCLv3 also rise; IFBench is slightly lower (47.33 → 44.85) <Cite id="lfm2-5-1-2b-thinking-blog" />. The authors recommend Thinking for tool use, math and programming, and Instruct for chat and creative writing <Cite id="lfm2-5-1-2b-thinking-blog" />.
 
 The card's default sampling temperature is 0.05; Instruct's is 0.1 <Cite id="lfm2-5-1-2b-thinking-card" where="Generation parameters" />.
+
+## Tokenizer
+
+<Tokenizer model="lfm2-5-1-2b-thinking" />
+
+Same as Instruct: the [[lfm2-tokenizer]]. Its `<think>` and `</think>` tokens were already in the vocabulary, so the reasoning post-train needed no new ids.
 
 ## What it reuses
 

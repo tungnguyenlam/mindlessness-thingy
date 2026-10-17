@@ -27,7 +27,8 @@ Each rule has an id. When `pnpm run check`, a test, a git hook or an agent hook 
 9. `template-complete`: **No `{/* TODO */}` markers left in a written note.** Templates use them as fill-in prompts; the check fails until each one is replaced.
 10. `diagram-geometry`: **Diagrams must lay out cleanly.** The fast check runs the same layout code as `<ArchDiagram>` and fails on overlapping blocks, edges through blocks, edges drawn on top of each other, labels wider than their box and diagrams too wide for the column. Edges are routed around blocks automatically and blocks without `col`/`row` are placed for you, so prefer leaving positions out. Numbers in diagram labels get a `sourced-numbers` warning: use symbols in pictures and put values in `<Spec>`.
 11. `render-clean`: **What renders must be clean at 1280 px and 390 px.** `scripts/test-visual.mjs` (part of `pnpm run check`) loads every page with real fonts and fails on sideways page scroll, diagram text wider than its block, colliding labels, labels rendered too small, KaTeX errors and script errors. Wide content scrolls inside its own figure, never the page.
-12. `commit-when-done`: **Finish every task with `pnpm run check` passing and a commit of only your own files.** See the task lifecycle below.
+12. `model-card`: **A system note with model data shows the whole model and its tokenizer.** `<ModelOverview model="...">` near the top (text → tokenizer → embedding → layers → head → next token, with one tab per part drawn down to projections and tensor shapes), `<ModelSpec>` for the numbers, and a `## Tokenizer` section with `<Tokenizer model="...">`. Tokenizers live in `src/content/tokenizers/` and are shared by every model that uses them; the shared tokenizer note explains how it splits text. The generated diagrams of every model are linted on each check.
+13. `commit-when-done`: **Finish every task with `pnpm run check` passing and a commit of only your own files.** See the task lifecycle below.
 
 ### When the system corrects you
 
@@ -72,6 +73,9 @@ src/content/notes/concepts/   one idea each: mla.mdx, kv-cache.mdx
 src/content/notes/systems/    a specific model or system: deepseek-v3.mdx
 src/content/notes/paths/      ordered reading lists: deepseek-lineage.mdx
 src/content/sources/          one YAML file per paper, report or config
+src/content/models/           one YAML file per model: every value { v, source, where }
+src/content/tokenizers/       one YAML file per tokenizer, shared by the models that use it
+src/data/                     generated data (tokenizer samples: python3 scripts/tokenizer-samples.py)
 research/                     sourced fact sheets gathered before writing (input, not published)
 templates/notes/              scaffolds for concept, system and path notes
 src/components/viz/           the only components notes may use
@@ -121,9 +125,13 @@ Available in every note without imports. Full props are in each file under `src/
 | `<Timeline>` | In a path note: the models along the path, what each adds, their layer strips and headline numbers from model data. |
 | `<Stepper>` + `<Step>` | Walking through an algorithm one step at a time. |
 | `<ModelSpec>` | A model's numbers from `src/content/models/<model>.yaml`, grouped, sourced, with derived rows (KV cache per token, active share). `diff` shows only what changed from the model it `extends`. System notes use this, never a retyped `<Spec>`. |
+| `<ModelOverview>` | A model's whole architecture from its data: text to next token, then tabs for one layer, each mixer (MLA, GQA, gated conv) and FFN (dense, MoE) and MTP, down to projections and tensor shapes, with a symbol table giving each value and its source. Every system note with model data opens with it. |
 | `<ModelDiagram>` | A model's layer block generated from its data: one column per mixer kind with the cache it keeps, the FFN kinds, residuals, counts from the layer pattern. Use it instead of hand-drawing a system's block. |
 | `<LayerStrip>` | Where each layer type sits, one column per layer (`model=` or `models={[...]}` stacked). Essential for hybrids and dense-then-MoE stacks. |
 | `<Compare>` | Models side by side from their data files; the first is the baseline and differing cells are marked. `fields={[...]}` picks rows, `onlyDiff` hides equal rows. The `/compare/` page does the same for any models. |
+| `<Tokenizer>` | `model=`: a card for the model's tokenizer (kind, ids vs embedding rows, one sample and one chat turn as tokens, which models share it), linking to the tokenizer note. `id= full`: every fact, the splitting rules and the special tokens, for that note. |
+| `<TokenizerFlow>` | Text becoming ids for one tokenizer, stage by stage (pre-tokenizer pieces, bytes, BPE tokens), with tabs for sample texts. Generated from the released tokenizer files. |
+| `<TokenizerCompare>` | Tokens needed for the same sample texts across tokenizers, as bars. |
 | `<Spec>` | Tables of numbers that aren't model fields (benchmarks, training compute). Every row needs a `source`. |
 | `<Cite>` | Inline citation of a source, with an optional location. |
 | `<Callout>` | `note`, `intuition` or `pitfall` asides. Use sparingly. |

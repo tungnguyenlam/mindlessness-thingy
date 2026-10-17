@@ -1,0 +1,50 @@
+---
+title: DeepSeek-V3 tokenizer
+kind: system
+summary: The byte-level BPE tokenizer shared by DeepSeek-V3 and V3.2. A new 128K vocabulary with three-digit number chunks and punctuation fused with the line break after it.
+domains: [llm, tokenization]
+prerequisites: [byte-level-bpe]
+builds_on: []
+contrasts_with: []
+related: [deepseek-v3, deepseek-v3-2, deepseek-v2]
+sources: [deepseek-v3-report, deepseek-v2-report, deepseek-v3-tokenizer, deepseek-v2-tokenizer, deepseek-v3-2-tokenizer, deepseek-v3-config]
+status: draft
+updated: 2026-10-17
+---
+
+[[deepseek-v3]] and [[deepseek-v3-2]] read text through the same tokenizer. It is a [[byte-level-bpe]] tokenizer with an extended 128K vocabulary, retrained from DeepSeek-V2's with the pre-tokenizer and training data changed for multilingual compression <Cite id="deepseek-v3-report" where="§4.1" />. This note shows how it splits text; the model notes link here.
+
+## How it splits text
+
+<TokenizerFlow tokenizer="deepseek-v3" />
+
+Try the Line breaks tab: `?\n` and `.\n` come out as single pieces, punctuation fused with the line break after it. That is the change the report calls out against DeepSeek-V2 <Cite id="deepseek-v3-report" where="§4.1" />. The Numbers tab shows the other visible rule: digits are cut into runs of at most three before any merge.
+
+## At a glance
+
+<Tokenizer id="deepseek-v3" full />
+
+## What changed from DeepSeek-V2
+
+<TokenizerCompare tokenizers={["deepseek-v2", "deepseek-v3"]} caption="The same samples through both DeepSeek tokenizers. V3 needs fewer tokens on numbers, code, JSON, multi-line text, Japanese and Vietnamese; English and Chinese cost the same." />
+
+<Spec
+  title="DeepSeek-V2 vocabulary inside the V3 tokenizer"
+  rows={[
+    { label: 'V2 learned tokens', value: '100,000', source: 'deepseek-v2-tokenizer', where: 'tokenizer.json model.vocab' },
+    { label: 'Of those, also in V3', value: '69,431', source: 'deepseek-v3-tokenizer', where: 'model.vocab compared with V2 by scripts/tokenizer-samples.py' },
+    { label: 'Of those, same id in V3', value: '4', source: 'deepseek-v3-tokenizer', where: 'model.vocab compared with V2 by scripts/tokenizer-samples.py' },
+  ]}
+/>
+
+DeepSeek-V2 reused the 100K tokenizer of DeepSeek 67B <Cite id="deepseek-v2-report" where="§3.1.1" />. V3's is a new vocabulary, not an extension: about seven in ten V2 tokens survive, almost none at the same id. The report names two changes. The pre-tokenizer and training data target multilingual compression, and punctuation can now fuse with line breaks <Cite id="deepseek-v3-report" where="§4.1" />.
+
+That fusion has a cost. A few-shot prompt that ends without a final line break splits differently from the training text, which the report calls token boundary bias. DeepSeek's fix was to split a share of the fused tokens at random during training, so the model also sees the unfused forms <Cite id="deepseek-v3-report" where="§4.1" />.
+
+## Ids and embedding rows
+
+The ids run from 0 to 128,814 <Cite id="deepseek-v3-tokenizer" where="added_tokens" />, and 800 of them are reserved placeholders. The model's embedding table has 129,280 rows <Cite id="deepseek-v3-config" where="vocab_size" />, so a few hundred rows are padding that no id reaches.
+
+## In DeepSeek-V3.2
+
+V3.2's tokenizer.json has the same vocabulary and merges. Its tokenizer_config.json turns off the automatic begin-of-sequence token and has no chat template; the repository ships an encoding script for the chat format instead <Cite id="deepseek-v3-2-tokenizer" />.

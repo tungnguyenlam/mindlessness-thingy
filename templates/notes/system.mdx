@@ -20,12 +20,13 @@ updated: {{today}}
 {/* TODO: two or three sentences (under 120 words, the check enforces it): what this model is, which
     model it builds on ([[slug]]), and the one or two changes that matter. */}
 
-## The block
+## The whole model
 
 {/* TODO: first write src/content/models/{{slug}}.yaml (docs/workflow.md#writing-a-model-system-note):
-    every value { v, source, where }, `extends` the parent model, a layer_pattern from the config. Then:
+    every value { v, source, where }, `extends` the parent model, a layer_pattern from the config, the
+    architecture fields and `tokenizer`. Then:
 
-    <ModelDiagram model="{{slug}}" caption="..." />
+    <ModelOverview model="{{slug}}" />
     <LayerStrip model="{{slug}}" />
 
     Hand-draw an <ArchDiagram> only for what the generated block can't show (routing detail, a new
@@ -46,3 +47,8 @@ updated: {{today}}
 
 {/* TODO: a short list of [[links]] to the concepts this model uses unchanged, one line each on how it
     uses them. No explanations here: the linked notes have them. */}
+
+## Tokenizer
+
+{/* TODO: <Tokenizer model="{{slug}}" /> and one or two sentences linking the shared tokenizer note
+    ([[<tokenizer-note>]]): is it new for this model, or the family's? (docs/workflow.md#tokenizers) */}

@@ -1,0 +1,8 @@
+title: LFM2.5-2.6B-Base tokenizer files (Hugging Face)
+short: LFM2.5-2.6B-Base tokenizer
+authors: Liquid AI
+year: 2026
+url: https://huggingface.co/LiquidAI/LFM2.5-2.6B-Base/tree/main
+type: config
+accessed: 2026-10-17
+notes: Same vocabulary and merges as LFM2.5-2.6B; the pre-tokenizer regex differs slightly in how it groups contractions and line breaks.

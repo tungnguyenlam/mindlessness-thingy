@@ -1,16 +1,58 @@
-// Model data (src/content/models/*.yaml) and the components that read it. Rules: sourced-numbers
-// (every value has a source that exists), no-dangling (notes, parents and type slugs exist) and
-// one-idea (a system note with model data shows it with <ModelSpec>, not a hand-typed <Spec>).
-import { loadModels } from '../../src/lib/content-index.mjs';
+// Model and tokenizer data (src/content/models/, src/content/tokenizers/) and the components that
+// read them. Rules: sourced-numbers (every value has a source that exists), no-dangling (notes,
+// parents, tokenizers and type slugs exist), one-idea (a system note with model data shows it with
+// <ModelSpec>, not a hand-typed <Spec>), model-card (it also shows <ModelOverview> and <Tokenizer>)
+// and diagram-geometry (every generated architecture diagram of every model lays out cleanly).
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadModels, loadTokenizers, root } from '../../src/lib/content-index.mjs';
 import { FIELD, FIELDS } from '../../src/lib/models/fields.mjs';
 import { DERIVED, parsePattern, resolveModels } from '../../src/lib/models/data.mjs';
+import { overviewParts } from '../../src/lib/models/overview.mjs';
+import { lintDiagram } from '../../src/lib/diagram/geometry.mjs';
+import { TOKENIZER_FIELD } from '../../src/lib/tokenizers/fields.mjs';
 import { findComponents } from '../lib/mdx-props.mjs';
+
+const SAMPLES_FILE = 'src/data/tokenizer-samples.json';
+const TOKENIZER_META = new Set(['title', 'note', 'family', 'file', 'pretokenizer', 'specials']);
 
 // Values of slug fields that name a plain architecture rather than a note.
 const PLAIN = new Set(['dense']);
 const META = new Set(['title', 'note', 'family', 'extends']);
 
+const sourcedOk = (v) => v && typeof v === 'object' && v.v != null && v.source && v.where;
+
+function tokenizers(ctx, { error }) {
+  const list = loadTokenizers();
+  let generated = {};
+  try {
+    generated = JSON.parse(fs.readFileSync(path.join(root, SAMPLES_FILE), 'utf8')).tokenizers ?? {};
+  } catch {
+    if (list.length) error('sourced-numbers', SAMPLES_FILE, 'missing or unreadable', 'run python3 scripts/tokenizer-samples.py', { code: 'no-samples' });
+  }
+  const cite = (t, k, v) => {
+    if (!sourcedOk(v)) return error('sourced-numbers', t.file, `${k} must be { v, source, where }`, 'name the source id and where in it (JSON path, section)', { code: 'unsourced' });
+    if (!ctx.sourceIds.has(v.source)) error('sourced-numbers', t.file, `${k} cites unknown source "${v.source}"`, 'add src/content/sources/<id>.yaml or fix the id', { code: 'unknown-source' });
+  };
+  for (const t of list) {
+    const d = t.data;
+    for (const [k, v] of Object.entries(d)) {
+      if (TOKENIZER_META.has(k)) continue;
+      if (!TOKENIZER_FIELD[k]) error('sourced-numbers', t.file, `unknown field "${k}"`, 'use a key from src/lib/tokenizers/fields.mjs or add it there once', { code: 'unknown-field' });
+      else cite(t, k, v);
+    }
+    (d.pretokenizer ?? []).forEach((r, i) => cite(t, `pretokenizer[${i}]`, r));
+    if (d.specials && !ctx.sourceIds.has(d.specials.source)) error('sourced-numbers', t.file, `specials cite unknown source "${d.specials.source}"`, 'fix the id', { code: 'unknown-source' });
+    if (!d.title || !d.family || !d.file) error('frontmatter', t.file, 'tokenizer needs title, family and file (the source id of its tokenizer.json)');
+    if (d.file && !ctx.sourceIds.has(d.file)) error('sourced-numbers', t.file, `file "${d.file}" is not a source`, 'add the tokenizer files as a source (type: config)', { code: 'unknown-source' });
+    if (d.note && !ctx.bySlug.has(d.note)) error('no-dangling', t.file, `no note "${d.note}" for this tokenizer`, `create it: pnpm run new system ${d.note} "${d.title}"`, { code: 'no-note' });
+    if (!generated[t.id]) error('sourced-numbers', t.file, `no generated samples for "${t.id}"`, `add it to TOKENIZERS in scripts/tokenizer-samples.py and run python3 scripts/tokenizer-samples.py`, { code: 'no-samples' });
+  }
+  return { ids: new Set(list.map((t) => t.id)), byId: new Map(list.map((t) => [t.id, t.data])), notes: new Set(list.map((t) => t.data.note).filter(Boolean)), generated };
+}
+
 export default function models(ctx, { error, warn }) {
+  const toks = tokenizers(ctx, { error });
   const list = loadModels();
   const ids = new Set(list.map((m) => m.id));
   const bySlug = ctx.bySlug;
@@ -29,6 +71,8 @@ export default function models(ctx, { error, warn }) {
       }
       if (!ctx.sourceIds.has(v.source)) error('sourced-numbers', m.file, `${k} cites unknown source "${v.source}"`, 'add src/content/sources/<id>.yaml or fix the id', { code: 'unknown-source' });
       if (f.kind === 'slug' && !PLAIN.has(v.v) && !bySlug.has(v.v)) error('no-dangling', m.file, `${k} "${v.v}" is not a note`, `use a note slug, or create a stub: pnpm run new concept ${v.v} "Title"`, { code: 'unknown-type' });
+      if (f.kind === 'tokenizer' && !toks.ids.has(v.v)) error('no-dangling', m.file, `tokenizer "${v.v}" has no data`, `add src/content/tokenizers/${v.v}.yaml (docs/workflow.md#tokenizers)`, { code: 'unknown-tokenizer' });
+      if (f.kind === 'bool' && typeof v.v !== 'boolean') error('sourced-numbers', m.file, `${k} must be true or false`, 'write v: true or v: false', { code: 'bad-bool' });
       if (f.kind === 'pattern') {
         try {
           const layers = parsePattern(v.v);
@@ -51,27 +95,64 @@ export default function models(ctx, { error, warn }) {
     return;
   }
 
-  // Components that reference models.
+  // Every generated diagram of every model, linted here so a data change that breaks a layout is
+  // caught per turn, not at build.
+  for (const m of resolved.values()) {
+    const file = list.find((x) => x.id === m.id)?.file ?? 'src/content/models';
+    const t = toks.byId.get(m.values.tokenizer?.v);
+    let parts = [];
+    try {
+      parts = overviewParts(m, { has: (s) => bySlug.has(s), tokenizer: t ? { title: t.title, note: t.note, algorithm: t.algorithm?.v } : null });
+    } catch (e) {
+      error('diagram-geometry', file, `generated diagrams: ${e.message}`, 'fix the data (layer_pattern, attention type)', { code: 'generated-diagram' });
+    }
+    for (const p of parts) {
+      for (const pr of lintDiagram(p.props)) {
+        if (pr.level === 'error') error('diagram-geometry', file, `generated "${p.tab}" view: ${pr.msg}`, `the generator is src/lib/models/overview.mjs; ${pr.fix}`, { code: 'generated-diagram' });
+      }
+    }
+  }
+
+  // Components that reference models and tokenizers.
   const modelNotes = new Map([...resolved.values()].map((m) => [m.note, m.id]));
+  const sampleIds = new Set(Object.values(toks.generated)[0] ? Object.keys(Object.values(toks.generated)[0].samples) : []);
   for (const n of ctx.notes) {
-    for (const use of findComponents(n.text, ['ModelSpec', 'Compare', 'LayerStrip', 'ModelDiagram'])) {
+    for (const use of findComponents(n.text, ['Tokenizer', 'TokenizerFlow', 'TokenizerCompare'])) {
       const line = use.line + n.bodyLine - 1;
       if (use.error) {
         error('sourced-numbers', n.file, `line ${line}: <${use.name}> ${use.error}`, 'write props as literals');
         continue;
       }
-      const refs = use.name === 'Compare' ? (use.props.models ?? []) : [use.props.model];
+      const p = use.props;
+      const refs = use.name === 'TokenizerCompare' ? (p.tokenizers ?? []) : use.name === 'TokenizerFlow' ? [p.tokenizer] : p.id ? [p.id] : [];
+      if (use.name === 'Tokenizer' && !p.id && !p.model) error('sourced-numbers', n.file, `line ${line}: <Tokenizer> needs model="..." or id="..."`, 'model= in a model note, id= in a tokenizer note');
+      if (use.name === 'Tokenizer' && p.model && !resolved.get(p.model)?.values.tokenizer) error('no-dangling', n.file, `line ${line}: <Tokenizer model="${p.model}">: the model has no tokenizer field`, 'add tokenizer: { v, source, where } to its data');
+      if (use.name === 'TokenizerCompare' && refs.length < 2) error('sourced-numbers', n.file, `line ${line}: <TokenizerCompare> needs at least two tokenizers`, 'tokenizers={["a", "b"]}');
+      for (const id of refs) if (!toks.ids.has(id)) error('no-dangling', n.file, `line ${line}: <${use.name}> names unknown tokenizer "${id}"`, `add src/content/tokenizers/${id}.yaml`);
+      for (const s of [...(p.samples ?? []), ...(p.sample ? [p.sample] : [])]) if (!sampleIds.has(s)) error('no-dangling', n.file, `line ${line}: <${use.name}> sample "${s}" was not generated`, `use one of ${[...sampleIds].join(', ')}, or add it to SAMPLES in scripts/tokenizer-samples.py`);
+    }
+    for (const use of findComponents(n.text, ['ModelSpec', 'Compare', 'LayerStrip', 'ModelDiagram', 'ModelOverview'])) {
+      const line = use.line + n.bodyLine - 1;
+      if (use.error) {
+        error('sourced-numbers', n.file, `line ${line}: <${use.name}> ${use.error}`, 'write props as literals');
+        continue;
+      }
+      const refs = use.name === 'Compare' ? (use.props.models ?? []) : use.name === 'LayerStrip' && use.props.models ? use.props.models : [use.props.model];
       if (use.name === 'Compare' && refs.length < 2) error('sourced-numbers', n.file, `line ${line}: <Compare> needs at least two models`, 'models={["a", "b"]}');
       for (const id of refs) if (!resolved.has(id)) error('no-dangling', n.file, `line ${line}: <${use.name}> names unknown model "${id}"`, `add src/content/models/${id}.yaml (see docs/workflow.md)`);
       for (const k of use.props.fields ?? []) if (!FIELD[k] && !DERIVED.some((x) => x.key === k)) error('sourced-numbers', n.file, `line ${line}: <${use.name}> field "${k}" is not in the vocabulary`, 'see FIELDS in src/lib/models/fields.mjs and DERIVED in src/lib/models/data.mjs');
     }
     if (n.data.kind !== 'system' || n.data.status === 'stub') continue;
     const model = modelNotes.get(n.slug);
+    if (toks.notes.has(n.slug)) continue; // a tokenizer's note: its data is the tokenizer file
     if (!model) {
       warn('one-idea', n.file, 'system note has no model data', `add src/content/models/${n.slug}.yaml so it shows up in <Compare> and /compare/`);
       continue;
     }
     if (!/<ModelSpec\b/.test(n.text)) error('one-idea', n.file, `model data exists (${model}) but the note doesn't show it`, `use <ModelSpec model="${model}" /> instead of retyping the numbers`, { code: 'no-modelspec' });
+    if (!/<ModelOverview\b/.test(n.text)) error('model-card', n.file, `model data exists (${model}) but the note has no whole-model view`, `add <ModelOverview model="${model}" /> near the top: text to next token, every part down to its projections`, { code: 'no-overview' });
+    if (resolved.get(model)?.values.tokenizer && !/<Tokenizer\b/.test(n.text)) error('model-card', n.file, `${model} names a tokenizer but the note doesn't show it`, `add a "## Tokenizer" section with <Tokenizer model="${model}" />`, { code: 'no-tokenizer' });
+    else if (!resolved.get(model)?.values.tokenizer) warn('model-card', n.file, `${model} has no tokenizer in its data`, 'add tokenizer: { v, source, where } and src/content/tokenizers/<id>.yaml (docs/workflow.md#tokenizers)', { code: 'no-tokenizer-data' });
     const labels = new Set(FIELDS.map((f) => f.label.toLowerCase()));
     for (const use of findComponents(n.text, ['Spec'])) {
       for (const r of use.props.rows ?? []) {

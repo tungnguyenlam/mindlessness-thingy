@@ -1,0 +1,8 @@
+title: DeepSeek-V2 tokenizer files (Hugging Face)
+short: DeepSeek-V2 tokenizer
+authors: DeepSeek-AI
+year: 2024
+url: https://huggingface.co/deepseek-ai/DeepSeek-V2/tree/main
+type: config
+accessed: 2026-10-17
+notes: tokenizer.json (vocabulary, merges, pre-tokenizer, added tokens) and tokenizer_config.json (BOS handling, chat template).
