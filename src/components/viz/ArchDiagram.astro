@@ -18,6 +18,9 @@ interface Block {
   span?: number;
   /** Slug of the note that explains this block. */
   link?: string;
+  /** Id of a view the surrounding component opens on click (a <ModelOverview> tab). Drawn with a
+   *  "+" badge; the component handles the click. Takes the place of `link`. */
+  open?: string;
 }
 interface Edge {
   from: string;
@@ -115,6 +118,16 @@ const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
               )}
             </g>
           );
+          if (b.open)
+            return (
+              <g class="block-open" data-open={b.open} role="button" tabindex="0" aria-label={`Open the ${b.label} view`}>
+                {inner}
+                <g class="badge" aria-hidden="true">
+                  <circle cx={r.x + r.w} cy={r.y} r="7" />
+                  <path d={`M${r.x + r.w - 3.5},${r.y} h7 M${r.x + r.w},${r.y - 3.5} v7`} />
+                </g>
+              </g>
+            );
           return b.link ? (
             <a href={noteUrl(b.link)} data-slug={b.link} class="block-link">
               {inner}
@@ -218,8 +231,35 @@ const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   .role-cache rect { fill: var(--role-cache-wash); stroke: var(--role-cache); stroke-width: 2.2; }
   .role-route rect { fill: var(--role-route-wash); stroke: var(--role-route); }
   .role-op rect { fill: var(--paper-raised); stroke: var(--role-op); }
-  .block-link {
+  .block-link,
+  .block-open {
     cursor: pointer;
+  }
+  .block-open:hover rect,
+  .block-open:focus-visible rect {
+    stroke-width: 2.6;
+  }
+  .block-open:focus-visible {
+    outline: none;
+  }
+  .badge circle {
+    fill: var(--paper-raised);
+    stroke: var(--ink-soft);
+    stroke-width: 1.2;
+  }
+  .badge path {
+    stroke: var(--ink-soft);
+    stroke-width: 1.4;
+    fill: none;
+  }
+  .block-open:hover .badge circle,
+  .block-open:focus-visible .badge circle {
+    fill: var(--ink);
+    stroke: var(--ink);
+  }
+  .block-open:hover .badge path,
+  .block-open:focus-visible .badge path {
+    stroke: var(--paper-raised);
   }
   .block-link:hover rect,
   .block-link:focus-visible rect {

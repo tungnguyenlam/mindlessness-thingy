@@ -9,6 +9,7 @@ import { loadModels, loadTokenizers, root } from '../../src/lib/content-index.mj
 import { FIELD, FIELDS } from '../../src/lib/models/fields.mjs';
 import { DERIVED, parsePattern, resolveModels } from '../../src/lib/models/data.mjs';
 import { overviewParts } from '../../src/lib/models/overview.mjs';
+import { paramBreakdown, fmtParams } from '../../src/lib/models/params.mjs';
 import { lintDiagram } from '../../src/lib/diagram/geometry.mjs';
 import { TOKENIZER_FIELD } from '../../src/lib/tokenizers/fields.mjs';
 import { findComponents } from '../lib/mdx-props.mjs';
@@ -110,6 +111,19 @@ export default function models(ctx, { error, warn }) {
       for (const pr of lintDiagram(p.props)) {
         if (pr.level === 'error') error('diagram-geometry', file, `generated "${p.tab}" view: ${pr.msg}`, `the generator is src/lib/models/overview.mjs; ${pr.fix}`, { code: 'generated-diagram' });
       }
+    }
+    // The matrices the views draw should add up to the reported size. When they don't, a size in the
+    // data is usually the config's nominal value rather than what the model builds (LFM2's
+    // auto-adjusted FFN width), or a total was inherited from a parent of a different size.
+    const pb = paramBreakdown(m);
+    const pt = m.values.params_total;
+    if (pb.complete && pt && !pt.inherited && Math.abs(pb.total - pt.v) / pt.v > 0.03)
+      warn('sourced-numbers', file, `the matrices in the data sum to ${fmtParams(pb.total)}, but params_total is ${fmtParams(pt.v)}`, 'check each size against what the modeling code builds (not only config.json), or the total against its source; the Parameters tab of <ModelOverview> shows the breakdown', { code: 'params-mismatch' });
+    const parent = m.extends && resolved.get(m.extends);
+    if (pt?.inherited && parent) {
+      const pp = paramBreakdown(parent);
+      if (pp.total && Math.abs(pb.total - pp.total) / pp.total > 0.03)
+        warn('sourced-numbers', file, `params_total (${fmtParams(pt.v)}) is inherited from ${m.extends}, but this model's matrices sum to ${fmtParams(pb.total)}${pb.complete ? '' : ' or more'} against ${fmtParams(pp.total)} for ${m.extends}`, `set params_total from this model's own source, or write it as not reported`, { code: 'params-inherited' });
     }
   }
 

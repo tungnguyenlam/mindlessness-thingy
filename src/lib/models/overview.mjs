@@ -13,7 +13,7 @@
 // picture maps each number back to its symbol (as the concept notes write it) and its source. Only
 // T, the sequence length, stays a symbol. A size the data lacks falls back to its symbol.
 // Hand-drawn concept diagrams do the opposite: symbols only (rule diagram-geometry).
-import { parsePattern } from './data.mjs';
+import { parsePattern, DERIVED, formatDerived } from './data.mjs';
 
 const ATTN_SHORT = { mla: 'MLA', gqa: 'GQA', mha: 'MHA', mqa: 'MQA' };
 const ATTN_LABEL = { mla: 'Latent attention (MLA)', gqa: 'Grouped-query attn', mha: 'Multi-head attn', mqa: 'Multi-query attn' };
@@ -64,7 +64,9 @@ function ffnInfo(m, ctx, c) {
 const normName = (m) => (/rmsnorm/i.test(String(m.values.norm?.v ?? 'RMSNorm')) ? 'RMSNorm' : 'Norm');
 
 /** One layer: norm → mixer (+ cache) → add → norm → FFN → add, one column per sublayer kind. */
-export function layerDiagram(m, ctx, { title } = {}) {
+// zoom: inside <ModelOverview>, where each mixer and FFN block opens its own tab (`open`) instead of
+// linking to the concept note; the detail views link to the notes.
+export function layerDiagram(m, ctx, { title, zoom = false } = {}) {
   const { v, z, layers, count, present } = access(m);
   if (!layers) throw new Error(`model "${m.id}" needs a layer_pattern`);
   const mixers = present('ACM');
@@ -96,7 +98,8 @@ export function layerDiagram(m, ctx, { title } = {}) {
     let sub = times(c, mixers);
     if (c === 'A') sub = join(sub, attn === 'gqa' || attn === 'mqa' ? `${z('heads', 'n_h')} Q / ${z('kv_heads', 'n_kv')} KV heads` : `${z('heads', 'n_h')} heads`);
     if (c === 'C') sub = join(sub, `kernel ${z('conv_window', 'k')}`);
-    blocks.push({ id: `mix-${c}`, label: info.label, sub: sub || undefined, role: 'op', col, row: R.mix, link: info.link });
+    const open = zoom && 'AC'.includes(c) ? `mixer-${c}` : undefined;
+    blocks.push({ id: `mix-${c}`, label: info.label, sub: sub || undefined, role: 'op', col, row: R.mix, ...(open ? { open } : { link: info.link }) });
     blocks.push({ id: `cache-${c}`, label: info.cache, sub: c === 'A' ? 'grows with context' : 'fixed size', role: 'cache', col, row: R.cache, link: info.cacheLink });
     edges.push({ from: 'n1', to: `mix-${c}` }, { from: `mix-${c}`, to: `cache-${c}`, dashed: true }, { from: `mix-${c}`, to: 'add1' });
   });
@@ -105,7 +108,7 @@ export function layerDiagram(m, ctx, { title } = {}) {
     let sub = times(c, ffns);
     if (c === 'D') sub = join(sub, `width ${z('ffn_hidden', 'd_ff')}`);
     if (c === 'E') sub = join(sub, `${z('active_experts', 'K_r')} of ${z('routed_experts', 'N_r')}${v('shared_experts') ? ` + ${z('shared_experts', 'N_s')}` : ''}`);
-    blocks.push({ id: `ffn-${c}`, label: info.label, sub: sub || undefined, role: info.role, col: spread(ffns.length)[i], row: R2.ffn, link: info.link });
+    blocks.push({ id: `ffn-${c}`, label: info.label, sub: sub || undefined, role: info.role, col: spread(ffns.length)[i], row: R2.ffn, ...(zoom ? { open: `ffn-${c}` } : { link: info.link }) });
     edges.push({ from: 'n2', to: `ffn-${c}` }, { from: `ffn-${c}`, to: 'add2' });
   });
   const groups = [{ label: `${n(layers.length)} layers`, blocks: blocks.filter((b) => b.row >= R.n1).map((b) => b.id) }];
@@ -150,17 +153,20 @@ function wholeModel(m, ctx) {
     for (const r of rs) {
       const [mx, ff] = [r.codes[0], r.codes[1]];
       const label = `${mixerInfo(m, ctx, mx).short} + ${ff ? ffnInfo(m, ctx, ff).short : ''}`.trim();
-      stack.push(add({ id: `run-${r.from}`, label, sub: r.from === r.to ? `layer ${r.from}` : `layers ${r.from}–${r.to}`, role: 'op' }));
+      stack.push(add({ id: `run-${r.from}`, label, sub: r.from === r.to ? `layer ${r.from}` : `layers ${r.from}–${r.to}`, role: 'op', open: 'layer' }));
     }
   } else {
     const mix = present('ACM').map((c) => `${access(m).count(c)} ${mixerInfo(m, ctx, c).short}`);
-    stack.push(add({ id: 'stack', label: 'Layer stack', sub: layers ? `${mix.join(' · ')}, interleaved` : `${z('layers', 'L')} layers`, role: 'op' }));
+    stack.push(add({ id: 'stack', label: 'Layer stack', sub: layers ? `${mix.join(' · ')}, interleaved` : `${z('layers', 'L')} layers`, role: 'op', ...(layers ? { open: 'layer' } : {}) }));
   }
   chain('h0', ...stack);
   // What decoding keeps between steps, beside the stack.
   const caches = present('ACM').map((c) => mixerInfo(m, ctx, c).cache);
+  // Bytes per token across all layers (derived, 16-bit), when the data gives it.
+  const kv = m.derived?.kv_bytes_per_token?.v;
+  const kvPerToken = kv ? formatDerived(DERIVED.find((x) => x.key === 'kv_bytes_per_token'), kv) : null;
   if (caches.length) {
-    blocks.push({ id: 'cache', label: caches.length > 1 ? 'Per-layer caches' : caches[0], sub: caches.length > 1 ? caches.join(' + ') : 'kept between steps', role: 'cache', col: 2, row: blocks.find((b) => b.id === stack[0]).row, link: present('A').length ? linkIf(ctx, 'kv-cache') : undefined });
+    blocks.push({ id: 'cache', label: caches.length > 1 ? 'Per-layer caches' : caches[0], sub: caches.length > 1 ? caches.join(' + ') : kvPerToken ? `${kvPerToken} per token` : 'kept between steps', role: 'cache', col: 2, row: blocks.find((b) => b.id === stack[0]).row, link: present('A').length ? linkIf(ctx, 'kv-cache') : undefined });
     edges.push({ from: stack[0], to: 'cache', dashed: true });
   }
   add({ id: 'fnorm', label: `Final ${normName(m)}`, sub: `T × ${d}`, role: 'op' });
@@ -174,7 +180,7 @@ function wholeModel(m, ctx) {
     // Beside the last layer it reads from, so the arrow stays clear of the group label.
     const row = blocks.find((b) => b.id === stack.at(-1)).row;
     const free = !blocks.some((b) => b.col === 2 && b.row === row);
-    blocks.push({ id: 'mtp', label: 'MTP module', sub: 'one more token, training', role: 'op', col: free ? 2 : 0, row, link: linkIf(ctx, 'mtp') });
+    blocks.push({ id: 'mtp', label: 'MTP module', sub: 'one more token, training', role: 'op', col: free ? 2 : 0, row, open: 'mtp' });
     edges.push({ from: stack.at(-1), to: 'mtp', dashed: true });
   }
   const groups = [{ label: layers ? `${n(layers.length)} layers` : 'layers', blocks: stack }];
@@ -195,7 +201,7 @@ function mlaDetail(m, ctx) {
     { id: 'kr', label: 'RoPE key k^R', sub: `T × ${dR}, all heads`, role: 'cache', col: 3, row: 1, link: linkIf(ctx, 'rope') },
     { id: 'q', label: 'Queries', sub: `T × ${nh} × (${dh} + ${dR})`, role: 'activation', col: 0, row: 2 },
     { id: 'kv', label: 'Keys and values', sub: dh === dv ? `T × ${nh} × ${dh}` : `T × ${nh} × ${dh} / ${dv}`, role: 'activation', col: 2, row: 2 },
-    { id: 'attn', label: sparse ? 'Sparse causal attention' : 'Causal attention', sub: sparse ? `over ${z('sparse_topk', 'k_top')} picked tokens` : `softmax(q·kᵀ / √${/\D/.test(qk) ? `(${qk})` : qk}) · v`, role: 'op', col: 1, row: 3, span: 2 },
+    { id: 'attn', label: sparse ? 'Sparse causal attention' : 'Causal attention', sub: sparse ? `over ${z('sparse_topk', 'k_top')} picked tokens` : `softmax(q·kᵀ / √${/\D/.test(qk) ? `(${qk})` : qk}) · v`, role: 'op', col: 1, row: 3, span: 2, link: linkIf(ctx, sparse ? 'dsa' : 'mla') },
     { id: 'o', label: 'Heads concatenated', sub: `T × ${zz('*', ['heads', 'n_h'], ['v_head_dim', 'd_v'])}`, role: 'activation', col: 1, row: 4, span: 2 },
     { id: 'out', label: 'Attention output', sub: `T × ${d}`, role: 'activation', col: 1, row: 5, span: 2 },
   ];
@@ -311,7 +317,7 @@ function moeDetail(m, ctx) {
   const { v, z } = access(m);
   const [d, K] = [z('hidden_size', 'd'), z('active_experts', 'K_r')];
   const scoring = String(v('router_scoring') ?? 'score');
-  const grouped = v('expert_groups') != null;
+  const grouped = (v('expert_groups') ?? 0) > 0;
   const shared = v('shared_experts') != null;
   const blocks = [
     { id: 'u', label: 'Normed hidden u', sub: `T × ${d}`, role: 'activation', col: 1, row: 0, span: 2 },
@@ -367,7 +373,7 @@ function mtpDetail(m, ctx) {
 export function overviewParts(m, ctx) {
   const { v, present, layers } = access(m);
   const parts = [{ id: 'model', tab: 'Whole model', props: wholeModel(m, ctx) }];
-  if (layers) parts.push({ id: 'layer', tab: 'One layer', props: layerDiagram(m, ctx) });
+  if (layers) parts.push({ id: 'layer', tab: 'One layer', props: layerDiagram(m, ctx, { zoom: true }) });
   const attn = String(v('attention') ?? '');
   for (const c of present('ACM')) {
     if (c === 'A' && attn === 'mla') parts.push({ id: 'mixer-A', tab: 'Attention (MLA)', props: mlaDetail(m, ctx) });

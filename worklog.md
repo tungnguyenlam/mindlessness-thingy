@@ -76,3 +76,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: LFM2.5-350M and 1.2B set block_auto_adjust_ff_dim, so Lfm2MLP builds int(2·ff/3) rounded to 256: 4608 and 8192, not config intermediate_size 6656/12288 (now matches report Table 1 and the cards' 350M/1.17B); V4.1-Flash no longer inherits V4's 1.6T total (552B backbone + 196B Engram, report abstract)
 - files: src/content/models/{lfm2-5-350m,lfm2-5-1-2b-instruct,lfm2-5-1-2b-thinking,deepseek-v4-1-flash}.yaml src/content/sources/lfm2-modeling.yaml src/content/notes/systems/lfm2-5-{350m,230m,1-2b-instruct}.mdx
 - open: none
+
+## 2026-10-17 · feat(models): parameter breakdown, weight tables, zoomable views
+- did: ModelOverview gains a Parameters tab (bars per part, total vs active per token, summed from the data beside the reported totals), a weights table under each mixer/FFN tab (every matrix: shape, copies, parameters; per layer and whole stack), + badges that zoom from the stack to one layer to each sublayer, cache bytes per token on the whole-model view; ArchDiagram open prop; params-mismatch/params-inherited warnings (they found the LFM2 widths and the V4.1-Flash total); fixes 'within 0 of 0 groups'
+- files: src/lib/models/params.mjs src/lib/models/overview.mjs src/components/viz/{ModelOverview,ArchDiagram}.astro scripts/checks/models.mjs AGENTS.md
+- open: DSA (V4, V4.1-Flash) and the V3.2 lightning indexer projections are not counted (shapes not in data, shown as lower bound); no Mamba-2 detail view yet (no model data uses it)

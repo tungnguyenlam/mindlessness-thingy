@@ -120,14 +120,14 @@ Available in every note without imports. Full props are in each file under `src/
 
 | Component | Use it for |
 | --- | --- |
-| `<ArchDiagram>` | Hand-drawn block diagrams for concepts: data flow, what is cached. Leave out `col`/`row` and blocks are placed from the edges; edges route around blocks; groups take `blocks: [ids]`. Blocks can link to notes. |
+| `<ArchDiagram>` | Hand-drawn block diagrams for concepts: data flow, what is cached. Leave out `col`/`row` and blocks are placed from the edges; edges route around blocks; groups take `blocks: [ids]`. Blocks can link to notes. (`link`), or, inside a component with views, open one (`open`, drawn with a + badge). |
 | `<Calc>` | Sliders plus formulas, e.g. cache size as context length grows. |
 | `<MaskGrid>` | Which keys each query may read (`causal`, `window`, `topk`, `full`), several masks compared with tabs; the reader picks a query row. |
 | `<ShapeFlow>` | Tensor shapes step by step, the dimension that changed highlighted. Symbols, not numbers. |
 | `<Timeline>` | In a path note: the models along the path, what each adds, their layer strips and headline numbers from model data. |
 | `<Stepper>` + `<Step>` | Walking through an algorithm one step at a time. |
 | `<ModelSpec>` | A model's numbers from `src/content/models/<model>.yaml`, grouped, sourced, with derived rows (KV cache per token, active share). `diff` shows only what changed from the model it `extends`. System notes use this, never a retyped `<Spec>`. |
-| `<ModelOverview>` | A model's whole architecture from its data: text to next token, then tabs for one layer, each mixer (MLA, GQA, gated conv) and FFN (dense, MoE) and MTP, down to projections and tensor shapes drawn with the model's real numbers, plus a table mapping each number to its symbol and source. Every system note with model data opens with it. |
+| `<ModelOverview>` | A model's whole architecture from its data: text to next token, then tabs for one layer, each mixer (MLA, GQA, gated conv) and FFN (dense, MoE) and MTP, down to projections and tensor shapes drawn with the model's real numbers, plus a table mapping each number to its symbol and source. Blocks with a + zoom into their tab; each detail tab lists its weight matrices (shape, copies, parameters) and a Parameters tab shows where the parameters live, total and active, summed from the data beside the reported totals (`src/lib/models/params.mjs`; a sum that misses the reported total is a `sourced-numbers` warning). Every system note with model data opens with it. |
 | `<ModelDiagram>` | A model's layer block generated from its data: one column per mixer kind with the cache it keeps, the FFN kinds, residuals, counts from the layer pattern. Use it instead of hand-drawing a system's block. |
 | `<LayerStrip>` | Where each layer type sits, one column per layer (`model=` or `models={[...]}` stacked). Essential for hybrids and dense-then-MoE stacks. |
 | `<Compare>` | Models side by side from their data files; the first is the baseline and differing cells are marked. `fields={[...]}` picks rows, `onlyDiff` hides equal rows. The `/compare/` page does the same for any models. |

@@ -13,6 +13,7 @@ import { lintDiagram } from '../../lib/diagram/geometry.mjs';
 import { FIELD, formatValue } from '../../lib/models/fields.mjs';
 import { DERIVED, formatDerived } from '../../lib/models/data.mjs';
 import { noteUrl } from '../../lib/url';
+import { paramBreakdown, sublayerWeights, fmtParams } from '../../lib/models/params.mjs';
 
 interface Props {
   model: string;
@@ -62,6 +63,52 @@ const value = (key: string | null) => {
   return { text: '—' };
 };
 const symbols = symbolRows(m).map((r: any) => ({ ...r, ...value(r.key) }));
+
+// Parameters: every matrix the views draw, sized from the data and summed (src/lib/models/params.mjs).
+// A derivation, so it is shown beside the reported totals, never instead of them.
+const pb = paramBreakdown(m);
+const n = (x: number) => x.toLocaleString('en-US');
+const CODE_LABEL: Record<string, string> = { A: parts.find((p) => p.id === 'mixer-A')?.tab ?? 'Attention', C: 'Gated conv', M: 'Mamba-2', D: 'Dense FFN', E: 'MoE FFN' };
+const times = (p: any, x: number) => (p.layers > 1 ? `${p.layers} layers × ${fmtParams(x)}` : undefined);
+const bars: { label: string; sub?: string; total: number; active: number; title: string }[] = [];
+for (const p of pb.parts as any[]) {
+  if (p.code === 'E') {
+    for (const r of p.rows) {
+      const act = r.active ?? r.params;
+      bars.push({ label: r.name === 'Router' ? 'MoE router' : r.name, sub: times(p, r.params), total: r.params * p.layers, active: act * p.layers, title: `${r.copiesText} matrices of ${n(r.in)} × ${n(r.out)}, in ${p.layers} layers` });
+    }
+  } else if (p.code) {
+    bars.push({ label: CODE_LABEL[p.code], sub: times(p, p.perLayer), total: p.total, active: p.active, title: p.rows.map((r: any) => `${r.name}: ${n(r.in)} × ${n(r.out)}${r.copies > 1 ? ` × ${r.copies}` : ''}`).join('; ') + ` — per layer, × ${p.layers} layers` });
+  } else {
+    bars.push({ label: p.label, sub: p.note, total: p.total, active: p.active, title: p.rows.map((r: any) => `${r.name}: ${n(r.in)} × ${n(r.out)}`).join('') || p.note });
+  }
+}
+const barMax = Math.max(...bars.map((b) => b.total), 1);
+const share = (x: number) => {
+  const f = (x / Math.max(pb.total, 1)) * 100;
+  return f >= 1 ? `${Math.round(f)}%` : f >= 0.1 ? `${f.toFixed(1)}%` : '<0.1%';
+};
+// The longest bar takes 68% of the track, leaving room for its value label.
+const pct = (x: number) => `${Math.max((x / barMax) * 68, x > 0 ? 0.4 : 0)}%`;
+const moe = (pb.parts as any[]).some((p) => p.code === 'E');
+const off = (sum: number, rep: number | null) => (rep ? (sum - rep) / rep : null);
+const offTotal = pb.complete ? off(pb.total, pb.reported.total) : null;
+const offActive = pb.complete && moe ? off(pb.active, pb.reported.active) : null;
+const pctText = (x: number) => `${x > 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
+if (bars.length) parts.push({ id: 'params', tab: 'Parameters', props: null } as any);
+
+// The matrices behind one tab: mixer-A → A, ffn-E → E; the layer tab sums each sublayer kind.
+const TAB_CODE: Record<string, string> = { 'mixer-A': 'A', 'mixer-C': 'C', 'ffn-D': 'D', 'ffn-E': 'E' };
+const weightTable = (tab: string) => {
+  const code = TAB_CODE[tab];
+  if (!code) return null;
+  const w = sublayerWeights(m, code) as any;
+  if (!w.rows) return null;
+  const part = (pb.parts as any[]).find((p) => p.code === code);
+  return { rows: w.rows, copies: w.rows.some((r: any) => r.copiesText), missing: w.missing, perLayer: part?.perLayer, layers: part?.layers, total: part?.total, active: code === 'E' ? part?.active / part?.layers : null };
+};
+const layerRows = (pb.parts as any[]).filter((p) => p.code);
+
 const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
 ---
 
@@ -77,11 +124,91 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
     }
   </div>
   {
-    parts.map((p, i) => (
+    parts.map((p, i) => {
+      const wt = weightTable(p.id);
+      return (
       <div class="panel" role="tabpanel" data-panel={p.id} hidden={i !== 0} data-test-reveal>
-        <ArchDiagram {...p.props} caption={CAPTIONS[p.id]} />
+        {p.id === 'model' && <p class="hint">Blocks with a <span class="plus" aria-hidden="true">+</span> zoom in: the layer stack opens one layer, and inside it each mixer and FFN opens its projections and weights.</p>}
+        {p.props && <ArchDiagram {...p.props} caption={CAPTIONS[p.id]} />}
+        {wt && (
+          <div class="wscroll" data-keep-scroll>
+            <p class="tcap">Weights in this view, sized from the data. Hover a shape for its symbols.</p>
+            <table class="weights">
+              <thead><tr><th>Matrix</th><th>Shape, in × out</th>{wt.copies && <th>Copies</th>}<th class="num">Parameters</th></tr></thead>
+              <tbody>
+                {wt.rows.map((r: any) => (
+                  <tr>
+                    <td><span class="mname">{r.name}</span><span class="what">{r.what}</span></td>
+                    <td class="mono" title={`${r.inSym} × ${r.outSym}`}>{n(r.in)} × {n(r.out)}</td>
+                    {wt.copies && <td class="mono">{r.copiesText}</td>}
+                    <td class="num mono">{fmtParams(r.params)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr><td colspan={wt.copies ? 3 : 2}>One layer{wt.layers > 1 ? `, × ${wt.layers} layers` : ''}</td><td class="num mono">{fmtParams(wt.perLayer)}{wt.layers > 1 && <> → {fmtParams(wt.total)}</>}</td></tr>
+                {wt.active != null && <tr><td colspan={wt.copies ? 3 : 2}>Run for each token, one layer</td><td class="num mono">{fmtParams(wt.active)}</td></tr>}
+              </tfoot>
+            </table>
+            {wt.missing && <p class="pnote">Not counted: the {wt.missing}, whose shapes the data doesn’t give.</p>}
+          </div>
+        )}
+        {p.id === 'layer' && layerRows.length > 0 && (
+          <div class="wscroll" data-keep-scroll>
+            <p class="tcap">Parameters per layer of each kind; the + on each block opens its weights.</p>
+            <table class="weights">
+              <thead><tr><th>Sublayer</th><th class="num">One layer</th><th class="num">Layers</th><th class="num">All of them</th></tr></thead>
+              <tbody>
+                {layerRows.map((r: any) => (
+                  <tr><td>{CODE_LABEL[r.code]}</td><td class="num mono">{fmtParams(r.perLayer)}</td><td class="num mono">{r.layers}</td><td class="num mono">{fmtParams(r.total)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {p.id === 'params' && (
+          <figure class="pfig">
+            <div class="pkey" aria-hidden="true">
+              <span><i class="k-total" />all parameters</span>
+              {moe && <span><i class="k-active" />run for each token</span>}
+            </div>
+            <ol class="pbars">
+              {bars.map((b) => (
+                <li title={b.title}>
+                  <span class="plabel">{b.label}{b.sub && <small>{b.sub}</small>}</span>
+                  <span class="ptrack">
+                    {b.total > 0 && <span class="pbar" style={`width:${pct(b.total)}`}>
+                      {moe && <span class="pact" style={`width:${(b.active / b.total) * 100}%`} />}
+                    </span>}
+                    <span class="pval">
+                      {b.total ? fmtParams(b.total) : 'shared'}
+                      {b.total > 0 && <small> {share(b.total)}</small>}
+                      {moe && b.active !== b.total && <small class="pactv">{fmtParams(b.active)} run per token</small>}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <figcaption>
+              <p class="psum">
+                Sum of the matrices: <b>{fmtParams(pb.total)}</b>{moe && <>, of which <b>{fmtParams(pb.active)}</b> run for each token</>}.{' '}
+                {pb.reported.total && (
+                  <>Reported: {(() => { const x = value('params_total'); return x.url ? <a href={x.url} title={x.title} rel="noopener">{x.text}</a> : <span title={x.title}>{x.text}</span>; })()}
+                  {moe && pb.reported.active && <> total, {(() => { const x = value('params_active'); return x.url ? <a href={x.url} title={x.title} rel="noopener">{x.text}</a> : <span title={x.title}>{x.text}</span>; })()} active</>}.</>
+                )}
+              </p>
+              <p class="pnote">
+                Each bar is computed from the sizes in the data (hover for the shapes); it is a derivation, not a reported number. Norms and biases are left out; they are a tiny share.
+                {pb.missing.length > 0 && <> Not counted: {pb.missing.join(', ')} (the data doesn’t give their shapes), so the sum is a lower bound.</>}
+                {offTotal != null && Math.abs(offTotal) <= 0.03 && <> The sum {Math.abs(offTotal) < 0.0005 ? 'matches the reported total' : `lands within ${Math.abs(offTotal * 100).toFixed(1)}% of the reported total`}{offActive != null && Math.abs(offActive) <= 0.05 ? ' and close to the reported active count' : ''}, which cross-checks the sizes in the data.</>}
+                {offTotal != null && Math.abs(offTotal) > 0.03 && <strong class="pwarn"> The sum differs from the reported total by {pctText(offTotal)}: a size in the data may not be the one the model builds.</strong>}
+              </p>
+            </figcaption>
+          </figure>
+        )}
       </div>
-    ))
+      );
+    })
   }
   <p class="symcap">Where the numbers come from: each size in {m.title}’s diagrams, the symbol the concept notes use for it, and its source (hover or follow the value). T is the number of tokens in the sequence.</p>
   <dl class="symbols">
@@ -130,6 +257,18 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
       this.querySelector('.tabs')!.addEventListener('click', (e) => {
         const b = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]');
         if (b) this.show(b.dataset.tab!);
+      });
+      // Blocks with a "+" badge zoom into their own tab (the block's data-open names it).
+      const zoom = (e: Event) => {
+        const b = (e.target as Element).closest<SVGElement>('[data-open]');
+        if (!b) return;
+        e.preventDefault();
+        this.show(b.dataset.open!);
+        this.querySelector<HTMLElement>(`[data-tab="${b.dataset.open}"]`)?.focus({ preventScroll: true });
+      };
+      this.addEventListener('click', zoom);
+      this.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') zoom(e);
       });
       if (!this.tab) this.tab = this.first;
     }
@@ -207,5 +346,193 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
     margin: 0.6rem 0 0;
     font-size: var(--step--1);
     color: var(--ink-soft);
+  }
+  .hint {
+    margin: 0.5rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .plus {
+    display: inline-grid;
+    place-items: center;
+    width: 1.05em;
+    height: 1.05em;
+    border: 1.2px solid var(--ink-soft);
+    border-radius: 50%;
+    font-family: var(--font-mono);
+    font-size: 0.8em;
+    line-height: 1;
+  }
+  .wscroll {
+    overflow-x: auto;
+    margin: 0.2rem 0 0.4rem;
+  }
+  .tcap {
+    margin: 0 0 0.3rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  /* .prose styles bare tables (display: block, wide padding); these are aligned numeric tables. */
+  .overview .wscroll .weights {
+    display: table;
+    margin: 0;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--step--1);
+  }
+  .overview .wscroll .weights caption {
+    text-align: left;
+    color: var(--ink-soft);
+    padding-bottom: 0.3rem;
+  }
+  .overview .wscroll .weights th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--rule);
+    padding: 0.25rem 0.6rem 0.25rem 0;
+    white-space: nowrap;
+  }
+  .overview .wscroll .weights td {
+    padding: 0.3rem 0.6rem 0.3rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+  .overview .wscroll .weights tfoot td {
+    border-bottom: none;
+    color: var(--ink-soft);
+  }
+  .overview .wscroll .weights tfoot tr:first-child td {
+    border-top: 1px solid var(--rule);
+  }
+  .overview .wscroll .weights .num {
+    text-align: right;
+    padding-right: 0;
+    padding-left: 1rem;
+    white-space: nowrap;
+  }
+  .mono {
+    font-family: var(--font-mono);
+    white-space: nowrap;
+  }
+  .overview .wscroll .weights td:first-child {
+    min-width: 9.5rem;
+  }
+  .mname {
+    display: block;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+  .what {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+  }
+  .pfig {
+    margin: 0.6rem 0 0;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--paper-raised);
+  }
+  .pkey {
+    display: flex;
+    gap: 1.2rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    margin-bottom: 0.6rem;
+  }
+  .pkey i {
+    display: inline-block;
+    width: 0.8rem;
+    height: 0.8rem;
+    margin-right: 0.35rem;
+    vertical-align: -0.1rem;
+    border-radius: 2px;
+  }
+  .k-total {
+    background: var(--role-weight-wash);
+    border: 1px solid var(--role-weight);
+  }
+  .k-active {
+    background: var(--role-weight);
+  }
+  .pbars {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.45rem;
+  }
+  .pbars li {
+    display: grid;
+    grid-template-columns: minmax(7rem, 11rem) 1fr;
+    gap: 0.8rem;
+    align-items: center;
+    font-size: var(--step--1);
+  }
+  .plabel small {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+  }
+  .ptrack {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .pbar {
+    position: relative;
+    height: 0.9rem;
+    flex: none;
+    min-width: 2px;
+    background: var(--role-weight-wash);
+    border: 1px solid var(--role-weight);
+    border-radius: 0 4px 4px 0;
+    overflow: hidden;
+  }
+  .pact {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--role-weight);
+  }
+  .pval {
+    font-family: var(--font-mono);
+    white-space: nowrap;
+  }
+  .pval small {
+    color: var(--ink-soft);
+  }
+  .pval .pactv {
+    display: block;
+    font-size: 0.72rem;
+  }
+  .pfig figcaption {
+    margin-top: 0.8rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .pfig figcaption p {
+    margin: 0.3rem 0 0;
+  }
+  .psum {
+    color: var(--ink);
+  }
+  .pnote {
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    margin: 0.3rem 0 0;
+  }
+  .pwarn {
+    color: var(--ink);
+  }
+  @media (max-width: 480px) {
+    .pbars li {
+      grid-template-columns: 1fr;
+      gap: 0.2rem;
+    }
   }
 </style>
