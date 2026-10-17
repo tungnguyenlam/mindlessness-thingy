@@ -1,8 +1,10 @@
 title: DeepSeek-V3.2
 family: deepseek
 extends: deepseek-v3
+layers: { v: 61, source: deepseek-v3-2-config, where: num_hidden_layers }
+layer_pattern: { v: "AD*3 AE*58", source: deepseek-v3-2-config, where: "num_hidden_layers, first_k_dense_replace" }
 sparse_topk: { v: 2048, source: deepseek-v3-2-config, where: index_topk }
-context_length: { v: 128000, display: 128K, source: deepseek-v3-2-report, where: "§4.1" }
-tokenizer: { v: deepseek-v3, source: deepseek-v3-2-tokenizer, where: "tokenizer.json (same vocabulary and merges as V3)" }
 index_heads: { v: 64, source: deepseek-v3-2-config, where: index_n_heads }
 index_head_dim: { v: 128, source: deepseek-v3-2-config, where: index_head_dim }
+context_length: { v: 128000, display: 128K, source: deepseek-v3-2-report, where: "§4.1" }
+tokenizer: { v: deepseek-v3, source: deepseek-v3-2-tokenizer, where: "tokenizer.json (same vocabulary and merges as V3)" }

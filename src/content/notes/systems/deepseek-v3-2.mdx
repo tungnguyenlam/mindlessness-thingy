@@ -8,8 +8,65 @@ builds_on: [deepseek-v3]
 contrasts_with: []
 related: []
 sources: [deepseek-v3-2-report, deepseek-v3-2-config]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+DeepSeek-V3.2 is [[deepseek-v3]] with one change: [[dsa]], a learned sparse attention that picks which past tokens each query reads. The change was grafted onto existing weights by continued training, and every other dimension of the architecture is unchanged <Cite id="deepseek-v3-2-report" where="§2" />. The point is long-context cost: full attention reads only the tokens the indexer picks, so its cost grows with the context length rather than with its square <Cite id="deepseek-v3-2-report" where="§2.3" />.
+
+## The whole model
+
+Each layer is the same pre-norm [[transformer-block]] as in V3: [[mla]] attention, then a [[deepseek-moe]] feed-forward, dense in the first layers. The tabs open each part down to its projections; the lightning indexer is the one block V3 didn't have.
+
+<ModelOverview model="deepseek-v3-2" />
+
+<LayerStrip model="deepseek-v3-2" />
+
+<ModelDiagram model="deepseek-v3-2" />
+
+## At a glance
+
+The full table, then only what changed from V3. The diff is three indexer fields; everything else is inherited.
+
+<ModelSpec model="deepseek-v3-2" />
+
+<ModelSpec model="deepseek-v3-2" diff />
+
+## What is new
+
+### DeepSeek Sparse Attention
+
+<Spec
+  title="Teaching an existing model sparse attention"
+  rows={[
+    { label: 'Dense warm-up', value: 'Indexer trained alone against the summed full-attention distribution; LR 1e-3, 1000 steps × 16 sequences × 128K ≈ 2.1B tokens', source: 'deepseek-v3-2-report', where: '§2.1.1' },
+    { label: 'Sparse training', value: 'LR 7.3e-6, 15000 steps × 480 sequences × 128K ≈ 943.7B tokens; the indexer input is detached from gradients', source: 'deepseek-v3-2-report', where: '§2.1.1' },
+    { label: 'Indexer score', value: 'Sum over indexer heads of ReLU(q·k), so it can run in FP8', source: 'deepseek-v3-2-report', where: '§2.1, eq. 1' },
+  ]}
+/>
+
+The two stages above are the whole change: DSA was grafted on by continued training, not by retraining the model. What it does step by step is in [[dsa]]; what matters here is the wiring. A small lightning indexer scores every past token for each query, full attention reads only the top tokens it picked <Cite id="deepseek-v3-2-report" where="§2.1" />, and the selection runs in the MQA mode of [[mla]], where all query heads share one latent key-value, so the indexer scores a single key per past token <Cite id="deepseek-v3-2-report" where="§2.1, App. A" />.
+
+The report's claim for what it bought: core attention grows linearly with context length instead of quadratically, while long-context performance is preserved <Cite id="deepseek-v3-2-report" where="Abstract, §2.3" />. The indexer still looks at every past token, but far more cheaply, and the config adds exactly three fields for it on top of V3's <Cite id="deepseek-v3-2-config" where="config.json" />.
+
+<Compare models={["deepseek-v3", "deepseek-v3-2"]} />
+
+Anything not marked as different is untouched V3 — the MoE feed-forward, the extra prediction head, the FP8 recipe — see [[deepseek-v3]] for those parts.
+
+### Post-training at larger scale
+
+Architecture is the only thing new here; behaviour came from post-training. The report describes a scaled-up reinforcement-learning protocol and a synthesis pipeline that generates agentic training data at scale, and reports V3.2 performing comparably to GPT-5, with a high-compute variant (V3.2-Speciale) reported above it <Cite id="deepseek-v3-2-report" where="Abstract" />. Those are the authors' own benchmark claims, not ones this notebook reproduces.
+
+## What it reuses
+
+- [[mla]] — the attention design, used in its MQA mode inside DSA.
+- [[deepseek-moe]] — the routed feed-forward, unchanged.
+- [[aux-loss-free-balancing]] — expert balancing without a balancing loss, unchanged.
+- [[mtp]] — the extra next-token prediction head, kept as is.
+- [[fp8-training]] — the 8-bit training recipe, unchanged.
+
+## Tokenizer
+
+<Tokenizer model="deepseek-v3-2" />
+
+V3.2 reads text through the family's tokenizer: its `tokenizer.json` has the same vocabulary and merges as V3's <Cite id="deepseek-v3-2-tokenizer" />. The splitting rules, and what they changed from V2, live in [[deepseek-v3-tokenizer]]; the algorithm itself is [[byte-level-bpe]].
