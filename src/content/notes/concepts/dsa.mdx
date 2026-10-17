@@ -2,14 +2,98 @@
 title: "DeepSeek Sparse Attention"
 kind: concept
 summary: "A small 'lightning indexer' scores past tokens cheaply, and full attention runs only on the top 2048 of them, cutting core attention cost from quadratic to linear in context length."
-domains: []
+domains: [llm, attention, inference]
 prerequisites: [mla]
 builds_on: []
 contrasts_with: []
-related: []
+related: [kv-cache, hybrid-ssm-attention]
 sources: [deepseek-v3-2-report, deepseek-v3-2-config]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+[[mla]] shrinks what each token stores in the [[kv-cache]], but a query still scores every cached latent, so core attention work grows with the square of the context length <Cite id="deepseek-v3-2-report" where="§2.3" />. DeepSeek Sparse Attention (DSA), introduced in [[deepseek-v3-2]], changes which keys are read instead: a small lightning indexer scores the past cheaply, and full attention runs only on the $k$ best-scoring tokens of it.
+
+<MaskGrid
+  title="Which keys each query reads"
+  n={12}
+  masks={[
+    { label: 'Causal: every earlier token', kind: 'causal' },
+    { label: 'DSA: top-k of them', kind: 'topk', k: 4 },
+  ]}
+  caption="Causal attention — what MLA reads with — keeps every earlier token. DSA keeps the causal shape but only k of those keys per query, and the indexer decides which."
+/>
+
+Each row is one query token, each cell a key it may read. The indexer gives every past token a score, and only the $k$ highest-scoring keys reach the real attention. In DeepSeek-V3.2 that budget is 2048 key-value tokens per query <Cite id="deepseek-v3-2-config" where="config.json: index_topk" />, the same for every query, whatever the context length.
+
+<ArchDiagram
+  title="One query: score the past, then read only the top k"
+  caption="The indexer touches every cached latent but does one small dot product per head; only the selected latents reach the expensive attention."
+  blocks={[
+    { id: 'q', label: 'Query h_t', sub: 'd', role: 'activation' },
+    { id: 'kv', label: 'Cached latents', sub: 'T × d_c', role: 'cache', link: 'kv-cache' },
+    { id: 'idx', label: 'Lightning indexer', sub: 'd → d_I', role: 'weight', link: 'fp8-training' },
+    { id: 'scores', label: 'Index scores', sub: 'T', role: 'activation' },
+    { id: 'sel', label: 'Top-k selection', sub: 'k ≪ T', role: 'route' },
+    { id: 'pick', label: 'Selected latents', sub: 'k × d_c', role: 'cache', link: 'mla' },
+    { id: 'att', label: 'Attention output', sub: 'n_h × d_h', role: 'activation', link: 'mla' },
+  ]}
+  edges={[
+    { from: 'q', to: 'idx' },
+    { from: 'kv', to: 'idx' },
+    { from: 'idx', to: 'scores' },
+    { from: 'scores', to: 'sel' },
+    { from: 'kv', to: 'sel' },
+    { from: 'sel', to: 'pick' },
+    { from: 'q', to: 'att' },
+    { from: 'pick', to: 'att' },
+  ]}
+/>
+
+## How it works
+
+For a query token $t$ and a past token $s$, the indexer produces one score:
+
+$$
+I_{t,s} = \sum_{j} w_{t,j}^{I} \cdot \operatorname{ReLU}\!\left(\mathbf{q}^{I}_{t,j} \cdot \mathbf{k}^{I}_{s}\right)
+$$
+
+The sum runs over the indexer's heads; each head compares a query-side vector with the past token's key, both projected from the hidden states, and $w_{t,j}^{I}$ is a learned weight per head. There is no softmax and no value mixing — the indexer only ranks. The report says ReLU was chosen for throughput and that the indexer, having few heads, can run in FP8 <Cite id="deepseek-v3-2-report" where="§2.1, eq. 1" />.
+
+Selection then cuts the ranked list down to $k$, and attention reads only the survivors:
+
+$$
+\mathbf{u}_t = \operatorname{Attn}\!\left(\mathbf{h}_t,\ \left\{\mathbf{c}_s \mid I_{t,s} \in \operatorname{Top\text{-}k}(I_{t,:})\right\}\right)
+$$
+
+Here $\mathbf{c}_s$ is the cached [[mla]] latent of token $s$ <Cite id="deepseek-v3-2-report" where="§2.1, eq. 2" />. MLA runs in its MQA mode inside DSA: all query heads of a query token share one latent, so there is a single key-value entry per past token to score and to select <Cite id="deepseek-v3-2-report" where="§2.1, App. A" />.
+
+<Spec
+  title="The indexer in DeepSeek-V3.2"
+  rows={[
+    { label: 'Selected tokens per query (k)', value: 2048, source: 'deepseek-v3-2-config', where: 'config.json: index_topk' },
+    { label: 'Indexer heads', value: 64, source: 'deepseek-v3-2-config', where: 'config.json: index_n_heads' },
+    { label: 'Indexer head dimension', value: 128, source: 'deepseek-v3-2-config', where: 'config.json: index_head_dim' },
+    { label: 'Core attention cost', value: 'O(L·k) instead of O(L²), with k ≪ L', source: 'deepseek-v3-2-report', where: '§2.3' },
+    { label: 'Indexer cost', value: 'still O(L²), but far less compute per pair than attention', source: 'deepseek-v3-2-report', where: '§2.3' },
+  ]}
+/>
+
+The indexer earns its keep by being small: 64 heads of 128 dimensions each compare one query vector against one key vector per past token, with no softmax and no weighted sum of values <Cite id="deepseek-v3-2-config" where="config.json: index_n_heads, index_head_dim" />. Full attention, with its softmax and value mixing over many heads, then runs over at most $k$ latents per query. This suggests the ranking only has to be roughly right: the expensive path never sees the tokens the indexer drops.
+
+## What it costs
+
+The indexer does not remove the scan of the past — it makes it cheap. Scored for every query-token pair, it is still $O(L^2)$ over a sequence, and every attention layer pays an extra scoring pass before it can start reading <Cite id="deepseek-v3-2-report" where="§2.3" />. A selection is also a bet: a token ranked below the cut never enters attention, so the number that matters is how often the tokens full attention would have used survive the cut. The report argues parity through benchmarks rather than a recall figure <Cite id="deepseek-v3-2-report" where="§2.2" />, so treat recall as unverified here.
+
+<Spec
+  title="Installing the selection on an existing model"
+  rows={[
+    { label: 'Dense warm-up (indexer only)', value: '1000 steps × 16 sequences × 128K ≈ 2.1B tokens', source: 'deepseek-v3-2-report', where: '§2.1.1' },
+    { label: 'Sparse stage (all parameters)', value: '15000 steps × 480 sequences × 128K ≈ 943.7B tokens', source: 'deepseek-v3-2-report', where: '§2.1.1' },
+    { label: 'Indexer training signal', value: 'KL divergence to the summed attention distribution, input detached', source: 'deepseek-v3-2-report', where: '§2.1.1' },
+  ]}
+/>
+
+<Callout type="pitfall">
+"Linear in context length" describes the main model's core attention, not the whole layer. The indexer still looks at every past token; what DSA buys is that looking is one small dot product per head instead of a full attention pass.
+</Callout>

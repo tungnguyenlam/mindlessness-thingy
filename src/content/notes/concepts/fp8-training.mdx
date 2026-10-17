@@ -2,14 +2,70 @@
 title: "FP8 mixed-precision training"
 kind: concept
 summary: "Training with 8-bit floating-point matrix multiplies, using fine-grained scaling factors to keep quantization error under control."
-domains: []
+domains: [llm, training, efficiency]
 prerequisites: []
 builds_on: []
 contrasts_with: []
 related: []
 sources: [deepseek-v3-report]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Matrix multiplies dominate training compute, and BF16 spends a full 16 bits on every one of them. FP8 training runs those multiplies in 8-bit floating point; DeepSeek-V3's report describes its three GEMMs per linear layer this way as theoretically twice as fast as the BF16 version <Cite id="deepseek-v3-report" where="§3.3.1" />. The catch is range: FP8 has too few exponent bits for tensors that contain outliers, so the fix is scaling — and the question is how often to rescale.
+
+<ArchDiagram
+  title="Fine-grained scaling before every matmul"
+  caption="Each tile of the activation and each block of the weight gets its own scale, computed online from that group's maximum, and only the matmul itself runs in FP8 with FP32 accumulation."
+  blocks={[
+    { id: 'act', label: 'Activation tile', sub: 'one token, N_c channels', role: 'activation' },
+    { id: 'as', label: 'Scale per tile', sub: 'one per tile', role: 'activation' },
+    { id: 'w', label: 'Weight block', sub: 'N_c × N_c', role: 'weight' },
+    { id: 'ws', label: 'Scale per block', sub: 'one per block', role: 'activation' },
+    { id: 'mm', label: 'FP8 matmul', sub: 'FP32 accumulation', role: 'op' },
+  ]}
+  edges={[
+    { from: 'act', to: 'as' },
+    { from: 'act', to: 'mm' },
+    { from: 'as', to: 'mm' },
+    { from: 'w', to: 'ws' },
+    { from: 'w', to: 'mm' },
+    { from: 'ws', to: 'mm' },
+  ]}
+/>
+
+$N_c$ is the group width: activations are cut into one-token tiles of $N_c$ channels, weights into $N_c \times N_c$ blocks. Every group carries a scale, so the usable range follows the local magnitudes instead of the whole tensor.
+
+## How it works
+
+The standard approach scales one tensor by its single maximum absolute value, which is exactly what makes low-precision training fragile: one outlier sets the scale, and everything smaller than it collapses toward zero <Cite id="deepseek-v3-report" where="§3.3.2, Fine-Grained Quantization" />. Scaling per group instead bounds that damage to the group the outlier lives in.
+
+<Callout type="intuition">
+An outlier in one channel only wrecks the tile it sits in. Every other tile keeps a scale matched to its own magnitudes, so the error stays local instead of spreading across the tensor.
+</Callout>
+
+DeepSeek-V3 groups activations 1×128 — one token per 128 channels — and weights 128×128, and computes each group's maximum online at quantization time rather than reusing a history <Cite id="deepseek-v3-report" where="§3.3.2, Fine-Grained Quantization, Online Quantization" />.
+
+The formats follow the same split of concerns. Prior FP8 training used E4M3 (four exponent bits, three mantissa bits) for the forward GEMM and E5M2, with one more exponent bit, for the gradient GEMMs; DeepSeek-V3 keeps E4M3 on every tensor, arguing that fine-grained scaling already shares exponent bits within each group <Cite id="deepseek-v3-report" where="§3.3.2, Mantissa over Exponents" />.
+
+Multiplication needs the same treatment. FP8 accumulation inside the tensor cores holds only about 14 bits, which on random matrices of inner dimension 4096 produced a maximum relative error near 2% <Cite id="deepseek-v3-report" where="§3.3.2, Increasing Accumulation Precision" />. So partial sums are handed to FP32 accumulators on the CUDA cores every $N_C = 128$ elements — the smallest interval that measurably helped, equal to four WGMMA instructions <Cite id="deepseek-v3-report" where="§3.3.2, Increasing Accumulation Precision" />.
+
+<Spec
+  title="The recipe in DeepSeek-V3"
+  rows={[
+    { label: 'Activation tile', value: '1 × 128 (per token per 128 channels)', source: 'deepseek-v3-report', where: '§3.3.2, Fine-Grained Quantization' },
+    { label: 'Weight block', value: '128 × 128', source: 'deepseek-v3-report', where: '§3.3.2, Fine-Grained Quantization' },
+    { label: 'Forward GEMM format', value: 'E4M3', source: 'deepseek-v3-report', where: '§3.3.1, §3.3.2' },
+    { label: 'Gradient GEMM format', value: 'E4M3 (prior practice used E5M2)', source: 'deepseek-v3-report', where: '§3.3.2, Mantissa over Exponents' },
+    { label: 'FP32 promotion interval', value: '128 elements = 4 WGMMA', source: 'deepseek-v3-report', where: '§3.3.2, Increasing Accumulation Precision' },
+    { label: 'Relative loss error vs BF16', value: 'below 0.25% over ~1T tokens of validation training', source: 'deepseek-v3-report', where: '§3.3' },
+  ]}
+/>
+
+## What it costs
+
+Per-group scaling needs a GEMM that applies a scale along the inner dimension, which standard FP8 GEMMs don't support; the dequantization is folded into the FP32 accumulation instead, so this needs custom kernels <Cite id="deepseek-v3-report" where="§3.3.2" />.
+
+FP8 also covers only the matmuls. The embedding, the output head, MoE gating, the normalizations and the attention operators keep their original precision because they are sensitive to it <Cite id="deepseek-v3-report" where="§3.3.1" />. Master weights and weight gradients stay FP32 and the AdamW moments are kept in BF16 <Cite id="deepseek-v3-report" where="§3.3.1, §3.3.3" />.
+
+The saving is real but partial, and it lives almost entirely in the GEMM kernels.

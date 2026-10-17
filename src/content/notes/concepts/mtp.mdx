@@ -2,14 +2,79 @@
 title: "Multi-token prediction"
 kind: concept
 summary: "Trains the model to predict several future tokens at each position, which densifies the training signal and can be reused for speculative decoding."
-domains: []
+domains: [llm, training, inference]
 prerequisites: [transformer-block]
 builds_on: []
 contrasts_with: []
-related: []
-sources: [mtp-paper]
-status: stub
-updated: 2026-10-16
+related: [deepseek-v3]
+sources: [mtp-paper, deepseek-v3-report]
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Next-token prediction gives each position one learning signal: predict the token that follows. Multi-token prediction (MTP) asks every position for the next $n$ tokens at once, through several heads on a shared trunk — a denser signal during training, and extra heads that can later draft for faster inference <Cite id="mtp-paper" where="Abstract" />.
+
+<ArchDiagram
+  title="Each position predicts the next n tokens"
+  caption="One hidden state feeds several heads at the same time. Only the first head is the ordinary next-token predictor; the rest aim further ahead and share the trunk and unembedding."
+  blocks={[
+    { id: 'h', label: 'Hidden state', sub: 'T × d', role: 'activation', link: 'transformer-block' },
+    { id: 'head1', label: 'Next-token head', sub: 'd → V', role: 'weight' },
+    { id: 'headi', label: 'Head i', sub: 'd → V', role: 'weight' },
+    { id: 'headn', label: 'Head n', sub: 'd → V', role: 'weight' },
+    { id: 'lg1', label: 'Next-token logits', sub: 'V', role: 'activation' },
+    { id: 'lgi', label: 'Logits for t+i', sub: 'V', role: 'activation' },
+    { id: 'lgn', label: 'Logits for t+n', sub: 'V', role: 'activation' },
+    { id: 'loss', label: 'Cross-entropy sum', role: 'op' },
+  ]}
+  edges={[
+    { from: 'h', to: 'head1' },
+    { from: 'h', to: 'headi' },
+    { from: 'h', to: 'headn' },
+    { from: 'head1', to: 'lg1' },
+    { from: 'headi', to: 'lgi' },
+    { from: 'headn', to: 'lgn' },
+    { from: 'lg1', to: 'loss' },
+    { from: 'lgi', to: 'loss' },
+    { from: 'lgn', to: 'loss' },
+  ]}
+/>
+
+The heads run in parallel on the same hidden state, each aiming one step further than the last, and their losses are summed <Cite id="mtp-paper" where="§2" />.
+
+## The objective
+
+In plain words: from position $t$, ask not only what comes next, but what comes after that, up to $n$ steps ahead, and grade every answer. The loss is the sum of the per-position cross-entropies <Cite id="mtp-paper" where="§2, eq. 2" />:
+
+$$
+L_n = -\sum_t \sum_{i=1}^{n} \log P_\theta(x_{t+i} \mid x_{t:1})
+$$
+
+To keep it tractable, the model splits into a shared trunk and $n$ independent heads, each predicting one future token through the shared unembedding matrix <Cite id="mtp-paper" where="§2" />. The first head is the usual next-token predictor; training simply stops ignoring the rest.
+
+## Why it helps
+
+Each position now carries $n$ loss terms instead of one, and the extra terms fall on whatever comes later. The paper reads this as reweighting the loss toward consequential tokens: a hard choice also constrains its own consequences, so it appears in several targets and earns a weight of $\frac{n(n+1)}{2}$, against $n$ for an easy token <Cite id="mtp-paper" where="§5.1" />.
+
+The heads that learn to predict further are also heads you can run as a drafter. The paper decodes greedily with blockwise parallel decoding — no separate draft model needed — and reports the drafts are accurate enough to be worth verifying <Cite id="mtp-paper" where="§2, Inference" />.
+
+<Spec
+  title="What the paper measured"
+  rows={[
+    { label: 'Code benchmarks, 13B models', value: '12% more HumanEval and 17% more MBPP solved than next-token training', source: 'mtp-paper', where: 'Abstract' },
+    { label: 'Best number of targets on code', value: 4, source: 'mtp-paper', where: '§3.4, Table 1' },
+    { label: 'Draft acceptance on code', value: '2.5 of 3 suggested tokens accepted', source: 'mtp-paper', where: '§3.2' },
+    { label: 'Decoding speedup on code', value: '3.0×', source: 'mtp-paper', where: '§3.2' },
+    { label: 'Training cost', value: 'no extra training time; peak memory O(V + d) instead of O(nV + d)', source: 'mtp-paper', where: 'Abstract, §2' },
+  ]}
+/>
+
+## What it costs
+
+The heads are extra parameters, so a fair comparison has to take them from somewhere: the paper removes one trunk layer for every head layer it adds <Cite id="mtp-paper" where="§3" />. Logits are the memory bottleneck — $n$ heads would materialise $n$ logit blocks at once — so the implementation runs each head's forward and backward in turn and keeps only the trunk gradient <Cite id="mtp-paper" where="§2" />.
+
+At inference the extra heads are dead weight unless you use them for drafting. And the gains depend on the task and on $n$: on natural language, four-target training slightly regressed multiple-choice benchmarks while improving summarisation <Cite id="mtp-paper" where="§3.7" />.
+
+## In practice
+
+DeepSeek-V3 trains a single MTP module on top of the main model, with its loss weighted 0.3 for the first 10T tokens and 0.1 afterwards <Cite id="deepseek-v3-report" where="§4.2" />. At inference the module drafts: the second-token prediction is accepted 85–90% of the time, giving 1.8× higher decoding throughput <Cite id="deepseek-v3-report" where="§5.4.3" />. How one model wires it up is in [[deepseek-v3]].
