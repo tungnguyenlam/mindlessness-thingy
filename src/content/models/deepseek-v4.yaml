@@ -1,0 +1,46 @@
+# DeepSeek-V4 (Preview, April 2026). Representative model: V4-Pro, the larger of the two V4
+# models. Where V4-Flash differs, the note's prose and <Spec> tables give Flash's value with its
+# own source; the model data holds one consistent set of numbers.
+title: DeepSeek-V4
+family: deepseek
+extends: deepseek-v3-2
+params_total: { v: 1.6e12, source: deepseek-v4-report, where: "Abstract; §4.2.1" }
+params_active: { v: 49e9, source: deepseek-v4-report, where: "Abstract; §4.2.1" }
+layers: { v: 61, source: deepseek-v4-pro-config, where: num_hidden_layers }
+layer_pattern: { v: "AE*61", source: deepseek-v4-pro-config, where: "num_hidden_layers; compress_ratios (MoE in every block; no dense FFN layers)" }
+hidden_size: { v: 7168, source: deepseek-v4-pro-config, where: hidden_size }
+vocab_size: { v: 129280, source: deepseek-v4-pro-config, where: vocab_size }
+attention: { v: dsa, source: deepseek-v4-report, where: "§2.3 (Compressed Sparse Attention, an evolution of DSA over one shared KV head)" }
+heads: { v: 128, source: deepseek-v4-pro-config, where: num_attention_heads }
+kv_heads: { v: 1, source: deepseek-v4-pro-config, where: num_key_value_heads }
+head_dim: { v: 512, source: deepseek-v4-pro-config, where: head_dim }
+# V4 drops MLA: no kv_lora_rank in the config, one shared KV head of width head_dim instead.
+kv_lora_rank: { v: 0, display: "none — MLA dropped", source: deepseek-v4-report, where: "§2.3 (no KV latent in the V4 config)" }
+v_head_dim: { v: 0, display: "not reported (single shared head)", source: deepseek-v4-pro-config, where: "config.json has no v_head_dim" }
+q_lora_rank: { v: 1536, source: deepseek-v4-pro-config, where: q_lora_rank }
+rope_head_dim: { v: 64, source: deepseek-v4-pro-config, where: qk_rope_head_dim }
+latent_norm: { v: true, source: deepseek-v4-report, where: "§2.3.3 (RMSNorm on the shared KV head and per query head)" }
+qk_norm: { v: true, source: deepseek-v4-report, where: "§2.3.3" }
+sparse_topk: { v: 1024, source: deepseek-v4-pro-config, where: index_topk }
+index_heads: { v: 64, source: deepseek-v4-pro-config, where: index_n_heads }
+index_head_dim: { v: 128, source: deepseek-v4-pro-config, where: index_head_dim }
+ffn: { v: moe, source: deepseek-v4-report, where: "§2.1" }
+ffn_activation: { v: SwiGLU, source: deepseek-v4-report, where: "§2.4.3 (SwiGLU clamping; swiglu_limit)" }
+ffn_hidden: { v: 0, display: "none — MoE in every block", source: deepseek-v4-report, where: "§4.2.1" }
+dense_layers: { v: 0, display: "0 — MoE in every block", source: deepseek-v4-report, where: "§4.2.1" }
+routed_experts: { v: 384, source: deepseek-v4-pro-config, where: n_routed_experts }
+active_experts: { v: 6, source: deepseek-v4-pro-config, where: num_experts_per_tok }
+shared_experts: { v: 1, source: deepseek-v4-pro-config, where: n_shared_experts }
+expert_hidden: { v: 3072, source: deepseek-v4-pro-config, where: moe_intermediate_size }
+router_scoring: { v: sqrtsoftplus, source: deepseek-v4-report, where: "§2.1 (scoring_func: sqrtsoftplus)" }
+routed_scaling: { v: 2.5, source: deepseek-v4-pro-config, where: routed_scaling_factor }
+# V4 removes node-limited routing; the config has no n_group/topk_group.
+expert_groups: { v: 0, display: "none — node limit removed", source: deepseek-v4-report, where: "§2.1" }
+expert_groups_active: { v: 0, display: "none — node limit removed", source: deepseek-v4-report, where: "§2.1" }
+mtp_depth: { v: 1, source: deepseek-v4-pro-config, where: num_nextn_predict_layers }
+context_length: { v: 1048576, display: 1M, source: deepseek-v4-report, where: "Abstract; §4.2.1 (max_position_embeddings: 1048576)" }
+training_tokens: { v: 33e12, source: deepseek-v4-report, where: "§1; §4.2.2 (V4-Pro; V4-Flash used 32T)" }
+rope_theta: { v: 10000, source: deepseek-v4-pro-config, where: rope_theta }
+rope_scaling: { v: "YaRN, factor 16 over a 64K original window", source: deepseek-v4-pro-config, where: rope_scaling }
+# tokenizer: deliberately not set. The report only states the vocabulary size stays 128K (§4.1);
+# no source states the tokenizer files are V3's, so the card below shows the inherited one.

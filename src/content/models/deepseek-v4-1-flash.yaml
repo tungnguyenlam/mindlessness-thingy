@@ -1,0 +1,32 @@
+# DeepSeek-V4.1-Flash (September 2026): V4-Flash rebuilt around a causal encoder-decoder layout,
+# cross-layer sharing, hashed n-gram memory and an FP4 KV cache. Only fields that differ from
+# DeepSeek-V4 are set; the rest are inherited.
+#
+# Parameter counts are deliberately not totalled: the report gives a 552B backbone plus 196B of
+# Engram memory (§2.1) and no single total; Hugging Face lists 763B, whose breakdown (vision
+# tower, DSpark) is unverified. The note states the breakdown in prose with its citation.
+title: DeepSeek-V4.1-Flash
+family: deepseek
+extends: deepseek-v4
+params_active: { v: 16e9, display: "8B prefill / 16B decode", source: deepseek-v4-1-flash-report, where: "Abstract; §2.1; §4.2.1" }
+layers: { v: 40, source: deepseek-v4-1-flash-config, where: "text_config.num_hidden_layers" }
+layer_pattern: { v: "AE*40", source: deepseek-v4-1-flash-config, where: "text_config (MoE in every block; 20 causal encoder + 20 decoder layers)" }
+hidden_size: { v: 5120, source: deepseek-v4-1-flash-config, where: "text_config.hidden_size" }
+heads: { v: 64, source: deepseek-v4-1-flash-config, where: "text_config.num_attention_heads" }
+kv_heads: { v: 1, source: deepseek-v4-1-flash-config, where: "text_config.num_key_value_heads" }
+head_dim: { v: 512, source: deepseek-v4-1-flash-config, where: "text_config.head_dim" }
+q_lora_rank: { v: 1280, source: deepseek-v4-1-flash-config, where: "text_config.q_lora_rank" }
+sparse_topk: { v: 512, source: deepseek-v4-1-flash-config, where: "text_config.index_topk" }
+index_heads: { v: 32, source: deepseek-v4-1-flash-config, where: "text_config.index_n_heads" }
+index_head_dim: { v: 128, source: deepseek-v4-1-flash-config, where: "text_config.index_head_dim" }
+routed_experts: { v: 384, source: deepseek-v4-1-flash-config, where: "text_config.n_routed_experts" }
+active_experts: { v: 6, source: deepseek-v4-1-flash-config, where: "text_config.num_experts_per_tok" }
+shared_experts: { v: 1, source: deepseek-v4-1-flash-config, where: "text_config.n_shared_experts" }
+expert_hidden: { v: 2304, source: deepseek-v4-1-flash-config, where: "text_config.moe_intermediate_size" }
+router_scoring: { v: sqrtsoftplus, source: deepseek-v4-1-flash-config, where: "text_config.scoring_func" }
+routed_scaling: { v: 1.5, source: deepseek-v4-1-flash-config, where: "text_config.routed_scaling_factor" }
+# No MTP: the report omits it (§2.1). The config's num_nextn_predict_layers: 3 describes the
+# three DSpark drafter blocks instead (§2.4.3); the overview draws no MTP module for depth 0.
+mtp_depth: { v: 0, display: "none — DSpark drafter instead", source: deepseek-v4-1-flash-report, where: "§2.1; §2.4.3" }
+context_length: { v: 1048576, display: 1M, source: deepseek-v4-1-flash-config, where: "text_config.max_position_embeddings" }
+training_tokens: { v: 45e12, source: deepseek-v4-1-flash-report, where: "Abstract; §4.2.2" }

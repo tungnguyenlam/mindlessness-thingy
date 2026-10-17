@@ -8,8 +8,137 @@ builds_on: [deepseek-v3-2]
 contrasts_with: []
 related: []
 sources: [deepseek-v4-report, deepseek-v4-pro-config, deepseek-v4-flash-config]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+DeepSeek-V4 is the April 2026 family: V4-Pro, with 1.6T parameters and 49B active per token, and V4-Flash, with 284B and 13B <Cite id="deepseek-v4-report" where="Abstract" />. It rebuilds the parts of [[deepseek-v3-2]] that grew expensive at million-token context: attention becomes Compressed Sparse Attention over a single shared key-value head, the residual stream is widened by mHC, and the MoE router loses its node limits.
+
+## The whole model
+
+Each of the 61 layers is still a pre-norm [[transformer-block]]: sparse attention, then a [[deepseek-moe]] feed-forward — MoE in every block, no dense layers <Cite id="deepseek-v4-report" where="§4.2.1" />. The tabs open each part down to its projections.
+
+<ModelOverview model="deepseek-v4" />
+
+<LayerStrip model="deepseek-v4" />
+
+<ModelDiagram model="deepseek-v4" />
+
+## At a glance
+
+The full table, then only what changed from V3.2, then the smaller sibling.
+
+<ModelSpec model="deepseek-v4" />
+
+<ModelSpec model="deepseek-v4" diff />
+
+<Spec
+  title="V4-Flash, the smaller sibling"
+  rows={[
+    { label: 'V4-Flash total parameters', value: '284B', source: 'deepseek-v4-report', where: 'Abstract; §4.2.1' },
+    { label: 'V4-Flash active per token', value: '13B', source: 'deepseek-v4-report', where: 'Abstract; §4.2.1' },
+    { label: 'V4-Flash layers', value: 43, source: 'deepseek-v4-flash-config', where: 'num_hidden_layers' },
+    { label: 'V4-Flash hidden size', value: 4096, source: 'deepseek-v4-flash-config', where: 'hidden_size' },
+    { label: 'V4-Flash query heads', value: 64, source: 'deepseek-v4-flash-config', where: 'num_attention_heads' },
+    { label: 'V4-Flash top-k tokens', value: 512, source: 'deepseek-v4-flash-config', where: 'index_topk' },
+    { label: 'V4-Flash routed experts', value: 256, source: 'deepseek-v4-flash-config', where: 'n_routed_experts' },
+    { label: 'V4-Flash training tokens', value: '32T', source: 'deepseek-v4-report', where: '§1; §4.2.2' },
+  ]}
+/>
+
+<Callout type="pitfall">
+The report's abstract and §4.1 say training used "more than 32T" tokens. §1 and §4.2.2 give per-model figures — 33T for Pro, 32T for Flash — and the model data uses those.
+</Callout>
+
+## What is new
+
+### Compressed sparse attention over one shared KV head
+
+<Spec
+  title="CSA and HCA, as configured"
+  rows={[
+    { label: 'CSA compression rate m', value: 4, source: 'deepseek-v4-pro-config', where: 'compress_ratios' },
+    { label: 'HCA compression rate m′', value: 128, source: 'deepseek-v4-pro-config', where: 'compress_ratios' },
+    { label: 'Attention window n_win', value: 128, source: 'deepseek-v4-pro-config', where: 'sliding_window' },
+    { label: 'First two layers (Pro / Flash)', value: 'HCA / pure sliding window', source: 'deepseek-v4-report', where: '§4.2.1' },
+    { label: 'Single-token FLOPs at 1M (vs V3.2)', value: '27% Pro, 10% Flash', source: 'deepseek-v4-report', where: 'Abstract; §1' },
+    { label: 'KV cache at 1M (vs V3.2)', value: '10% Pro, 7% Flash', source: 'deepseek-v4-report', where: 'Abstract; §1' },
+    { label: 'KV cache vs BF16 GQA-8 at 1M (Pro)', value: '≈2%', source: 'deepseek-v4-report', where: '§2.3.4' },
+    { label: 'KV cache precision', value: 'BF16 for RoPE dims, FP8 for the rest; indexer attention in FP4', source: 'deepseek-v4-report', where: '§2.3.4' },
+  ]}
+/>
+
+V3.2's [[dsa]] kept MLA and had a lightning indexer pick which cached latent keys each query reads. V4 keeps the indexer idea and throws the latent away. Each layer has one shared key-value head that all query heads read, the indexer picks the top tokens per query, and a sliding window of recent tokens is always attended <Cite id="deepseek-v4-report" where="§2.3.1–§2.3.4" />.
+
+Queries are squeezed through a low-rank map, and the head outputs go through a grouped output projection that maps heads back to the residual width in groups <Cite id="deepseek-v4-report" where="§2.3.1" />. RoPE touches only the last 64 dims of each head <Cite id="deepseek-v4-report" where="§2.3.3" />; a compressed variant of RoPE, at its own base frequency, handles the compressed sequence <Cite id="deepseek-v4-pro-config" where="compress_rope_theta" />.
+
+Interleaved with the sparse layers, Heavily Compressed Attention attends over a token sequence compressed by a much larger factor, giving every position a cheap view of the whole prompt <Cite id="deepseek-v4-report" where="§2.3, §4.2.1" />. The table above carries the report's headline claims: at a one-million-token prompt, one token costs 27% of V3.2's FLOPs in Pro, and the cache is about 2% of what a BF16 GQA model would keep.
+
+### A wider residual stream: mHC
+
+<ArchDiagram
+  title="mHC: the residual stream in n_hc copies"
+  caption="The stream is widened n_hc-fold; each layer's update is mixed across the copies by a matrix constrained to be doubly stochastic, and the output map reads back one stream."
+  blocks={[
+    { id: 'h', label: 'Residual h', sub: 'T × d', role: 'activation' },
+    { id: 'in', label: 'Input map (Sigmoid)', sub: 'd → n_hc·d', role: 'weight' },
+    { id: 'wide', label: 'Widened stream', sub: 'T × n_hc·d', role: 'activation' },
+    { id: 'mix', label: 'Mixing matrix M', sub: 'n_hc → n_hc', role: 'weight' },
+    { id: 'out', label: 'Output map', sub: 'n_hc·d → d', role: 'weight' },
+    { id: 'h2', label: 'Residual h again', sub: 'T × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'h', to: 'in' },
+    { from: 'in', to: 'wide' },
+    { from: 'wide', to: 'mix' },
+    { from: 'mix', to: 'out' },
+    { from: 'out', to: 'h2' },
+  ]}
+/>
+
+The residual stream is widened into $n_{hc} = 4$ copies for every layer, so different layers can write into and read from different copies <Cite id="deepseek-v4-report" where="§2.2; §4.2.1" />. The learned mixing matrix is projected onto the doubly stochastic matrices with Sinkhorn-Knopp, run for 20 iterations, which keeps the update from growing or shrinking across the copies; the input and output maps pass through a Sigmoid <Cite id="deepseek-v4-report" where="§2.2; §4.2.1" />. Everything else in the block — pre-norm, attention, feed-forward — is unchanged; mHC only reshapes the residual path they share.
+
+### Routing without node limits, with hashes
+
+<Spec
+  title="Router settings"
+  rows={[
+    { label: 'Affinity function (V4)', value: '√softplus(·), replacing V3’s sigmoid', source: 'deepseek-v4-report', where: '§2.1' },
+    { label: 'Node limit per token', value: 'removed — no n_group / topk_group in the config', source: 'deepseek-v4-report', where: '§2.1' },
+    { label: 'Hash-routed layers', value: 3, source: 'deepseek-v4-pro-config', where: 'num_hash_layers' },
+    { label: 'Output scale (Pro / Flash)', value: '2.5 / 1.5', source: 'deepseek-v4-pro-config', where: 'routed_scaling_factor' },
+    { label: 'Bias update step γ', value: 0.001, source: 'deepseek-v4-report', where: '§4.2.2' },
+  ]}
+/>
+
+The router keeps [[aux-loss-free-balancing]] — per-expert biases steer selection without entering the gating weight — and drops the constraint that each token's experts live on a handful of nodes <Cite id="deepseek-v4-report" where="§2.1" />. Affinity becomes √softplus of the raw score instead of a sigmoid <Cite id="deepseek-v4-report" where="§2.1" />. In the first three MoE layers the learned router is bypassed entirely: experts are chosen by hashing the token ID <Cite id="deepseek-v4-report" where="§2.1" />. During training, a loss spike can trigger Anticipatory Routing, which routes from a slightly stale copy of the router for a stretch of steps <Cite id="deepseek-v4-report" where="§2.4.3" />.
+
+### A million-token context, trained from scratch
+
+<Spec
+  title="Context and released weights"
+  rows={[
+    { label: 'Context schedule', value: '4K → 16K → 64K → 1M tokens; sparse attention from 64K', source: 'deepseek-v4-report', where: '§4.2.2' },
+    { label: 'YaRN scaling', value: 'factor 16 over a 64K original window', source: 'deepseek-v4-pro-config', where: 'rope_scaling' },
+    { label: 'Attention sink', value: 'learnable per-head logit added to the softmax denominator', source: 'deepseek-v4-report', where: '§2.3.3' },
+    { label: 'Instruct weight precision', value: 'FP4 (MXFP4) MoE experts + FP8 elsewhere; base model in FP8', source: 'deepseek-v4-report', where: '§5.2.1' },
+  ]}
+/>
+
+Both models are trained for the long context rather than extended into it: the sequence length grows 4K → 16K → 64K → 1M, and sparse attention is introduced at the 64K stage <Cite id="deepseek-v4-report" where="§4.2.2" />. A learnable attention sink gives very long sequences somewhere cheap to dump attention mass, which keeps the softmax stable at a million tokens <Cite id="deepseek-v4-report" where="§2.3.3" />.
+
+The released instruct checkpoints carry FP4 mixture-of-experts weights quantized under FP8 blocks, with the base model kept in FP8 — the training recipe of [[fp8-training]] pushed one step further <Cite id="deepseek-v4-report" where="§5.2.1" />.
+
+## What it reuses
+
+- [[deepseek-moe]] — fine-grained routed experts plus a shared expert every token uses; top-6 of 384 in Pro <Cite id="deepseek-v4-pro-config" where="n_routed_experts, num_experts_per_tok" />.
+- [[aux-loss-free-balancing]] — bias-based balancing, unchanged; the bias step is 0.001 <Cite id="deepseek-v4-report" where="§4.2.2" />.
+- [[mtp]] — kept identical to V3 at depth 1 <Cite id="deepseek-v4-report" where="§2.1" />.
+- [[fp8-training]] — FP8 training with UE8M0 scales and 128×128 weight blocks <Cite id="deepseek-v4-pro-config" where="quantization_config" />.
+- [[transformer-block]] — the pre-norm block, with mHC wrapped around its residual path.
+
+## Tokenizer
+
+<Tokenizer model="deepseek-v4" />
+
+The report states only that the vocabulary size stays at 128K <Cite id="deepseek-v4-report" where="§4.1" />, and the config matches the family's embedding rows; no source documents the tokenizer files separately. The card above shows the tokenizer the model data inherits down the V3 lineage; how it splits text is in [[deepseek-v3-tokenizer]].

@@ -8,8 +8,154 @@ builds_on: [deepseek-v4]
 contrasts_with: []
 related: []
 sources: [deepseek-v4-1-flash-report, deepseek-v4-1-flash-config]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+DeepSeek-V4.1-Flash (September 2026) rebuilds [[deepseek-v4]]'s Flash model around a cheaper million-token path: a causal encoder-decoder split, cross-layer sharing of the sparse-attention state, hashed n-gram memory, an FP4 KV cache, and native image input. It trains on 45T multimodal tokens and replaces [[mtp]] with a separately trained drafting module <Cite id="deepseek-v4-1-flash-report" where="Abstract, §2.1" />.
+
+## The whole model
+
+Forty layers in two halves: a causal encoder that runs once per prompt, and a decoder whose global keys and values are projected from the encoder's final states <Cite id="deepseek-v4-1-flash-report" where="§2.2" />. Every block is a pre-norm [[transformer-block]] with sparse attention and a MoE feed-forward.
+
+<ModelOverview model="deepseek-v4-1-flash" />
+
+<LayerStrip model="deepseek-v4-1-flash" />
+
+<ModelDiagram model="deepseek-v4-1-flash" />
+
+## At a glance
+
+The full table, then only what changed from V4, then the cache claims the report leads with.
+
+<ModelSpec model="deepseek-v4-1-flash" />
+
+<ModelSpec model="deepseek-v4-1-flash" diff />
+
+<Spec
+  title="Size and cache"
+  rows={[
+    { label: 'Backbone parameters', value: '552B', source: 'deepseek-v4-1-flash-report', where: 'Abstract; §2.1' },
+    { label: 'Engram memory parameters', value: '196B', source: 'deepseek-v4-1-flash-report', where: 'Abstract; §2.1' },
+    { label: 'Global KV cache per token', value: '890 bytes', source: 'deepseek-v4-1-flash-report', where: 'Abstract' },
+    { label: 'Global cache vs V4-Flash', value: '≈1/4', source: 'deepseek-v4-1-flash-report', where: 'Abstract' },
+    { label: 'Persistent cache vs V4-Flash', value: '≈1/8, via SWA Bounded Replay', source: 'deepseek-v4-1-flash-report', where: 'Abstract; §3.2.2' },
+    { label: 'Decode FLOPs, 4K → 1M context', value: '+1/4', source: 'deepseek-v4-1-flash-report', where: '§1' },
+  ]}
+/>
+
+The report gives no single parameter total: 552B of backbone plus 196B of Engram memory <Cite id="deepseek-v4-1-flash-report" where="Abstract; §2.1" />. The Hugging Face page lists a larger figure that also covers the vision tower and the DSpark module; its breakdown is unverified, so the model data records no total.
+
+## What is new
+
+### A causal encoder-decoder
+
+<ArchDiagram
+  title="CED: the encoder reads the prompt once"
+  caption="The decoder's global keys and values are projected from the encoder's final states instead of being recomputed inside every decoder layer; the decoder also keeps its own sparse attention over its stream."
+  blocks={[
+    { id: 'prompt', label: 'Prompt tokens', sub: 'T × d', role: 'activation' },
+    { id: 'enc', label: 'Causal encoder', sub: 'runs once per prompt', role: 'op' },
+    { id: 'states', label: 'Encoder final states', sub: 'T × d', role: 'activation' },
+    { id: 'gkv', label: 'Decoder global K, V', sub: 'projected once', role: 'cache', link: 'kv-cache' },
+    { id: 'dec', label: 'Decoder layers', sub: 'per generated token', role: 'op' },
+    { id: 'out', label: 'Next token', sub: 'logits', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'prompt', to: 'enc' },
+    { from: 'enc', to: 'states' },
+    { from: 'states', to: 'gkv', dashed: true },
+    { from: 'gkv', to: 'dec' },
+    { from: 'dec', to: 'out' },
+  ]}
+/>
+
+V4 spent the same layer stack on prompt and generation. V4.1-Flash splits the work in two, in the spirit of YOCO <Cite id="deepseek-v4-1-flash-report" where="§2.2" />: a 20-layer causal encoder reads the prompt once, and the decoder's global keys and values come from the encoder's final hidden states rather than from each decoder layer <Cite id="deepseek-v4-1-flash-report" where="§2.2, §4.2.1" />. The report's claim is that this nearly halves prefill computation <Cite id="deepseek-v4-1-flash-report" where="§2.1" />. Generation is unchanged: one token per step, reading the projected global state plus the decoder's own sparse attention.
+
+### Cross-layer sharing and a hierarchical indexer
+
+<Spec
+  title="Sharing groups and the indexer"
+  rows={[
+    { label: 'Encoder sharing groups', value: '3 groups of 6 layers, each 1 Full + 5 Reuse', source: 'deepseek-v4-1-flash-report', where: '§4.2.1' },
+    { label: 'Decoder sharing groups', value: '5 groups of 4 layers (group 1: Full + Reuse; groups 2–5: Reindex + Reuse)', source: 'deepseek-v4-1-flash-report', where: '§4.2.1' },
+    { label: 'Shared-KV source layers', value: '[2, 8, 14, 20]', source: 'deepseek-v4-1-flash-config', where: 'text_config.kv_source_layer_ids' },
+    { label: 'Shared-indexer source layers', value: '[2, 8, 14, 20, 24, 28, 32, 36]', source: 'deepseek-v4-1-flash-config', where: 'text_config.index_source_layer_ids' },
+    { label: 'Candidate positions', value: 'up to 2,048 blocks × 8 positions = 16,384', source: 'deepseek-v4-1-flash-config', where: 'text_config.candidate_topk_blocks, candidate_block_size' },
+    { label: 'Final top-k tokens', value: 512, source: 'deepseek-v4-1-flash-config', where: 'text_config.index_topk' },
+  ]}
+/>
+
+CSA2, the second generation of V4's sparse attention, lets layers share their work <Cite id="deepseek-v4-1-flash-report" where="§2.3" />. A **Full** layer computes its global keys and values and its indexer keys, and writes them for its group. A **Reindex** layer runs its own indexer over the shared keys. A **Reuse** layer reuses both the shared state and the top-k indices already computed <Cite id="deepseek-v4-1-flash-report" where="§2.3" />.
+
+The indexer itself becomes hierarchical: unlike [[dsa|V3.2's indexer]], which scored individual positions, it first picks blocks of positions, then positions inside those blocks — up to 16,384 candidates before the final top-k is taken <Cite id="deepseek-v4-1-flash-config" where="text_config.candidate_*" />. The encoder compresses its sequence by 2, the decoder by 1 <Cite id="deepseek-v4-1-flash-report" where="§4.2.1" />.
+
+### Engram: hashed n-gram memory
+
+<Spec
+  title="Engram modules"
+  rows={[
+    { label: 'Engram parameters', value: '196B, in 2 modules', source: 'deepseek-v4-1-flash-report', where: '§2.4.2' },
+    { label: 'Module positions', value: 'layers 1 and 14 (zero-indexed)', source: 'deepseek-v4-1-flash-config', where: 'text_config.engram_layer_ids' },
+    { label: 'N-gram orders', value: '{2, 3, 4}', source: 'deepseek-v4-1-flash-report', where: '§2.4.2' },
+    { label: 'Hash heads', value: 8, source: 'deepseek-v4-1-flash-config', where: 'text_config.engram_n_heads' },
+    { label: 'Hash-head width', value: 256, source: 'deepseek-v4-1-flash-config', where: 'text_config.engram_head_dim' },
+    { label: 'Entries per head', value: '≈16M, FP8 tables', source: 'deepseek-v4-1-flash-report', where: '§2.4.2' },
+    { label: 'Learning rate', value: '5× the backbone’s', source: 'deepseek-v4-1-flash-report', where: '§4.2.2' },
+  ]}
+/>
+
+Attention only looks back through keys and values computed for the current context. Engram adds a second route: two modules, at layers 1 and 14, keep hashed tables of which short token runs followed which during training, and every token can look its own n-gram up <Cite id="deepseek-v4-1-flash-report" where="§2.4.2" />. The tables are hashed rather than embedded — no vocabulary-sized matrix, just fixed-width hash heads storing about 16M entries each in FP8 — 196B parameters of memory in two modules <Cite id="deepseek-v4-1-flash-report" where="§2.4.2; §4.2.2" />.
+
+### DSpark replaces MTP
+
+<Spec
+  title="DSpark, as configured"
+  rows={[
+    { label: 'Drafter blocks', value: 3, source: 'deepseek-v4-1-flash-report', where: '§2.4.3' },
+    { label: 'Draft positions per pass', value: 5, source: 'deepseek-v4-1-flash-config', where: 'dspark_block_size' },
+    { label: 'Markov head rank', value: 256, source: 'deepseek-v4-1-flash-config', where: 'dspark_markov_rank' },
+    { label: 'Drafting layers', value: '[37, 38, 39]', source: 'deepseek-v4-1-flash-config', where: 'dspark_target_layer_ids' },
+    { label: 'Verification', value: 'confidence-scheduled', source: 'deepseek-v4-1-flash-report', where: '§2.4.3' },
+  ]}
+/>
+
+Where [[deepseek-v4]] kept [[mtp]] inside pre-training, V4.1-Flash omits it and trains DSpark afterwards, with the backbone frozen <Cite id="deepseek-v4-1-flash-report" where="§2.1; §2.4.3" />. DSpark is three transformer blocks with a sliding window and a low-rank Markov head; it drafts five positions per pass, and the main model verifies them on a schedule driven by the drafter's confidence <Cite id="deepseek-v4-1-flash-report" where="§2.4.3" />.
+
+<Callout type="note">
+The config still sets `num_nextn_predict_layers` — to 3. The report omits MTP entirely; the value matches the three DSpark drafter blocks, so the field appears to be reused for DSpark rather than describing a prediction depth <Cite id="deepseek-v4-1-flash-config" where="text_config.num_nextn_predict_layers" />.
+</Callout>
+
+### An FP4 KV cache
+
+The main cache is stored in 4-bit floating point: E2M1 values with one FP8 scale per 16 channels — the shape of [[nvfp4]] without its global scale <Cite id="deepseek-v4-1-flash-report" where="§2.4.4" />. A decode step over a full context holds 890 bytes per token, about a quarter of V4-Flash's cache, and the cache kept between turns is about an eighth of V4-Flash's, because only the most recent window tokens need replay <Cite id="deepseek-v4-1-flash-report" where="Abstract; §3.2.2" />. Growing the context from 4K to 1M raises decode FLOPs by only a quarter <Cite id="deepseek-v4-1-flash-report" where="§1" />.
+
+### Native image input
+
+<Spec
+  title="DeepSeek-ViT, the image tower"
+  rows={[
+    { label: 'Vision layers', value: 32, source: 'deepseek-v4-1-flash-report', where: '§2.1.1; §4.2.1' },
+    { label: 'Vision hidden size', value: 1024, source: 'deepseek-v4-1-flash-report', where: '§2.1.1; §4.2.1' },
+    { label: 'Patch size', value: 14, source: 'deepseek-v4-1-flash-report', where: '§2.1.1; §4.2.1' },
+    { label: 'Pixel unshuffle', value: '3×3, at the front of the tower', source: 'deepseek-v4-1-flash-report', where: '§2.1.1' },
+    { label: 'Projector', value: '2-layer MLP, hidden size 5120', source: 'deepseek-v4-1-flash-report', where: '§2.1.1' },
+  ]}
+/>
+
+V4.1-Flash reads images natively: the DeepSeek-ViT tower feeds a two-layer MLP projector into the language hidden size, and image tokens get their own load balancing beside the text tokens <Cite id="deepseek-v4-1-flash-report" where="§2.1.1; §4.2.1" />. The vision side lives in the config's `vision_config`; this note follows the language model.
+
+## What it reuses
+
+- [[dsa]] — the indexer-and-selection attention, now in its second generation, CSA2 <Cite id="deepseek-v4-1-flash-report" where="§2.3" />.
+- [[deepseek-moe]] — top-6 of 384 routed experts plus a shared one, in every block of both halves <Cite id="deepseek-v4-1-flash-config" where="text_config.n_routed_experts, num_experts_per_tok" />.
+- [[aux-loss-free-balancing]] — bias-based balancing, now applied separately to image and text tokens <Cite id="deepseek-v4-1-flash-report" where="§4.2.2" />.
+- The mHC residual from [[deepseek-v4]] — kept as Single-Pass mHC, with a fused kernel that halves activation-memory traffic <Cite id="deepseek-v4-1-flash-report" where="§2.4.1" />.
+- [[fp8-training]] — FP8 weights, now in 32×32 blocks, with FP4 experts <Cite id="deepseek-v4-1-flash-config" where="text_config.quantization_config" />.
+- [[rope]] — partial RoPE plus YaRN, extended to a million tokens.
+
+## Tokenizer
+
+<Tokenizer model="deepseek-v4-1-flash" />
+
+The family tokenizer comes along unchanged from [[deepseek-v4]]; the report describes no new one, and the vocabulary size matches the configs of the earlier models <Cite id="deepseek-v4-1-flash-config" where="text_config.vocab_size" />. How it splits text is in [[deepseek-v3-tokenizer]].
