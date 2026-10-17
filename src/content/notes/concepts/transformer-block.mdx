@@ -2,14 +2,46 @@
 title: "Transformer block"
 kind: concept
 summary: "A transformer layer: attention followed by a feed-forward network, each wrapped in normalization and a residual connection."
-domains: []
+domains: [llm]
 prerequisites: []
 builds_on: []
 contrasts_with: []
-related: []
-sources: []
-status: stub
-updated: 2026-10-16
+related: [mha]
+sources: [attention-is-all-you-need, lfm2-report]
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+A transformer model is one block, repeated: the original stacks six identical layers, each with two sub-layers <Cite id="attention-is-all-you-need" where="§3.1" />. The whole layer is one idea: run a sub-layer, add its output back onto the stream it was given, and do it twice. Everything a layer changes, it changes in the stream that flows past it.
+
+<ArchDiagram
+  title="One layer, two sub-layers, two residual adds"
+  caption="The stream is normalized before each sub-layer, and the dashed edges add the sub-layer's output back onto it. This is the pre-norm order; the original Transformer normalizes after adding instead."
+  blocks={[
+    { id: 'x', label: 'Residual stream x', sub: 'T × d', role: 'activation' },
+    { id: 'n1', label: 'LayerNorm', role: 'op' },
+    { id: 'att', label: 'Attention', sub: 'mixes tokens', role: 'op', link: 'mha' },
+    { id: 'n2', label: 'LayerNorm', role: 'op' },
+    { id: 'ffn', label: 'Feed-forward', sub: 'd → d_ff → d', role: 'weight' },
+    { id: 'y', label: 'Output stream', sub: 'T × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'n1' },
+    { from: 'n1', to: 'att' },
+    { from: 'att', to: 'n2' },
+    { from: 'n2', to: 'ffn' },
+    { from: 'ffn', to: 'y' },
+    { from: 'x', to: 'n2', side: 'left', dashed: true, label: 'residual add' },
+    { from: 'n2', to: 'y', side: 'right', dashed: true, label: 'residual add' },
+  ]}
+/>
+
+## One forward pass
+
+The layer takes the stream $x$, of shape $T \times d$. It normalizes each token's vector, runs [[mha]] across the sequence, and adds the result back to $x$. It normalizes again, runs the feed-forward network — two linear maps with a nonlinearity between them — and adds that back too <Cite id="attention-is-all-you-need" where="§3.1, §3.3" />. In the original the width is $d = 512$ and the feed-forward network widens it to $d_{ff} = 2048$ on the way through <Cite id="attention-is-all-you-need" where="§3.3" />.
+
+Attention is the only place tokens exchange information; the feed-forward network touches each token on its own. During generation, the attention sub-layer is also the part that reads and extends the [[kv-cache]].
+
+## Pre-norm or post-norm
+
+The original paper adds first and normalizes after, writing each sub-layer as $\mathrm{LayerNorm}(x + \mathrm{Sublayer}(x))$ <Cite id="attention-is-all-you-need" where="§3.1" />. The diagram above draws the other order, normalize first, which leaves the residual stream itself unnormalized; models such as LFM2 are built this way <Cite id="lfm2-report" where="§2.2" />. Both orders carry the same tensors through the same maps. Only where the normalization sits changes.

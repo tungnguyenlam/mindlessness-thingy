@@ -2,14 +2,81 @@
 title: "Rotary position embedding (RoPE)"
 kind: concept
 summary: "Encodes position by rotating query and key vectors by position-dependent angles, so attention scores depend on relative distance."
-domains: []
+domains: [llm, attention]
 prerequisites: [mha]
 builds_on: []
 contrasts_with: []
 related: []
 sources: [roformer-paper]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Attention ([[mha]]) scores a query against a key with a dot product, and a dot product has no sense of order: shuffle the sentence and every score comes out the same. Position has to enter somewhere. Rotary position embedding (RoPE) enters it as a rotation: every query and key turns by an angle that its own position sets, so a pair's score depends only on how far apart the two tokens are <Cite id="roformer-paper" where="§3.2" />.
+
+## The idea in one picture
+
+<Stepper title="Two tokens, two angles, one score">
+  <Step title="Two vectors, position unused">
+    A query from the token at position $m$ and a key from the token at position $n$ come out of the [[mha]] projections as plain vectors $q$ and $k$. Scored as they are, $q^{\top} k$ says nothing about where either token sits.
+  </Step>
+  <Step title="Turn each by its own angle">
+    Multiply the query by the rotation $R_m$ and the key by $R_n$. The angle comes from the position index; a rotation turns a vector without changing its length.
+  </Step>
+  <Step title="The angles compose">
+    The score is now $q_m^{\top} k_n = q^{\top} R_m^{\top} R_n k$, and $(R_m)^{\top} R_n = R_{n-m}$: the two rotations add up to the single rotation for the gap between the tokens.
+  </Step>
+  <Step title="Slide the pair along">
+    Push both tokens further down the sequence by the same amount. Both angles shift together, the composed rotation stays $R_{n-m}$, and the pair's score does not move.
+  </Step>
+</Stepper>
+
+Position enters only as a rotation angle, so a pair's score depends on the gap $n - m$ and nothing else <Cite id="roformer-paper" where="§3.1" />.
+
+## How it works
+
+<ArchDiagram
+  title="Where the rotation goes"
+  caption="RoPE sits between the projections and the score: the key is turned once, when it is written to the cache, so every stored key already carries its position; the query is turned when it is used."
+  blocks={[
+    { id: 'q', label: 'Query q', sub: 'd_h', role: 'activation' },
+    { id: 'k', label: 'Key k', sub: 'd_h', role: 'activation' },
+    { id: 'rq', label: 'Rotation R_m', sub: 'angle mθ', role: 'op' },
+    { id: 'rk', label: 'Rotation R_n', sub: 'angle nθ', role: 'op' },
+    { id: 'qm', label: 'Rotated query', sub: 'q_m: d_h', role: 'activation' },
+    { id: 'kn', label: 'Rotated key', sub: 'k_n: d_h', role: 'cache', link: 'kv-cache' },
+    { id: 's', label: 'Score q_m · k_n', sub: 'only n − m', role: 'op', link: 'mha' },
+  ]}
+  edges={[
+    { from: 'q', to: 'rq' },
+    { from: 'k', to: 'rk' },
+    { from: 'rq', to: 'qm' },
+    { from: 'rk', to: 'kn' },
+    { from: 'qm', to: 's' },
+    { from: 'kn', to: 's' },
+  ]}
+/>
+
+Read each vector as a bundle of arrows, one per plane of numbers. Turning both arrows of a plane, each by its own angle, changes the angle between them by the difference of the two turns. That difference is all the score can see.
+
+Rotations compose by adding angles, which is the whole trick:
+
+$$
+(R_m)^{\top} R_n = R_{n-m}
+$$
+
+so the score collapses to one rotation for the gap:
+
+$$
+q_m^{\top} k_n = (R_m q)^{\top} (R_n k) = q^{\top} R_m^{\top} R_n k = q^{\top} R_{n-m} k
+$$
+
+Only $n - m$ survives: the same distance scores the same anywhere in the sequence.
+
+$R_m$ is block-diagonal. The $d_h$ numbers of a head are read as planes, and plane $i$ turns at its own frequency $\theta_i = 10000^{-2(i-1)/d_h}$ (the paper writes the rotated width as $d$) <Cite id="roformer-paper" where="§3.2.2" />. Over a long gap a fast plane turns far and its contribution fades, while a slow plane has barely turned. The paper proves that decay of the score with distance <Cite id="roformer-paper" where="§3.3" />.
+
+Nothing per position is learned: the angle comes from the index and the fixed frequencies. The paper lists sequence-length flexibility among RoPE's properties <Cite id="roformer-paper" where="Abstract" />.
+
+## What it costs
+
+The rotation itself is cheap: the paper gives an efficient realization that avoids multiplying by a full matrix <Cite id="roformer-paper" where="§3.4.2" />. The real cost sits in the [[kv-cache]]: a key is stored already rotated, so it belongs to its position and no other. [[mla]] pays for that coupling directly, since a key rebuilt from a latent cannot be rotated after the fact, and carries position in a separate channel instead.

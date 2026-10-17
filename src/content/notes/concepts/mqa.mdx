@@ -2,14 +2,86 @@
 title: "Multi-query attention"
 kind: concept
 summary: "All query heads share a single key head and value head, shrinking the KV cache by the number of heads."
-domains: []
+domains: [llm, attention, inference]
 prerequisites: [mha, kv-cache]
 builds_on: []
 contrasts_with: [gqa]
 related: []
 sources: [mqa-paper]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+The [[kv-cache]] grows with the number of key and value heads, and for [[mha]] there is one pair per query head. Multi-query attention (MQA) keeps all $n_h$ query heads and gives them one key head and one value head to share <Cite id="mqa-paper" where="§3" />. What each decoding step has to reload shrinks by a factor of $n_h$.
+
+<ArchDiagram
+  title="n_h query heads against one shared key and value"
+  caption="The key and value projections have no head dimension: one K and one V serve every query head, and those two are all a token adds to the cache."
+  blocks={[
+    { id: 'h', label: 'Hidden state h_t', sub: 'd', role: 'activation' },
+    { id: 'wq', label: 'W^Q', sub: 'd → n_h·d_h', role: 'weight' },
+    { id: 'wk', label: 'W^K', sub: 'd → d_h', role: 'weight' },
+    { id: 'wv', label: 'W^V', sub: 'd → d_h', role: 'weight' },
+    { id: 'q', label: 'Queries', sub: 'n_h × d_h', role: 'activation' },
+    { id: 'k', label: 'Shared key K', sub: 'T × d_h', role: 'cache', link: 'kv-cache' },
+    { id: 'v', label: 'Shared value V', sub: 'T × d_h', role: 'cache', link: 'kv-cache' },
+    { id: 'att', label: 'Attention', sub: 'per query head', role: 'op', link: 'mha' },
+    { id: 'wo', label: 'Concat, then W^O', sub: 'n_h·d_h → d', role: 'weight' },
+    { id: 'o', label: 'Output', sub: 'd', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'h', to: 'wq' },
+    { from: 'h', to: 'wk' },
+    { from: 'h', to: 'wv' },
+    { from: 'wq', to: 'q' },
+    { from: 'wk', to: 'k' },
+    { from: 'wv', to: 'v' },
+    { from: 'q', to: 'att' },
+    { from: 'k', to: 'att' },
+    { from: 'v', to: 'att' },
+    { from: 'att', to: 'wo' },
+    { from: 'wo', to: 'o' },
+  ]}
+/>
+
+## How much it saves
+
+Multi-head attention adds $2 n_h d_h$ numbers to the cache per token per layer. MQA adds $2 d_h$: the head dimension survives, the head count does not. The paper's bandwidth analysis says the same thing — the term that reloads keys and values each step shrinks by a factor of $n_h$ <Cite id="mqa-paper" where="§3.1" />.
+
+<Calc
+  title="Numbers cached per token, all layers"
+  inputs={[
+    { id: 'layers', label: 'Layers', min: 1, max: 128, value: 6 },
+    { id: 'nh', label: 'Query heads n_h', min: 1, max: 128, value: 8 },
+    { id: 'dh', label: 'Head dimension d_h', min: 32, max: 256, step: 32, value: 128 },
+    { id: 'ng', label: 'GQA groups n_g', min: 1, max: 64, value: 4 },
+  ]}
+  outputs={[
+    { label: 'MHA: every head keeps K and V', expr: '2 * layers * nh * dh', format: 'number', role: 'cache' },
+    { label: 'GQA: one K and V per group', expr: '2 * layers * ng * dh', format: 'number', role: 'cache' },
+    { label: 'MQA: one K and V, shared', expr: '2 * layers * dh', format: 'number', role: 'cache' },
+    { label: 'Times smaller than MHA', expr: 'nh', format: 'ratio' },
+  ]}
+  bars
+  note="Defaults follow the paper's translation baseline: 6 layers, 8 query heads, key/value dimension 128 (Shazeer 2019, §4.1). The GQA group count is illustrative. Multiply by tokens and by bytes per element for a whole cache."
+/>
+
+MQA's cache is exactly $n_h$ times smaller than MHA's: move the head count and the ratio moves with it, whatever the other settings.
+
+## What it costs
+
+Shazeer measured the trade on WMT14 English-German, comparing an 8-head baseline against the same model with every attention layer converted <Cite id="mqa-paper" where="§4.1" />. Decoding got much faster; quality moved very little.
+
+<Spec
+  title="Multi-head against multi-query, same parameter count"
+  rows={[
+    { label: 'Decoder step, multi-head', value: '47 ms', source: 'mqa-paper', where: '§4.3' },
+    { label: 'Decoder step, multi-query', value: '3.9 ms', source: 'mqa-paper', where: '§4.3' },
+    { label: 'BLEU on dev, multi-head', value: 26.7, source: 'mqa-paper', where: '§4.2, Table 1' },
+    { label: 'BLEU on dev, multi-query', value: 26.5, source: 'mqa-paper', where: '§4.2, Table 1' },
+  ]}
+/>
+
+The step times come from incremental decoding of 128-token sequences in a batch of 1024 <Cite id="mqa-paper" where="§4.3" />; the ratio is the point, since the absolute numbers move with hardware. Quality dipped slightly, and stayed closer to the baseline than any variant that cut the head count or the head width instead <Cite id="mqa-paper" where="§4.2" />.
+
+The saving is bandwidth, not arithmetic: every query head still attends over every past token <Cite id="mqa-paper" where="§3.1" />. [[gqa]] sits in between, giving each group of heads its own key and value.
