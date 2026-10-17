@@ -8,8 +8,92 @@ builds_on: []
 contrasts_with: []
 related: []
 sources: [deepseek-v2-report, deepseek-v2-config]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+DeepSeek-V2 is DeepSeek's 2024 mixture-of-experts model and the one that introduced [[mla]], attention caching a compressed latent instead of keys and values, while its feed-forward side runs on [[deepseek-moe]] <Cite id="deepseek-v2-report" where="Abstract" />. [[deepseek-v3]] scales this design up. This note covers what V2 made new; everything it reuses is a link.
+
+## The whole model
+
+Every layer is a standard pre-norm [[transformer-block]]: attention, then a feed-forward network, each wrapped in a residual connection. Every feed-forward network but the first is a [[deepseek-moe]] one <Cite id="deepseek-v2-report" where="§3.1.2" />. The tabs open each part down to its projections.
+
+<ModelOverview model="deepseek-v2" />
+
+<LayerStrip model="deepseek-v2" />
+
+<ModelDiagram model="deepseek-v2" />
+
+<ModelSpec model="deepseek-v2" />
+
+## What is new
+
+### Attention that caches a latent
+
+V2's attention is [[mla]]: how it compresses the query and what it keeps between decoding steps belong to that note. What matters here is what V2 reports it bought, measured against DeepSeek 67B <Cite id="deepseek-v2-report" where="§1" />:
+
+<Spec
+  title="DeepSeek-V2 reported against DeepSeek 67B"
+  rows={[
+    { label: 'KV cache reduction', value: '93.3%', source: 'deepseek-v2-report', where: 'Abstract' },
+    { label: 'Cache size against GQA', value: 'equal to GQA with 2.25 groups', source: 'deepseek-v2-report', where: '§2.1.4, Table 1' },
+    { label: 'Training-cost saving', value: '42.5%', source: 'deepseek-v2-report', where: 'Abstract' },
+    { label: 'Max generation throughput', value: '5.76×', source: 'deepseek-v2-report', where: 'Abstract' },
+  ]}
+/>
+
+The cache row follows from what one token keeps per layer <Cite id="deepseek-v2-report" where="§2.1.4" />; what a cache costs in general is in [[kv-cache]].
+
+### Small experts with a shared floor
+
+The feed-forward side is [[deepseek-moe]]: a pool of small experts, of which each token selects a few, plus shared experts that every token passes through <Cite id="deepseek-v2-report" where="§2.2" />. V2 set the pool size, the number selected and the shared count; they are rows in the table above. What the fine-grained split and the shared floor buy belongs to the note.
+
+### Routing and balancing of its era
+
+<Spec
+  title="Routing in DeepSeek-V2"
+  rows={[
+    { label: 'Scoring function', value: 'softmax over token–expert affinity', source: 'deepseek-v2-report', where: '§2.2.1' },
+    { label: 'Devices a token may use', value: '3 of 8', source: 'deepseek-v2-report', where: '§2.2.2, §3.1.2' },
+    { label: 'Balance losses', value: '3 — expert, device, communication (weights 0.003 / 0.05 / 0.02)', source: 'deepseek-v2-report', where: '§3.1.2' },
+    { label: 'Token dropping', value: 'device level, capacity factor 1.0, training only', source: 'deepseek-v2-report', where: '§2.2.4, §3.1.2' },
+  ]}
+/>
+
+These four choices are how V2 kept a large pool of experts evenly loaded <Cite id="deepseek-v2-report" where="§2.2, §3.1.2" />. The balancing is the part of the design [[deepseek-v3]] replaced next — [[aux-loss-free-balancing]] explains what took the three losses' place.
+
+### Extending the context with YaRN
+
+<Spec
+  title="Context extension"
+  rows={[
+    { label: 'Pre-training sequence length', value: '4K', source: 'deepseek-v2-report', where: '§3.1.2' },
+    { label: 'YaRN target window', value: '160K, so the model responds well at 128K', source: 'deepseek-v2-report', where: '§3.1.4' },
+    { label: 'Extension steps', value: '1000 steps at 32K sequences', source: 'deepseek-v2-report', where: '§3.1.4' },
+  ]}
+/>
+
+V2 pre-trained on short sequences and stretched the rotary positions afterwards with YaRN, retuning the scaling so the model answers over a long context <Cite id="deepseek-v2-report" where="§3.1.4" />. [[rope]] is the encoding this modifies; the supported length sits in the table above.
+
+<Callout type="pitfall">
+`max_position_embeddings: 163840` in the released config looks like a 160K context <Cite id="deepseek-v2-config" where="max_position_embeddings" />, but the supported context is 128K. YaRN was targeted past it so the model responds well at 128K <Cite id="deepseek-v2-report" where="§3.1.4" />. The extra room is a margin, not a longer context.
+</Callout>
+
+## What it reuses
+
+- [[transformer-block]] — pre-norm blocks, a residual connection around attention and the feed-forward network.
+- [[kv-cache]] — decoding still reuses earlier tokens; [[mla]] stores its compressed latent in this cache.
+- [[rope]] — rotary positions, applied to the decoupled slice of every query and key.
+- [[moe]] — the gating that turns one token into weights over experts.
+
+## Tokenizer
+
+<Tokenizer model="deepseek-v2" />
+
+V2 reads text with byte-level BPE [[byte-level-bpe]], the tokenizer of DeepSeek's earlier 67B model, reused unchanged <Cite id="deepseek-v2-report" where="§3.1.1" />.
+
+The paper calls the vocabulary 100K <Cite id="deepseek-v2-report" where="§3.1.1" />; the released config says `vocab_size: 102400`, the rows of the embedding table <Cite id="deepseek-v2-config" where="vocab_size" />. This note uses the config, which is what the model loads. [[deepseek-v3]] later shipped a tokenizer of its own; how the splitting rules changed is in [[deepseek-v3-tokenizer]].
+
+## What came next
+
+[[deepseek-v3]] keeps the attention and the expert design, and replaces the routing above with [[aux-loss-free-balancing]], plus [[mtp]] and [[fp8-training]]. The family in order is laid out in [[deepseek-lineage]].
