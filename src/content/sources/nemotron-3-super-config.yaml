@@ -1,0 +1,8 @@
+title: NVIDIA-Nemotron-3-Super-120B-A12B-BF16 config.json (Hugging Face)
+short: Nemotron 3 Super config
+authors: NVIDIA
+year: 2026
+url: https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16/blob/main/config.json
+type: config
+accessed: 2026-10-16
+notes: The layer order is in hybrid_override_pattern (M = Mamba-2, E = MoE, * = attention).

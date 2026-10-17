@@ -7,9 +7,59 @@ prerequisites: [mamba-2, kv-cache, gqa]
 builds_on: []
 contrasts_with: [mla, dsa]
 related: []
-sources: []
-status: stub
-updated: 2026-10-17
+sources: [mamba2-paper, nemotron-h-paper, nemotron-3-super-report, nemotron-3-super-config, nemotron-3-5-report]
+status: draft
+updated: 2026-10-16
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Every attention layer adds to the [[kv-cache]] for every token of context. A [[mamba-2]] layer works differently. It folds the past into a recurrent state whose size doesn't depend on sequence length, while attention "requires a cache of size linear in sequence length" <Cite id="mamba2-paper" where="§1" />. A hybrid stack uses mostly the cheap kind and keeps a few of the expensive kind.
+
+## The layout
+
+NVIDIA's Nemotron-H models replace "the majority of self-attention layers" with Mamba layers that need constant compute and memory per generated token <Cite id="nemotron-h-paper" where="Abstract" />. Nemotron 3 keeps the idea and alternates it with [[moe]] layers. Each layer in the stack is exactly one block: a Mamba-2 mixer, an MoE feed-forward, or attention.
+
+Nemotron 3 Super has 88 layers: 40 Mamba-2, 40 MoE and 8 attention <Cite id="nemotron-3-super-config" where="hybrid_override_pattern" />. The pattern, with M for Mamba-2, E for MoE and \* for attention:
+
+```
+MEMEMEM*EMEMEMEM*EMEMEMEM*EMEMEMEMEM*EMEMEMEMEM*EMEMEMEMEM*EMEMEMEMEM*EMEMEMEM*EMEMEMEME
+```
+
+The report describes the few attention layers as global "anchors" that enable full-token interaction and long-range information routing <Cite id="nemotron-3-super-report" where="§2.1.3" />. Those attention layers also use [[gqa]] with only 2 key/value heads, so even the part of the cache that does grow is narrow.
+
+## What it saves
+
+<Calc
+  title="Cache for one sequence: hybrid vs all attention"
+  inputs={[
+    { id: 'attn', label: 'Attention layers', min: 0, max: 48, value: 8 },
+    { id: 'ssm', label: 'Mamba-2 layers', min: 0, max: 48, value: 40 },
+    { id: 'kvh', label: 'Key/value heads', min: 1, max: 32, value: 2 },
+    { id: 'dh', label: 'Head dimension', min: 64, max: 256, step: 64, value: 128 },
+    { id: 'kvb', label: 'Bytes per KV element', min: 1, max: 4, value: 2 },
+    { id: 'ctx', label: 'Context length', min: 4096, max: 1048576, step: 4096, value: 262144, unit: 'tokens' },
+    { id: 'mh', label: 'Mamba heads', min: 16, max: 256, step: 16, value: 128 },
+    { id: 'mhd', label: 'Mamba head dim', min: 32, max: 128, step: 32, value: 64 },
+    { id: 'ds', label: 'SSM state size', min: 16, max: 256, step: 16, value: 128 },
+    { id: 'sb', label: 'Bytes per state element', min: 2, max: 4, step: 2, value: 4 },
+  ]}
+  outputs={[
+    { label: 'KV cache (attention layers)', expr: '2 * attn * kvh * dh * kvb * ctx', format: 'bytes', role: 'cache' },
+    { label: 'SSM state (Mamba-2 layers)', expr: 'ssm * mh * mhd * ds * sb', format: 'bytes', role: 'cache' },
+    { label: 'Hybrid total', expr: '2 * attn * kvh * dh * kvb * ctx + ssm * mh * mhd * ds * sb', format: 'bytes', role: 'cache' },
+    { label: 'If every mixer layer were attention', expr: '2 * (attn + ssm) * kvh * dh * kvb * ctx', format: 'bytes', role: 'cache' },
+  ]}
+  bars
+  note="Defaults are Nemotron 3 Super's config.json: 8 attention layers with 2 KV heads of dimension 128, and 40 Mamba-2 layers with 128 heads × 64 dims × state 128, stored in FP32 (mamba_ssm_cache_dtype). The SSM figure leaves out the small convolution state. The last row is a counterfactual for comparison, not a real model."
+/>
+
+The SSM line never moves with context length, but it isn't small. One Mamba-2 layer's state here is $128 \times 64 \times 128$ values, 4 MiB in FP32. One attention layer's KV for one token is $2 \times 2 \times 128$ values, 1 KiB in BF16. So a single Mamba-2 layer costs about as much as 4K tokens of one attention layer's cache. That matches the Nemotron 3.5 report's remark that one Mamba cache page is at least about 4K tokens of attention KV <Cite id="nemotron-3-5-report" where="§5.3" />. For short requests a hybrid saves little. The savings appear as context grows into the hundreds of thousands of tokens.
+
+<Callout type="pitfall">
+The recurrent state is overwritten at every step, so rounding errors accumulate in a way KV entries don't. Storing Nemotron 3 Super's SSM cache in plain FP16 made outputs up to 37–40% longer. Its released recipe uses FP16 with stochastic rounding instead <Cite id="nemotron-3-super-report" where="§4.3, Table 9" />.
+</Callout>
+
+## How it compares
+
+[[mla]] keeps attention in every layer and shrinks what each token stores. [[dsa]] keeps the full cache but reads only part of it at each step. A hybrid removes most of the attention layers and accepts a fixed-size summary for the rest. These are different answers to the same [[kv-cache]] problem, and they can be combined.
+
+Models built this way include [[nemotron-3-nano]], [[nemotron-3-super]] and [[nemotron-3-5-super-vl]].

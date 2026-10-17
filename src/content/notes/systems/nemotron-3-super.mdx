@@ -1,0 +1,99 @@
+---
+title: "Nemotron 3 Super"
+kind: system
+summary: "NVIDIA's 2026 hybrid Mamba-attention MoE, 120.6B parameters with 12.7B active. It scales Nemotron 3 Nano and is the first in the family with LatentMoE, multi-token prediction and NVFP4 pretraining."
+domains: [llm, moe, ssm]
+prerequisites: [hybrid-ssm-attention, latent-moe, mtp, nvfp4]
+builds_on: [nemotron-3-nano]
+contrasts_with: []
+related: [aux-loss-free-balancing, deepseek-v3]
+sources: [nemotron-3-super-report, nemotron-3-super-config, nemotron-3-nano-report, nemotron-3-ultra-report, latentmoe-paper, primer-paper]
+status: draft
+updated: 2026-10-16
+---
+
+Nemotron 3 Super "scales up the hybrid Mamba-Attention MoE architecture introduced in Nemotron-3 Nano" <Cite id="nemotron-3-super-report" where="§2.1" />. The layer recipe is the one described in [[hybrid-ssm-attention]]: mostly Mamba-2 layers, a few attention layers, and MoE feed-forward layers between them. It is also the first Nemotron model with three additions: [[latent-moe]], [[mtp]] and pretraining in [[nvfp4]] <Cite id="nemotron-3-super-report" where="Abstract, §1" />. This note covers those three and the scale-up. Follow the links for everything else.
+
+## The stack
+
+<ArchDiagram
+  title="The three kinds of layer in Nemotron 3 Super"
+  caption="Each of the 88 layers is exactly one of these blocks, in the fixed order given by hybrid_override_pattern. Only the 8 attention layers add to the KV cache. Click a block to open its note."
+  blocks={[
+    { id: 'in', label: 'Hidden state', sub: '4096', role: 'activation', col: 1, row: 0 },
+    { id: 'mamba', label: 'Mamba-2 layer', sub: '× 40', role: 'op', col: 0, row: 1, link: 'mamba-2' },
+    { id: 'moe', label: 'LatentMoE layer', sub: '× 40 · 22 of 512 experts', role: 'weight', col: 1, row: 1, link: 'latent-moe' },
+    { id: 'attn', label: 'GQA attention', sub: '× 8 · 32 Q / 2 KV heads', role: 'op', col: 2, row: 1, link: 'gqa' },
+    { id: 'state', label: 'SSM state', sub: 'fixed size', role: 'cache', col: 0, row: 2, link: 'hybrid-ssm-attention' },
+    { id: 'kv', label: 'KV cache', sub: 'grows with context', role: 'cache', col: 2, row: 2, link: 'kv-cache' },
+    { id: 'out', label: 'Next layer', role: 'activation', col: 1, row: 3 },
+  ]}
+  edges={[
+    { from: 'in', to: 'mamba' },
+    { from: 'in', to: 'moe' },
+    { from: 'in', to: 'attn' },
+    { from: 'mamba', to: 'state', dashed: true },
+    { from: 'attn', to: 'kv', dashed: true },
+    { from: 'mamba', to: 'out' },
+    { from: 'moe', to: 'out' },
+    { from: 'attn', to: 'out' },
+  ]}
+/>
+
+<Spec
+  title="Nemotron 3 Super at a glance"
+  rows={[
+    { label: 'Total parameters', value: '120.6B', source: 'nemotron-3-super-report', where: '§2.1' },
+    { label: 'Active per token', value: '12.7B', source: 'nemotron-3-super-report', where: '§2.1' },
+    { label: 'Layers', value: 88, source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'Mamba-2 / MoE / attention layers', value: '40 / 40 / 8', source: 'nemotron-3-super-config', where: 'hybrid_override_pattern' },
+    { label: 'Hidden size', value: 4096, source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'Query / KV heads', value: '32 / 2', source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'Head dimension', value: 128, source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'Mamba-2 heads × head dim', value: '128 × 64', source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'SSM state size', value: 128, source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'Routed experts', value: 512, source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'Active routed experts', value: 22, source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'Shared experts', value: 1, source: 'nemotron-3-super-config', where: 'n_shared_experts' },
+    { label: 'Expert / shared expert hidden size', value: '2688 / 5376', source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'MoE latent width', value: 1024, source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'MTP layers', value: '2, shared weights', source: 'nemotron-3-super-report', where: 'Table 1' },
+    { label: 'Vocabulary', value: 131072, source: 'nemotron-3-super-config', where: 'vocab_size' },
+    { label: 'Pretraining tokens', value: '25T', source: 'nemotron-3-super-report', where: '§1, §2.4' },
+    { label: 'Long-context training length', value: '1,048,576', source: 'nemotron-3-super-report', where: '§2.6' },
+  ]}
+/>
+
+## What changed from Nemotron 3 Nano
+
+### Bigger in every direction
+
+[[nemotron-3-nano]] has 52 layers, hidden size 2688, and 6 active of 128 routed experts <Cite id="nemotron-3-nano-report" where="Table 1" />. Super grows that to 88 layers, hidden size 4096, and 22 active of 512 <Cite id="nemotron-3-super-report" where="Table 1" />. Both keep the same attention shape: 32 query heads sharing 2 key/value heads.
+
+### LatentMoE
+
+The routed experts work in a 1024-wide latent instead of the 4096-wide hidden state, a compression of 4. That cuts the weight bytes loaded per expert and the bytes sent between GPUs per token, and the savings pay for more experts per token. See [[latent-moe]]. The router and the single shared expert still see the full hidden state <Cite id="nemotron-3-super-report" where="§2.1.1" />.
+
+### Multi-token prediction with shared weights
+
+Like [[deepseek-v3]], Super trains with [[mtp]]. Here the MTP module's weights are shared across its prediction steps, so at inference one head can be applied recursively to draft several tokens <Cite id="nemotron-3-super-report" where="§2.1.2" />. At draft length 7 the average acceptance length on SPEED-Bench is 3.45 <Cite id="nemotron-3-super-report" where="Table 2" />.
+
+### Pretraining in 4 bits
+
+Super is pretrained in [[nvfp4]]. Elements are E2M1 floats in 16-element blocks, each block has an E4M3 scale, and each tensor has an FP32 scale. Some parts stay in higher precision: the final 15% of the network, the latent projections, the MTP layers, the QKV and attention parts in BF16, and the Mamba output projection in MXFP8 <Cite id="nemotron-3-super-report" where="§2.2, Table 3" />. Nano 3 was trained in BF16 <Cite id="nemotron-3-super-report" where="§2.2, Fig. 7" />.
+
+## Shared with the rest of the family
+
+- **Expert balancing.** A sigmoid router with a per-expert bias ([[aux-loss-free-balancing]], update rate $10^{-3}$) plus a small standard balancing loss ($10^{-4}$). This is the same recipe as DeepSeek-V3 <Cite id="nemotron-3-super-report" where="§2.4" />.
+- **Squared-ReLU experts.** `mlp_hidden_act: relu2` <Cite id="nemotron-3-super-config" where="mlp_hidden_act" />, the activation Primer found most effective for transformer feed-forward blocks <Cite id="primer-paper" where="§3" />.
+- **Plain plumbing.** No positional embeddings, no dropout, no biases, RMSNorm, and untied input/output embeddings <Cite id="nemotron-3-super-report" where="§2.1.3" />.
+
+<Callout type="pitfall">
+The config contains `rope_theta: 10000`, but the report states that positional embeddings are omitted "consistent with prior Nemotron models" <Cite id="nemotron-3-super-report" where="§2.1.3" />. The key looks like an unused default of the config class. Don't read it as evidence of RoPE. Whether the modeling code reads it is unverified.
+</Callout>
+
+Pretraining ran for 25T tokens, with the learning rate decaying over the last 5T. A long-context stage at 1,048,576 tokens followed <Cite id="nemotron-3-super-report" where="§2.4, §2.6" />.
+
+## What came next
+
+[[nemotron-3-5-super-vl]] starts from this model's base checkpoint, adds a vision encoder, and reworks the MTP head and the training pipeline. Nemotron 3 Ultra applies the same architecture at 550B total and 55B active parameters <Cite id="nemotron-3-ultra-report" where="Abstract, §2.1" />.

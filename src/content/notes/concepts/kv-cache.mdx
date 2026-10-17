@@ -57,5 +57,6 @@ Think of the cache as the model's working memory of the conversation so far. Eve
 - Store a compressed version and expand it when needed: [[mla]].
 - Store fewer bits per number, for example 8-bit cache quantization.
 - Store fewer tokens, for example sliding-window or sparse attention.
+- Keep attention in only a few layers and use a fixed-size recurrent state everywhere else: [[hybrid-ssm-attention]].
 
-The first two change the architecture, so they have to be decided before training. The last two can often be applied to an existing model.
+The first two and the last change the architecture, so they have to be decided before training. The middle two can often be applied to an existing model.

@@ -1,0 +1,134 @@
+---
+title: "Nemotron 3.5 Super VL"
+kind: system
+summary: "NVIDIA's October 2026 vision-language model, 120B with 12B active. It keeps Nemotron 3 Super's hybrid backbone and adds a C-RADIO image encoder, one recursive MTP head, distillation from Ultra and an NVFP4 release."
+domains: [llm, moe, ssm, multimodal]
+prerequisites: [c-radio, vision-language-connector]
+builds_on: [nemotron-3-super]
+contrasts_with: []
+related: [nvfp4, deepseek-v4-1-flash]
+sources: [nemotron-3-5-report, nemotron-3-5-super-vl-config, nemotron-3-5-super-vl-card, nemotron-3-nano-omni-report, nemotron-3-super-report, nemotron-3-nano-report, nemotron-3-ultra-report]
+status: draft
+updated: 2026-10-16
+---
+
+The language backbone is [[nemotron-3-super]], unchanged. The config lists the same 88-layer pattern of Mamba-2, MoE and attention layers <Cite id="nemotron-3-5-super-vl-config" where="llm_config.layers_block_type" />. The tech report has no architecture section and defers to the Nemotron 3 Super report <Cite id="nemotron-3-5-report" where="§1" />. What is new is around the backbone: image and video input, the speculative-decoding head, a longer training pipeline, and how it's quantized for release.
+
+## The whole model
+
+<ArchDiagram
+  title="Nemotron 3.5 Super VL end to end"
+  caption="Images and video frames go through C-RADIO and a connector, then join the text tokens in one sequence. The MTP head drafts tokens and shares the output head with the main model. Click a block to open its note."
+  blocks={[
+    { id: 'img', label: 'Image / video frames', role: 'activation', col: 0, row: 0 },
+    { id: 'txt', label: 'Text tokens', role: 'activation', col: 2, row: 0 },
+    { id: 'radio', label: 'C-RADIO encoder', sub: 'ViT-H/16, 32 layers', role: 'weight', col: 0, row: 1, link: 'c-radio' },
+    { id: 'conn', label: 'Connector', sub: 'downsample + MLP', role: 'weight', col: 0, row: 2, link: 'vision-language-connector' },
+    { id: 'seq', label: 'One token sequence', sub: 'up to 1M tokens', role: 'activation', col: 1, row: 3 },
+    { id: 'bb', label: 'Hybrid backbone', sub: '88 layers, 12B active', role: 'op', col: 1, row: 4, link: 'nemotron-3-super' },
+    { id: 'head', label: 'LM head', role: 'weight', col: 1, row: 5 },
+    { id: 'mtp', label: 'MTP head', sub: 'attention + MoE, recursive', role: 'weight', col: 2, row: 5, link: 'mtp' },
+  ]}
+  edges={[
+    { from: 'img', to: 'radio' },
+    { from: 'radio', to: 'conn' },
+    { from: 'conn', to: 'seq' },
+    { from: 'txt', to: 'seq' },
+    { from: 'seq', to: 'bb' },
+    { from: 'bb', to: 'head' },
+    { from: 'bb', to: 'mtp', label: 'drafts' },
+    { from: 'mtp', to: 'head', dashed: true, label: 'shares' },
+  ]}
+/>
+
+<Spec
+  title="Nemotron 3.5 Super VL at a glance"
+  rows={[
+    { label: 'Total / active parameters', value: '120B / 12B', source: 'nemotron-3-5-super-vl-card', where: 'Model Summary' },
+    { label: 'Exact count incl. vision and MTP', value: '124.453B', source: 'nemotron-3-5-report', where: '§4.1' },
+    { label: 'Backbone layers', value: 88, source: 'nemotron-3-5-super-vl-config', where: 'llm_config.layers_block_type' },
+    { label: 'Mamba-2 / MoE / attention layers', value: '40 / 40 / 8', source: 'nemotron-3-5-super-vl-config', where: 'llm_config.layers_block_type' },
+    { label: 'Routed experts / active', value: '512 / 22', source: 'nemotron-3-5-super-vl-config', where: 'n_routed_experts, num_experts_per_tok' },
+    { label: 'MoE latent width', value: 1024, source: 'nemotron-3-5-super-vl-config', where: 'moe_latent_size' },
+    { label: 'MTP layers', value: 1, source: 'nemotron-3-5-super-vl-config', where: 'num_nextn_predict_layers' },
+    { label: 'Vision encoder', value: 'ViT-H, patch 16', source: 'nemotron-3-5-super-vl-config', where: 'vision_config.args.model' },
+    { label: 'Vision width / layers / heads', value: '1280 / 32 / 16', source: 'nemotron-3-5-super-vl-config', where: 'vision_config' },
+    { label: 'Patches per image', value: '1024–13312', source: 'nemotron-3-5-super-vl-config', where: 'vision_config.min_num_patches, max_num_patches' },
+    { label: 'Context length', value: 'up to 1M tokens', source: 'nemotron-3-5-super-vl-card', where: 'Model Summary' },
+    { label: 'Inputs / outputs', value: 'text, images, video / text', source: 'nemotron-3-5-super-vl-card', where: 'Model Summary' },
+    { label: 'Release', value: '2026-10-15', source: 'nemotron-3-5-super-vl-card', where: 'Release Date' },
+  ]}
+/>
+
+## What changed from Nemotron 3 Super
+
+### Seeing images and video
+
+The base model is text-only. Vision joins during supervised fine-tuning: first a warm-up stage for the vision projector, then two SFT stages that train the language and vision parts together, on packed sequences of up to 524,288 tokens <Cite id="nemotron-3-5-report" where="§3.1" />.
+
+The encoder is a [[c-radio]] vision transformer, a ViT-H with 16-pixel patches <Cite id="nemotron-3-5-super-vl-config" where="vision_config" />. A [[vision-language-connector]] turns its patch features into backbone tokens. The config only gives `downsample_ratio: 0.5` and a 20480-wide projector. The sibling Nemotron 3 Nano Omni documents the design: a pixel shuffle that merges patches for 4× fewer tokens, MLP projectors, and a 3D convolution that folds every two video frames into one <Cite id="nemotron-3-nano-omni-report" where="§2" />.
+
+<Callout type="note">
+Neither the report nor the model card names the C-RADIO version or describes the connector's layers. The patch limits (1024 to 13312) match Nano Omni, which uses C-RADIOv4-H. That suggests the same encoder but doesn't confirm it.
+</Callout>
+
+### One MTP head, applied recursively
+
+Nemotron 3 Super was trained with two MTP layers. For 3.5, the team takes the first, drops the second, and ships one head that is applied repeatedly to draft several tokens. It has one attention layer and one MoE layer and reuses the main LM head <Cite id="nemotron-3-5-report" where="§1, §2.1, §4.7" />. The head gets a 100B-token warm-up with the backbone frozen, where each step's input is mixed from several earlier MTP steps, not only the previous one. After post-training, "MTP boosting" trains it again against the frozen final backbone. At draft length 7 and temperature 1, average accepted length rises from 3.787 to 4.612 tokens <Cite id="nemotron-3-5-report" where="§3.7, Table 8" />. See [[mtp]] for the idea itself.
+
+<Callout type="pitfall">
+The sources disagree on whether Super 3's two MTP layers shared weights. The Super 3 report says they did (Table 1, §2.1.2). The 3.5 report calls them "two non-shared MTP heads" in §1, yet "shared-weight" in §3.1. The safe statement is the one above: 3.5 ships a single head, applied recursively.
+</Callout>
+
+### A longer pipeline after the base model
+
+<Stepper title="From Super 3 Base to Super 3.5 VL">
+  <Step title="1. MTP warm-up, 100B tokens">
+    Train the single MTP head with the backbone frozen <Cite id="nemotron-3-5-report" where="§2.1" />.
+  </Step>
+  <Step title="2. Distillation from Ultra, 1T tokens">
+    The teacher is Nemotron 3 Ultra Base, with a skew reverse-KL objective <Cite id="nemotron-3-5-report" where="§2.2" />.
+  </Step>
+  <Step title="3. Indic continued pretraining, 100B tokens">
+    10B tokens of Indic text mixed with 90B from the earlier data mix <Cite id="nemotron-3-5-report" where="§2.3" />.
+  </Step>
+  <Step title="4. Long context, 35B tokens at 1M">
+    Extends the context to one million tokens <Cite id="nemotron-3-5-report" where="§2.4" />.
+  </Step>
+  <Step title="5. Software-engineering mid-training at 256K">
+    Repositories, issue/PR pairs, diffs, CI logs and agent trajectories. The report says 65.4B tokens <Cite id="nemotron-3-5-report" where="§2.5" />. The model card says 67B <Cite id="nemotron-3-5-super-vl-card" where="Training Methodology" />.
+  </Step>
+  <Step title="6. Long-context recovery, 9B tokens">
+    Restores the million-token ability that step 5 damaged. See the pitfall below <Cite id="nemotron-3-5-report" where="§2.4" />.
+  </Step>
+  <Step title="7. Vision, SFT, RL and distillation">
+    Projector warm-up, two-stage joint SFT, then RL with verifiable rewards, RLHF, and multi-teacher on-policy distillation <Cite id="nemotron-3-5-report" where="§3" />.
+  </Step>
+  <Step title="8. MTP boosting">
+    Retrain the draft head against the final, frozen backbone <Cite id="nemotron-3-5-report" where="§3.7" />.
+  </Step>
+</Stepper>
+
+<Callout type="pitfall">
+Training at 256K after extending to 1M undoes part of the extension. After the software-engineering stage, RULER at 1M tokens fell from 79.9 to 33.5. The 9B-token recovery stage brought it back to 81.0 <Cite id="nemotron-3-5-report" where="§2.4" />. A context window set during training stays only as long as later stages keep exercising it.
+</Callout>
+
+### Released in 4 bits, unevenly
+
+The deployment checkpoint is quantized after training with mixed precision. The MoE and shared-expert matrix multiplies use [[nvfp4]]. Attention projections, Mamba linear layers and the LM head use FP8. The latent projections, C-RADIO, the connector, embeddings and the Mamba convolution stay in BF16. The KV cache is FP8, and the router runs in FP32. The Mamba state cache is FP16 with stochastic rounding, the same fix described in [[hybrid-ssm-attention]]. That averages 4.82 bits per parameter <Cite id="nemotron-3-5-report" where="§4.1, Table 12" />. Across 36 benchmarks, median accuracy recovery is 99.62% <Cite id="nemotron-3-5-report" where="Abstract, §4.1" />.
+
+The report also explains why serving this model is cheap. The KV cache grows with sequence length while the Mamba state stays the same size, and LatentMoE ships latent vectors smaller than the hidden state between expert-parallel GPUs <Cite id="nemotron-3-5-report" where="§4, §5.2" />.
+
+## The family
+
+| Model | Size (total / active) | Starts from |
+| --- | --- | --- |
+| [[nemotron-3-nano]] | 31.6B / 3.2B | trained from scratch |
+| [[nemotron-3-super]] | 120.6B / 12.7B | trained from scratch, Nano's architecture scaled up |
+| Nemotron 3 Ultra | 550B / 55B | trained from scratch, Super's architecture |
+| Nemotron 3.5 Lightning | 30B / 3B, text only | Nano 3 Base, distilled from Super 3 Base |
+| Nemotron 3.5 Super VL | 120B / 12B | Super 3 Base, distilled from Ultra 3 Base |
+
+Sizes are from <Cite id="nemotron-3-nano-report" where="§1" />, <Cite id="nemotron-3-super-report" where="§2.1" />, <Cite id="nemotron-3-ultra-report" where="Abstract" /> and <Cite id="nemotron-3-5-report" where="Abstract, §1, §2.2" />.
+
+For a different take on adding image input to a large MoE, compare [[deepseek-v4-1-flash]].

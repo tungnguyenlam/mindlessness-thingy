@@ -1,0 +1,8 @@
+title: StableHand official code
+short: StableHand repo
+authors: Huajian Zeng et al.
+year: 2026
+url: https://github.com/huajian-zeng/stablehand
+type: repo
+accessed: 2026-10-16
+notes: The fork github.com/tungnguyenlam/stablehand is identical to this repo at commit 0471a45e32 (checked 2026-10-16). The released code is the "enhanced version", not the paper model.

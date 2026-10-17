@@ -1,0 +1,83 @@
+---
+title: "LatentMoE"
+kind: concept
+summary: "Projects each token into a smaller latent space before the routed experts and back afterwards, cutting expert weight traffic and all-to-all communication by d/ℓ, then spends the savings on more experts."
+domains: [llm, moe]
+prerequisites: [deepseek-moe]
+builds_on: [moe]
+contrasts_with: []
+related: [mla]
+sources: [latentmoe-paper, nemotron-3-super-report, nemotron-3-super-config]
+status: draft
+updated: 2026-10-16
+---
+
+A [[moe]] layer makes compute per token cheap, but serving it is expensive in two other ways, and both scale with the model's hidden width $d$. When few requests are in flight, each step is limited by how fast the GPU can load the chosen experts' weights, and each expert matrix is $d \times m$. When many requests are in flight, the limit is the all-to-all exchange that ships every token's $d$-wide vector to the GPUs holding its $K$ experts <Cite id="nemotron-3-super-report" where="§2.1.1" />. LatentMoE shrinks the width the experts see.
+
+## How it works
+
+A learned down-projection $W_\downarrow \in \mathbb{R}^{\ell \times d}$ maps the token into a latent of width $\ell < d$. The routed experts work entirely at width $\ell$, and an up-projection $W_\uparrow \in \mathbb{R}^{d \times \ell}$ maps the result back. The router, the shared expert and every non-expert layer still see the full-width token <Cite id="nemotron-3-super-report" where="§2.1.1, Fig. 3" />.
+
+$$
+y = \text{Shared}(x) + W_\uparrow \sum_{i \in \text{TopK}'(x)} g_i(x)\, E_i\!\left(W_\downarrow x\right)
+$$
+
+Here $g_i(x)$ is the gate the router computes from the full-width $x$, and $E_i$ is expert $i$. Because $W_\uparrow$ is linear, applying it once after the weighted sum gives the same result as applying it per expert.
+
+<ArchDiagram
+  title="One LatentMoE layer"
+  caption="The router and shared expert work at full width d. Only the routed experts move to the latent width ℓ. Widths shown are Nemotron 3 Super's."
+  blocks={[
+    { id: 'x', label: 'Token x', sub: 'd = 4096', role: 'activation', col: 1, row: 0 },
+    { id: 'router', label: 'Router', sub: 'full width d', role: 'route', col: 0, row: 1 },
+    { id: 'down', label: 'Down-project W↓', sub: 'd → ℓ', role: 'weight', col: 1, row: 1 },
+    { id: 'shared', label: 'Shared expert', sub: 'full width d', role: 'weight', col: 2, row: 1, link: 'deepseek-moe' },
+    { id: 'lat', label: 'Latent', sub: 'ℓ = 1024', role: 'activation', col: 1, row: 2 },
+    { id: 'experts', label: 'Routed experts', sub: '22 of 512, width ℓ', role: 'weight', col: 1, row: 3 },
+    { id: 'up', label: 'Up-project W↑', sub: 'ℓ → d', role: 'weight', col: 1, row: 4 },
+    { id: 'sum', label: 'Add', role: 'op', col: 1, row: 5 },
+  ]}
+  edges={[
+    { from: 'x', to: 'router' },
+    { from: 'x', to: 'down' },
+    { from: 'x', to: 'shared' },
+    { from: 'down', to: 'lat' },
+    { from: 'lat', to: 'experts' },
+    { from: 'router', to: 'experts', label: 'top-k gates' },
+    { from: 'experts', to: 'up' },
+    { from: 'up', to: 'sum' },
+    { from: 'shared', to: 'sum' },
+  ]}
+/>
+
+## Spending the savings
+
+Shrinking the expert width by $\alpha = d/\ell$ cuts per-expert weight loads and all-to-all payload by the same factor. LatentMoE then spends that budget on more experts: $N' = \alpha N$ in total and $K' = \alpha K$ active per token. That keeps the total nonlinear work per token, $K \cdot m$, at least as large as before, and more and finer experts improve quality <Cite id="nemotron-3-super-report" where="§2.1.1" /> <Cite id="latentmoe-paper" where="§2–3" />.
+
+<Calc
+  title="What the latent buys"
+  inputs={[
+    { id: 'd', label: 'Hidden width d', min: 1024, max: 8192, step: 256, value: 4096 },
+    { id: 'l', label: 'Latent width ℓ', min: 256, max: 8192, step: 256, value: 1024 },
+    { id: 'k', label: 'Active experts per token', min: 1, max: 64, value: 22 },
+    { id: 'm', label: 'Expert hidden size m', min: 256, max: 8192, step: 128, value: 2688 },
+  ]}
+  outputs={[
+    { label: 'Compression α = d / ℓ', expr: 'd / l', format: 'ratio' },
+    { label: 'Values sent per token, full width', expr: 'k * d', format: 'number', role: 'activation' },
+    { label: 'Values sent per token, latent', expr: 'k * l', format: 'number', role: 'activation' },
+    { label: 'Weights per expert matrix, full width', expr: 'd * m', format: 'number', role: 'weight' },
+    { label: 'Weights per expert matrix, latent', expr: 'l * m', format: 'number', role: 'weight' },
+  ]}
+  note="Defaults are Nemotron 3 Super's config.json: hidden_size, moe_latent_size, num_experts_per_tok and moe_intermediate_size. 'Values sent' counts the activation entries one token ships through the all-to-all and ignores router metadata."
+/>
+
+<Callout type="pitfall">
+The compression isn't free. The latent can't go below the effective rank of the token representations. The LatentMoE paper finds quality holds up to $\alpha = 4$ and uses that ratio, checking it again at 95B total and 8B active parameters <Cite id="latentmoe-paper" where="§4.1" />. Nemotron 3 Super's $4096 / 1024$ is exactly 4.
+</Callout>
+
+## Where it is used
+
+Nemotron 3 Super is the first Nemotron model with LatentMoE. Nemotron 3 Nano doesn't use it <Cite id="nemotron-3-super-report" where="Abstract" />, and Nemotron 3 Ultra adopts it too <Cite id="latentmoe-paper" where="§1" />. See [[nemotron-3-super]] for how it sits inside a full model.
+
+Projecting into a learned latent and back is the same move [[mla]] makes for keys and values. MLA does it to shrink what is cached. LatentMoE does it to shrink what experts load and what GPUs exchange.

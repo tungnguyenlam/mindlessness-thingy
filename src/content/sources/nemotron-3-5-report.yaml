@@ -1,0 +1,8 @@
+title: "Nemotron 3.5 Super and Lightning: Open, Efficient Mixture-of-Experts Hybrid Mamba-Transformer Models for Agentic AI"
+short: Nemotron 3.5 report
+authors: NVIDIA
+year: 2026
+url: https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3.5-Super-and-Lightning-Technical-Report.pdf
+type: report
+accessed: 2026-10-16
+notes: Has no architecture section; it defers to the Nemotron 3 Super report for the backbone and to the Nano Omni report for the vision projector.

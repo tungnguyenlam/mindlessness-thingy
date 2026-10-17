@@ -1,0 +1,8 @@
+title: StableHand HOT3D motion prior args.json (Hugging Face)
+short: StableHand DiT config
+authors: Huajian Zeng et al.
+year: 2026
+url: https://huggingface.co/huajian-zeng/stablehand/blob/main/dit_hot3d/args.json
+type: config
+accessed: 2026-10-16
+notes: Settings of the released (enhanced) checkpoint, which differ from the paper in places.

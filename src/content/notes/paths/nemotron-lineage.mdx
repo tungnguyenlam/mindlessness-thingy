@@ -1,0 +1,36 @@
+---
+title: "The Nemotron 3 lineage"
+kind: path
+summary: "From attention and the KV cache to Nemotron 3.5 Super VL. It is a different answer to DeepSeek's question: drop most attention layers instead of compressing them, then add vision."
+domains: [llm, ssm, moe, multimodal]
+steps:
+  - transformer-block
+  - mha
+  - kv-cache
+  - gqa
+  - mamba-2
+  - hybrid-ssm-attention
+  - moe
+  - deepseek-moe
+  - nemotron-3-nano
+  - latent-moe
+  - mtp
+  - fp8-training
+  - nvfp4
+  - nemotron-3-super
+  - c-radio
+  - vision-language-connector
+  - nemotron-3-5-super-vl
+status: draft
+updated: 2026-10-16
+---
+
+NVIDIA's Nemotron 3 models face the same two pressures as the [[deepseek-lineage]]. The [[kv-cache]] limits how long and how many conversations a model can serve. Dense feed-forward layers make every parameter cost compute on every token. The answers differ where it matters most.
+
+For attention, DeepSeek keeps attention in every layer and compresses it ([[mla]], then [[dsa]]). Nemotron replaces most attention layers with [[mamba-2]], whose state doesn't grow with context, and keeps a few [[gqa]] layers as anchors. That is the [[hybrid-ssm-attention]] design.
+
+For the feed-forward layer, both families start from [[moe]] with fine-grained and shared experts ([[deepseek-moe]]), and that is where [[nemotron-3-nano]] sits. [[nemotron-3-super]] then adds [[latent-moe]], which shrinks the width the experts work in so more of them can be active. It also adds [[mtp]], the same extra objective DeepSeek-V3 uses, and pretrains in [[nvfp4]], a 4-bit successor to [[fp8-training]].
+
+The last stretch adds vision. [[nemotron-3-5-super-vl]] keeps Super's backbone and adds a [[c-radio]] image encoder joined by a [[vision-language-connector]].
+
+The first four steps are shared with the DeepSeek path. If you've read that, start at [[mamba-2]].

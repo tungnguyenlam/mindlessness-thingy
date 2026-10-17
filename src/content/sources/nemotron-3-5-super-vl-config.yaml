@@ -1,0 +1,8 @@
+title: NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16 config.json (Hugging Face)
+short: Nemotron 3.5 Super VL config
+authors: NVIDIA
+year: 2026
+url: https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16/blob/main/config.json
+type: config
+accessed: 2026-10-16
+notes: Language backbone settings live under llm_config, vision encoder under vision_config. layers_block_type lists the 88 layers in order.

@@ -1,0 +1,142 @@
+---
+title: "StableHand"
+kind: system
+summary: "A NeurIPS 2026 flow-matching model that recovers world-space motion of both hands from egocentric video. It trusts each wrist and finger estimate only as far as a learned quality score allows."
+domains: [vision, hands, generative, robotics]
+prerequisites: [flow-matching, dit, mano]
+builds_on: []
+contrasts_with: []
+related: [rope, adaln]
+sources: [stablehand-paper, stablehand-repo, stablehand-enhanced-docs, stablehand-dit-hot3d-config, wilor-paper, depth-anything-3-paper, hot3d-paper, arctic-paper]
+status: draft
+updated: 2026-10-16
+---
+
+StableHand isn't a language model. It reads first-person (egocentric) video and outputs a 3D trajectory for both hands in world coordinates. Per-frame hand estimators fail exactly when the data is most useful: when a hand leaves the view or is hidden behind the object it is holding. StableHand fills those gaps from a learned prior of two-handed motion, so that large collections of human video can supervise robot learning <Cite id="stablehand-repo" where="README, Highlight" />.
+
+The core trick is to decide, per frame and per body part, how far to trust the observation. That decision then shapes the [[flow-matching]] process itself, not just its inputs.
+
+## The pipeline
+
+<ArchDiagram
+  title="StableHand from video to hand motion"
+  caption="Two frozen off-the-shelf models produce noisy observations. A quality network scores them. The DiT keeps trusted parts close to the observation and regenerates the rest. Click a block to open its note."
+  blocks={[
+    { id: 'vid', label: 'Egocentric video', sub: '150-frame clips', role: 'activation', col: 1, row: 0 },
+    { id: 'wilor', label: 'WiLoR (frozen)', sub: 'per-frame MANO hands', role: 'weight', col: 0, row: 1, link: 'mano' },
+    { id: 'da3', label: 'Depth Anything 3 (frozen)', sub: 'camera pose + scene token', role: 'weight', col: 2, row: 1 },
+    { id: 'obs', label: 'World-frame observation ȳ', sub: 'T × 108', role: 'activation', col: 1, row: 2 },
+    { id: 'qn', label: 'Quality network', sub: '4 scores per frame', role: 'weight', col: 0, row: 3 },
+    { id: 'q', label: 'Quality q̃', sub: 'in [0, 1]', role: 'activation', col: 0, row: 4 },
+    { id: 'init', label: 'Mixed start x₀', sub: 'q̃·ȳ + (1 − q̃)·ε', role: 'op', col: 1, row: 4 },
+    { id: 'dit', label: 'DiT denoiser', sub: '8 blocks · 20 Euler steps', role: 'weight', col: 1, row: 5, link: 'dit' },
+    { id: 'out', label: 'Hand motion x', sub: 'T × 108, world frame', role: 'activation', col: 1, row: 6 },
+  ]}
+  edges={[
+    { from: 'vid', to: 'wilor' },
+    { from: 'vid', to: 'da3' },
+    { from: 'wilor', to: 'obs' },
+    { from: 'da3', to: 'obs', label: 'camera pose' },
+    { from: 'obs', to: 'qn' },
+    { from: 'qn', to: 'q' },
+    { from: 'q', to: 'init' },
+    { from: 'obs', to: 'init' },
+    { from: 'init', to: 'dit' },
+    { from: 'q', to: 'dit', label: 'AdaLN' },
+    { from: 'da3', to: 'dit', side: 'right', label: 'cross-attn' },
+    { from: 'dit', to: 'out' },
+  ]}
+/>
+
+Each hand's state per frame is 54 numbers: a 3D world translation, a 6D wrist rotation, and 45 [[mano]] finger joint angles. Two hands make 108 per frame <Cite id="stablehand-paper" where="§3" />. WiLoR <Cite id="wilor-paper" /> provides a noisy per-frame estimate of the same 54 numbers in camera coordinates, plus a visual feature. Depth Anything 3 <Cite id="depth-anything-3-paper" /> provides the camera pose that lifts those estimates into the world frame. Both stay frozen <Cite id="stablehand-paper" where="§3, App. A" />.
+
+<Spec
+  title="StableHand (paper version) at a glance"
+  rows={[
+    { label: 'Output per frame', value: '2 hands × 54 = 108', source: 'stablehand-paper', where: '§3' },
+    { label: 'Clip length', value: '150 frames', source: 'stablehand-paper', where: '§4.1' },
+    { label: 'Quality channels per frame', value: '4 (wrist, fingers × left, right)', source: 'stablehand-paper', where: '§3.1' },
+    { label: 'Tokens per frame', value: 4, source: 'stablehand-paper', where: '§3.3' },
+    { label: 'DiT blocks / width / heads', value: '8 / 512 / 8', source: 'stablehand-paper', where: 'App. A' },
+    { label: 'Quality network', value: '4 layers, width 256, 4 heads', source: 'stablehand-paper', where: 'App. A' },
+    { label: 'Parameters', value: '70.7M (DiT 66.8M, QN 3.6M)', source: 'stablehand-paper', where: 'App. A' },
+    { label: 'Sampler', value: '20 Euler steps', source: 'stablehand-paper', where: '§4.1' },
+    { label: 'Training', value: '1 H100, 6–8 h per benchmark', source: 'stablehand-paper', where: 'App. A' },
+    { label: 'Time per clip (all stages)', value: '27.29 s, of which DiT 0.23 s', source: 'stablehand-paper', where: 'App. D, Tabs. 8–9' },
+  ]}
+/>
+
+The last row shows that the generative part is cheap. Almost all the time goes to the two frozen upstream models.
+
+## Scoring each observation
+
+A single trust score per frame would be too coarse. Wrist error is dominated by global translation drift on the scale of tens of millimetres, while finger error lives at the millimetre scale <Cite id="stablehand-paper" where="§3.1" />. So each frame gets four scores, for the wrist and fingers of each hand.
+
+During training, a score comes from the measured error $e$ through $q = \exp(-e/\sigma)$. The bandwidth $\sigma$ is set to the 80th-percentile error divided by $\ln 10$, so the worst 20% of frames score below 0.1. Frames with no detection score 0 <Cite id="stablehand-paper" where="Eqs. 1–3, §3.1" />.
+
+At test time there is no ground truth, so a small transformer, the quality network, predicts the error in millimetres from the world-frame observation, a detection flag and the camera pose. It is deliberately not shown WiLoR's visual features, which let it learn a dataset-specific shortcut. It is trained on about 10M frames from 8 egocentric datasets, with an extra Wasserstein loss that keeps its predictions from collapsing toward the mean <Cite id="stablehand-paper" where="§3.2, Eqs. 5–7" />.
+
+## Quality-aware flow matching
+
+This is what's new. Standard [[flow-matching]] moves every coordinate from noise $\varepsilon$ to data $x_1$ along the same straight line, $x_\tau = \tau x_1 + (1-\tau)\varepsilon$, and trains the network to predict the velocity $x_1 - \varepsilon$. StableHand broadcasts the four scores to all 108 coordinates as $\tilde q$ and gives each coordinate its own schedule <Cite id="stablehand-paper" where="Eq. 8" />:
+
+$$
+\alpha(\tau, \tilde q) = 1 - (1-\tau)(1-\tilde q), \qquad x_\tau = \alpha \odot x_1 + (1-\alpha) \odot \varepsilon, \qquad u_\tau = (1-\tilde q) \odot (x_1 - \varepsilon)
+$$
+
+With $\tilde q = 0$ this is ordinary flow matching. With $\tilde q = 1$ the coordinate sits at the data from the start and its target velocity is zero. Everything in between starts partly formed and has less distance to travel.
+
+<Calc
+  title="One coordinate's schedule"
+  inputs={[
+    { id: 'q', label: 'Quality q̃', min: 0, max: 1, step: 0.05, value: 0.6 },
+    { id: 't', label: 'Flow time τ', min: 0, max: 1, step: 0.05, value: 0 },
+  ]}
+  outputs={[
+    { label: 'Weight on clean motion α', expr: '1 - (1 - t) * (1 - q)', format: 'percent', role: 'activation' },
+    { label: 'Weight on noise 1 − α', expr: '(1 - t) * (1 - q)', format: 'percent', role: 'activation' },
+    { label: 'Target speed relative to plain flow matching', expr: '1 - q', format: 'percent', role: 'op' },
+  ]}
+  note="At τ = 0 the weight on clean motion equals q̃. That is why sampling can start from q̃·observation + (1 − q̃)·noise and match training exactly."
+/>
+
+Sampling uses the same idea. Instead of starting every coordinate from pure noise, it starts from $x_0 = \tilde q \odot \bar y + (1-\tilde q) \odot \varepsilon$, a per-coordinate mix of the observation and noise. That matches the training distribution at $\tau = 0$ because $\alpha(0, \tilde q) = \tilde q$. It then integrates the learned velocity with 20 Euler steps <Cite id="stablehand-paper" where="Eq. 11, §3.3, §4.1" />. The paper contrasts this with SDEdit-style editing, which starts every coordinate from one shared noise level <Cite id="stablehand-paper" where="§3.3" />.
+
+## The denoiser
+
+The [[dit]] gets four tokens per frame (left wrist, left fingers, right wrist, right fingers) and runs temporal self-attention with [[rope]] over all $4T$ tokens. Cross-attention brings in the scene token, camera pose and per-hand observations. The quality scores enter through [[adaln]]: each token's modulation comes from $\text{MLP}_\tau(\tau) + \text{MLP}_q(\tilde q_t)$, so wrist and finger tokens are updated at different strengths <Cite id="stablehand-paper" where="§3.3" />. There is no classifier-free guidance.
+
+<Spec
+  title="What each piece is worth (HOT3D, W-MPJPE in mm, lower is better)"
+  rows={[
+    { label: 'Full model', value: 57.83, source: 'stablehand-paper', where: 'Tab. 3' },
+    { label: 'Plain flow matching (q̃ = 0 everywhere)', value: 92.32, source: 'stablehand-paper', where: 'Tab. 3' },
+    { label: 'One score per hand instead of two', value: 61.23, source: 'stablehand-paper', where: 'Tab. 3' },
+    { label: 'One token per frame instead of four', value: 118.61, source: 'stablehand-paper', where: 'Tab. 3' },
+    { label: 'Binary detected/missing mask as quality', value: 135.35, source: 'stablehand-paper', where: 'Tab. 3' },
+    { label: 'Ground-truth quality (upper bound)', value: 48.16, source: 'stablehand-paper', where: 'Tab. 3' },
+  ]}
+/>
+
+## Results
+
+On HOT3D <Cite id="hot3d-paper" />, world-space joint error drops to 57.83 mm, from 71.89 mm for HaWoR, the strongest baseline with public code <Cite id="stablehand-paper" where="Tab. 1" />. On ARCTIC <Cite id="arctic-paper" />, it is 124.59 mm against 166.21 mm for HMP-SLAM <Cite id="stablehand-paper" where="Tab. 2" />.
+
+<Callout type="pitfall">
+The regenerated frames are plausible motion, not measurements. Over long stretches of low-quality input the model "may drift toward plausible but not faithfully grounded configurations". The quality signal is also calibrated to one upstream estimator <Cite id="stablehand-paper" where="§5" />. Swapping WiLoR for HaMeR means retraining, and even then the HOT3D error rises to 62.16 mm <Cite id="stablehand-paper" where="App. B.3, Tab. 5" />. If you use the output as robot training data, keep the quality scores alongside it.
+</Callout>
+
+## The released code (and your fork)
+
+The fork at `tungnguyenlam/stablehand` has no changes of its own. It is identical to upstream at commit `0471a45e32` <Cite id="stablehand-repo" />. That code is the September 2026 "enhanced version", not the paper model <Cite id="stablehand-enhanced-docs" />:
+
+- VGGT-Omega replaces Depth Anything 3 for camera poses and scene features.
+- The wrist is predicted as a residual on top of a smoothed WiLoR trajectory, in a gravity-aligned world frame.
+- Each hand's visual feature is projected to a compact vector before conditioning. Joint velocity and acceleration losses replace the wrist-translation loss.
+- The quality network also sees local depth around each hand.
+
+The enhanced model reports 45.19 mm on HOT3D and 92.52 mm on ARCTIC <Cite id="stablehand-enhanced-docs" />. The released DiT config keeps 8 layers and 8 heads with 150-frame clips <Cite id="stablehand-dit-hot3d-config" where="layers, heads, max_len" />. Its feed-forward layers are SwiGLU in code, where the paper says GeGLU. Training code has not been released yet <Cite id="stablehand-repo" where="README, TODO List" />.
+
+## Where it sits on the map
+
+StableHand shares the low-level machinery with the language-model notes: the [[transformer-block]], [[rope]] for positions, and attention. It uses it differently. A language model generates one token at a time and keeps a [[kv-cache]]. StableHand refines a whole 150-frame clip at once over 20 integration steps, so there is nothing to cache between steps. Its own branch of the map runs through [[flow-matching]], [[dit]] and [[adaln]] for generation, and [[mano]] for the hands.
