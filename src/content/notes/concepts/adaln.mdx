@@ -8,8 +8,68 @@ builds_on: []
 contrasts_with: []
 related: []
 sources: [dit-paper]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+A [[transformer-block]] applies the same function to every token, so a single conditioning vector — a noise level, a class label, a quality score — has nowhere natural to enter. Appending it as an extra token works, but it changes the sequence itself. Adaptive layer norm (adaLN) takes a different route: a small MLP maps the condition to the scale and shift that follow each normalization, so the condition reaches every sublayer of every block <Cite id="dit-paper" where="§3.2" />.
+
+<ArchDiagram
+  title="The condition becomes the scale and shift after every normalization"
+  caption="The condition never joins the token sequence. It only produces the two vectors that follow Norm, so the block runs the same weights on the same tokens but normalizes them to the condition."
+  blocks={[
+    { id: 'cond', label: 'Condition c', sub: 'd_c', role: 'activation' },
+    { id: 'mlp', label: 'Modulation MLP', sub: 'd_c → 2d', role: 'weight' },
+    { id: 'h', label: 'Hidden state h', sub: 'T × d', role: 'activation', link: 'transformer-block' },
+    { id: 'norm', label: 'Norm(h)', sub: 'T × d', role: 'op', link: 'transformer-block' },
+    { id: 'mod', label: 'Scale and shift', sub: 'T × d', role: 'activation' },
+    { id: 'out', label: 'Sublayer input', sub: 'T × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'cond', to: 'mlp' },
+    { from: 'mlp', to: 'mod', label: 'γ, β' },
+    { from: 'h', to: 'norm' },
+    { from: 'norm', to: 'mod' },
+    { from: 'mod', to: 'out' },
+  ]}
+/>
+
+## How it works
+
+Plain layer norm computes statistics per token and then scales and shifts with two learned constants. adaLN keeps the normalization and makes those two vectors functions of the condition $c$, of width $d_c$; they carry the hidden width $d$.
+
+$$
+\mathrm{adaLN}(h, c) = \gamma(c) \odot \mathrm{Norm}(h) + \beta(c)
+$$
+
+$\gamma(c)$ decides how much of the normalized signal passes on, $\beta(c)$ adds the offset. Both come from one small MLP applied to the condition alone, so the modulation is the same for every token in the block: the condition changes what the block computes, not the tokens it sees <Cite id="dit-paper" where="§3.2" />.
+
+Nothing is inserted into or removed from the sequence, the last norm before the head is conditioned too <Cite id="dit-paper" where="§3.2" />, and the condition can be swapped at inference time without touching the weights. [[dit]] uses this to feed the noise level and class label to all of its blocks.
+
+## AdaLN-Zero
+
+DiT's preferred block goes one step further <Cite id="dit-paper" where="§3.2" />. Next to $\gamma$ and $\beta$ it also regresses a per-dimension gate $\alpha(c)$, applied right before each residual addition, and the modulation MLP is initialised to output zeros. Every gate therefore starts at zero and the block starts as the identity: at the beginning of training the network adds a residual to its own input instead of first having to unlearn a random transformation.
+
+<Stepper title="One block with adaLN-Zero">
+  <Step title="Regulate from the condition">
+    The timestep and class label are embedded, summed, and pushed through the block's modulation MLP, which returns three vectors of the hidden width: $\gamma$, $\beta$ and the gate $\alpha$.
+  </Step>
+  <Step title="Normalize and modulate">
+    Norm runs over the tokens as usual; its output is scaled by $\gamma(c)$ and shifted by $\beta(c)$ before the sublayer sees it.
+  </Step>
+  <Step title="Gate the residual">
+    Attention or the feed-forward network runs, its output is multiplied by $\alpha(c)$, and the result is added to the residual stream. With $\alpha = 0$ at initialisation the block passes its input straight through.
+  </Step>
+</Stepper>
+
+Initialisation is what separates it from plain adaLN: the paper reports adaLN-Zero clearly ahead of vanilla adaLN, cross-attention and in-context conditioning, while adding negligible compute <Cite id="dit-paper" where="§5, Fig. 5" />.
+
+## What it costs
+
+The modulation is one small MLP per block, and of DiT's conditioning designs adaLN adds the least compute <Cite id="dit-paper" where="§3.2" />. Attention still sees exactly $T$ tokens, so sequence length and attention cost are unchanged.
+
+The limit is the same feature read backwards: one modulation vector serves the whole block, so every token is conditioned identically <Cite id="dit-paper" where="§3.2" />. Anything that must vary per token — an image, a scene, an observation — has to arrive by another route, such as cross-attention.
+
+<Callout type="pitfall">
+adaLN does not inject content. It changes how a block reads the tokens it already has; the condition itself never becomes something the model can attend to. Keep it for scalar or per-sequence conditions, and reach for cross-attention when the condition is itself a sequence.
+</Callout>

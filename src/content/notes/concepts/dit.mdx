@@ -8,8 +8,64 @@ builds_on: []
 contrasts_with: []
 related: [flow-matching]
 sources: [dit-paper]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+A diffusion or flow model needs a network that maps a noisy sample and its noise level back to the clean signal. In vision that job went to a convolutional U-Net by default <Cite id="dit-paper" where="§1" />. DiT swaps it for a plain [[transformer-block]] over image patches: the latent becomes a sequence, the noise level and class label enter every block through [[adaln]], and a linear head turns the tokens back into a prediction.
+
+<ArchDiagram
+  title="Image patches through the blocks, condition beside them"
+  caption="Patchify decides the sequence length T = (I/p)². The timestep and label never join the tokens; they modulate each block through adaLN instead."
+  blocks={[
+    { id: 'img', label: 'Latent image', sub: 'I × I × C', role: 'activation' },
+    { id: 'patch', label: 'Patchify', sub: 'p × p → d', role: 'weight' },
+    { id: 'tok', label: 'Tokens', sub: 'T × d', role: 'activation' },
+    { id: 'cond', label: 'Timestep t, class c', sub: 'd_c', role: 'activation' },
+    { id: 'adaln', label: 'AdaLN modulation', sub: 'γ, β, α', role: 'activation', link: 'adaln' },
+    { id: 'blocks', label: 'DiT blocks', sub: 'L blocks', role: 'weight', link: 'transformer-block' },
+    { id: 'head', label: 'Linear head', sub: 'd → p × p × C', role: 'weight' },
+    { id: 'out', label: 'Predicted noise', sub: 'I × I × C', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'img', to: 'patch' },
+    { from: 'patch', to: 'tok' },
+    { from: 'tok', to: 'blocks' },
+    { from: 'cond', to: 'adaln' },
+    { from: 'adaln', to: 'blocks' },
+    { from: 'blocks', to: 'head' },
+    { from: 'head', to: 'out' },
+  ]}
+/>
+
+## Patches in, prediction out
+
+The input is a latent $z$ of shape $I \times I \times C$ — in the paper, a frozen VAE's compressed image. Patchify cuts it into $p \times p$ patches and embeds each with one linear layer, giving
+
+$$
+T = (I / p)^2
+$$
+
+tokens of width $d$, followed by a sine-cosine positional embedding <Cite id="dit-paper" where="§3.2, Fig. 4" />. Each block mixes them with self-attention and a feed-forward network, with [[transformer-block]]'s usual residuals, while [[adaln]] sets the scale and shift from the timestep and label. The final norm and a linear layer decode every token back into a patch, and the tokens are rearranged into the spatial grid <Cite id="dit-paper" where="§3.2" />. In the paper's diffusion setup the head predicts noise and covariance, $2C$ channels per patch.
+
+## What changes from a U-Net
+
+An image U-Net is convolutional, mostly ResNet blocks, with spatial self-attention only at the lowest resolutions <Cite id="dit-paper" where="§1" />. DiT drops the down- and upsampling and keeps one width for every token. The paper's reading: the U-Net's inductive bias was not the essential part — forward-pass compute is what predicts quality, more Gflops for lower FID <Cite id="dit-paper" where="§5, Fig. 8" />.
+
+<Spec
+  title="The DiT design space"
+  rows={[
+    { label: 'DiT-S', value: '12 layers · d = 384 · 6 heads', source: 'dit-paper', where: 'Table 1' },
+    { label: 'DiT-B', value: '12 layers · d = 768 · 12 heads', source: 'dit-paper', where: 'Table 1' },
+    { label: 'DiT-L', value: '24 layers · d = 1024 · 16 heads', source: 'dit-paper', where: 'Table 1' },
+    { label: 'DiT-XL', value: '28 layers · d = 1152 · 16 heads', source: 'dit-paper', where: 'Table 1' },
+    { label: 'Patch sizes p', value: '2, 4, 8', source: 'dit-paper', where: '§3.2' },
+    { label: 'Best FID, ImageNet 256', value: '2.27 (DiT-XL/2 with guidance)', source: 'dit-paper', where: '§5.1, Table 2' },
+  ]}
+/>
+
+## What it costs
+
+Patch size is the compute dial. Halving $p$ quadruples $T$ and at least quadruples the transformer's Gflops, while parameter counts barely move <Cite id="dit-paper" where="§3.2, Fig. 4" />. Conditioning is the other dial: in-context tokens add almost nothing, adaLN adds almost nothing, and cross-attention adds about 15% <Cite id="dit-paper" where="§3.2" /> — yet adaLN-Zero wins on quality anyway <Cite id="dit-paper" where="§5, Fig. 5" />.
+
+A DiT predicts one signal from one noisy input. What turns that prediction into a generator is the training objective and the sampler around it, which is where [[flow-matching]] comes in.

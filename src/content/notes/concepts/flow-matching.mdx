@@ -8,8 +8,85 @@ builds_on: []
 contrasts_with: []
 related: [dit]
 sources: [flow-matching-paper]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Diffusion models learn by reversing a gradual noising process, and sampling means simulating that process step by step. Flow matching replaces the stochastic story with a fixed path: draw a noise point $x_0$ and a data point $x_1$, join them with a straight line, and train a network — typically a [[dit]] — to predict the velocity along it. Generation then becomes one ODE integration.
+
+<ArchDiagram
+  title="One path per pair: the target velocity is the slope"
+  caption="The network sees a point on the line and must return the line's slope. Averaged over many pairs, those slopes become a single field that carries noise to data."
+  blocks={[
+    { id: 'x0', label: 'Noise x_0', sub: 'd', role: 'activation' },
+    { id: 'x1', label: 'Data x_1', sub: 'd', role: 'activation' },
+    { id: 'path', label: 'Point on the path', sub: 'mix of x_0 and x_1', role: 'op' },
+    { id: 'net', label: 'Velocity network', sub: 'x_t, t → d', role: 'weight', link: 'dit' },
+    { id: 'target', label: 'Target velocity u_t', sub: 'x_1 − x_0', role: 'activation' },
+    { id: 'pred', label: 'Regression output', sub: 'd', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x0', to: 'path' },
+    { from: 'x1', to: 'path' },
+    { from: 'path', to: 'net' },
+    { from: 'path', to: 'target' },
+    { from: 'net', to: 'pred' },
+    { from: 'target', to: 'pred' },
+  ]}
+/>
+
+## The straight path
+
+Nothing is simulated during training. The path is fixed in advance: sample $x_1$ from the data and $x_0$ from noise, and interpolate — this is the optimal-transport member of the paper's family of Gaussian paths <Cite id="flow-matching-paper" where="§4.1, Eqs. 20–23" />.
+
+$$
+x_t = (1 - t)\, x_0 + t\, x_1, \qquad u_t = \frac{d x_t}{d t} = x_1 - x_0
+$$
+
+$t$ runs from noise at $0$ to data at $1$. Along this line the velocity never turns: it is the same difference vector at every $t$ <Cite id="flow-matching-paper" where="§4.1, Fig. 2" />. So wherever the network lands on the line, the answer it owes is $x_1 - x_0$, and training is a plain regression:
+
+$$
+\mathcal{L}(\theta) = \mathbb{E}_{t,\, x_0,\, x_1}\; \left\| v_\theta(x_t, t) - (x_1 - x_0) \right\|^2
+$$
+
+The loss is the flow-matching objective <Cite id="flow-matching-paper" where="§3, Eq. 5; §4.1, Eq. 23" />.
+
+## A target that is always available
+
+The velocity that carries the whole noise distribution onto the whole data distribution is exactly what has to be learned, so it cannot be the training target. Flow matching trains on pairs instead: for a drawn pair the velocity is available in closed form, and the paper proves that regressing these conditional velocities gives the same gradients as regressing the marginal one <Cite id="flow-matching-paper" where="§3.2, Thm. 2" />. Training never simulates a forward process; it samples $t$, noise and data, and regresses <Cite id="flow-matching-paper" where="Abstract" />.
+
+<Callout type="intuition">
+The network is never told which pair it is being shown. Each pair pulls its own line, and the field the network converges to is the average of all those pulls: at any point $x_t$ it points toward the data the training pairs had at that spot <Cite id="flow-matching-paper" where="§3.1, Thm. 1" />.
+</Callout>
+
+## Sampling
+
+At generation time there is no pair, only a noise draw. The learned field defines an ODE, and generation is integrating it from the noise end to the data end <Cite id="flow-matching-paper" where="§6.2" />.
+
+<Stepper title="One sample, integrated in Euler steps">
+  <Step title="Draw the starting point">
+    Sample $x \sim \mathcal{N}(0, I)$ at $t = 0$ — the noise end of the path.
+  </Step>
+  <Step title="Take one step">
+    Evaluate the field, then move $x \leftarrow x + h\, v_\theta(x, t)$ and $t \leftarrow t + h$ for a step size $h$.
+  </Step>
+  <Step title="Repeat to the data end">
+    After a handful of steps $t$ reaches $1$ and $x$ is the sample. Any ODE solver — midpoint, adaptive — swaps in for Euler at the same cost per evaluation.
+  </Step>
+</Stepper>
+
+Because the straight path keeps one direction, trajectories do not overshoot and backtrack the way diffusion paths can <Cite id="flow-matching-paper" where="§4.1, Fig. 3" />, and the paper reports that its OT-path models reach the same numerical error as diffusion models with roughly 60% of the function evaluations <Cite id="flow-matching-paper" where="§6.2, Fig. 7" />.
+
+## What it costs
+
+The path is chosen, not learned: whatever path is fixed is the one the network is trained to follow. The paper's own ablation shows the choice matters — with the same objective and architecture, the straight OT path beats diffusion paths on likelihood, sample quality and solver cost <Cite id="flow-matching-paper" where="§6.1, Table 1" />. Sampling is deterministic, so a solver that is too coarse shows up directly in the sample. The counts below are what the paper's adaptive solver needed at a 1e-5 tolerance <Cite id="flow-matching-paper" where="§6" />.
+
+<Spec
+  title="Function evaluations to generate one sample"
+  rows={[
+    { label: 'FM with OT path, CIFAR-10', value: '142', source: 'flow-matching-paper', where: 'Table 1' },
+    { label: 'DDPM, CIFAR-10', value: '274', source: 'flow-matching-paper', where: 'Table 1' },
+    { label: 'FM with OT path, ImageNet 32', value: '122', source: 'flow-matching-paper', where: 'Table 1' },
+    { label: 'FM with diffusion path, ImageNet 32', value: '193', source: 'flow-matching-paper', where: 'Table 1' },
+  ]}
+/>

@@ -8,8 +8,63 @@ builds_on: []
 contrasts_with: []
 related: []
 sources: [mano-paper]
-status: stub
-updated: 2026-10-16
+status: draft
+updated: 2026-10-17
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Hand-pose estimators rarely output a triangle mesh directly. They output a small vector of numbers, and a fixed model turns that vector into a mesh — the way [[stablehand]] predicts a hand's parameters rather than its geometry. MANO is that model: pose and shape parameters in, a posed hand mesh out <Cite id="mano-paper" where="§3" />.
+
+<ArchDiagram
+  title="Pose and shape parameters become a hand mesh"
+  caption="One learned model sits in the middle: it deforms a template by shape and pose, regresses joint locations from the vertices, and skins the result to the skeleton."
+  blocks={[
+    { id: 'theta', label: 'Pose parameters θ', sub: 'joint rotations', role: 'activation' },
+    { id: 'beta', label: 'Shape parameters β', sub: 'PCA coefficients', role: 'activation' },
+    { id: 'fwd', label: 'MANO forward pass', sub: 'θ, β → vertices', role: 'weight' },
+    { id: 'mesh', label: 'Hand mesh', sub: 'posed surface', role: 'activation' },
+    { id: 'joints', label: 'Joint locations', sub: 'kinematic tree', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'theta', to: 'fwd' },
+    { from: 'beta', to: 'fwd' },
+    { from: 'fwd', to: 'mesh' },
+    { from: 'mesh', to: 'joints' },
+  ]}
+/>
+
+## How it works
+
+MANO follows the SMPL recipe <Cite id="mano-paper" where="§3, Eqs. 1–2" />. A template mesh is displaced by two learned sets of vertex offsets — shape blend shapes $B_S(\beta)$, which vary identity, and pose blend shapes $B_P(\theta)$, which correct what plain skinning gets wrong — then posed and skinned:
+
+$$
+M(\beta, \theta) = W\Big(\bar{T} + B_S(\beta) + B_P(\theta),\; J(\beta),\; \theta, \mathcal{W}\Big)
+$$
+
+$\bar{T}$ is the template, $J(\beta)$ the joint locations, which a sparse linear regressor predicts from the vertices, and $\mathcal{W}$ the skinning weights. Rotations are axis-angle, one triple per joint <Cite id="mano-paper" where="§3.3" />. The pose blend shapes matter: linear blend skinning collapses at the knuckles, and the learned corrections restore the bulge of bent fingers <Cite id="mano-paper" where="§3, Fig. 9; §5.1" />.
+
+## The parameter set
+
+Everything a downstream system regresses lives in $\beta$ and $\theta$. The paper states some counts and leaves others unstated; the ones worth quoting are below.
+
+<Spec
+  title="What the paper states about MANO"
+  rows={[
+    { label: 'Joints', value: '15 finger joints plus the global orientation', source: 'mano-paper', where: '§3.3' },
+    { label: 'Finger pose numbers', value: '45 = 3 × 15 axis-angle (derived)', source: 'mano-paper', where: '§3.3' },
+    { label: 'Training data', value: '2018 scans from 31 subjects; 1554 kept', source: 'mano-paper', where: '§3.1, §3.3' },
+    { label: 'Pose space compactness', value: '6 components capture 81% of the variance', source: 'mano-paper', where: '§5.1, Fig. 12' },
+    { label: 'Full-pose fit error', value: '0.93 mm scan-to-mesh', source: 'mano-paper', where: '§5.1, Fig. 13' },
+  ]}
+/>
+
+Downstream systems regress the two vectors themselves. The pose vector $\theta$ holds three axis-angle numbers per joint — 45 in total for the 15 finger joints, plus the global orientation — while $\beta$ holds the shape coefficients <Cite id="mano-paper" where="§3.3" />. The paper never states how many shape coefficients the released model keeps or how many vertices the template has; both are left unverified here.
+
+## Where it stops
+
+The pose space is linear and low-dimensional, which is the point and also the limit. The paper's own failure cases are poses that fall outside that space, and hands holding objects: contact and object interaction are not part of the model <Cite id="mano-paper" where="§5.2, Fig. 16" />. What comes out is a parametric mesh — parameters in, a posed surface and joints out.
+
+The payoff is the reason it became standard output: a fixed, differentiable, animation-ready mesh with joints, from a few dozen numbers <Cite id="mano-paper" where="§6" />.
+
+<Callout type="pitfall">
+Predicting MANO parameters and predicting a mesh are not interchangeable tasks. A system trained to output $\theta$ can only produce meshes MANO can represent — a clenched fist around an object, or a pose outside the PCA space, will be flattened into the nearest expressible hand no matter how good the estimator is.
+</Callout>
