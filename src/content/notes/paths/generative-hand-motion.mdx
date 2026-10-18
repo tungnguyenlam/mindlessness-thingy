@@ -1,7 +1,7 @@
 ---
 title: "From transformers to generated hand motion"
 kind: path
-summary: "From the transformer block to StableHand: how a flow-matching DiT, conditioned through AdaLN, turns noisy per-frame hand estimates from video into smooth two-handed motion."
+summary: "From the transformer block to StableHand and FlowHOI: how flow-matching DiTs conditioned through AdaLN recover and synthesize bimanual MANO trajectories and 6D object interactions."
 domains: [generative, vision, hands]
 prerequisites: []
 builds_on: []
@@ -17,18 +17,19 @@ steps:
   - dit
   - mano
   - stablehand
+  - flowhoi
 status: draft
-updated: 2026-10-18
+updated: 2026-10-19
 ---
 
-The other paths end at a language model that predicts the next token. This one ends at a model that predicts a whole clip of motion at once. It reuses the same [[transformer-block]], but trains it to undo noise instead of to continue text.
+The other paths end at a language model that predicts the next token. This one ends at models that predict a whole clip of 3D hand motion at once. They reuse the same [[transformer-block]], but train it to undo noise instead of to continue text.
 
-<Timeline path="generative-hand-motion" caption="The one model on this path so far and the ideas it adds. Its stages and numbers come from its model data (hover for the source)." />
+<Timeline path="generative-hand-motion" caption="The two bimanual hand-motion pipelines on this path and the ideas each adds. Their stages and numbers come from their model data (hover for the source)." />
 
 The first three steps are shared with the language-model paths: the block, [[mha]] and [[rope]]. Here attention isn't causal, so every frame can see the whole clip and there is no cache to keep.
 
 The next three are the generative part. [[flow-matching]] says what the network learns: the velocity that carries noise to data. [[adaln]] says how a condition such as the flow time enters every block, through the scale and shift after each norm. [[dit]] puts the two together into a denoiser.
 
-[[mano]] is the output format: a few pose and shape numbers per hand that a fixed model turns into a mesh. [[stablehand]] combines all of it and adds one new idea, a learned trust score per wrist and finger that decides how much of each observation the flow keeps.
+[[mano]] is the output format: pose and shape parameters per hand that a fixed skinning model turns into a 3D mesh. [[stablehand]] combines these pieces to recover two-handed motion from noisy video tracks using a learned trust score per wrist and finger. [[flowhoi]] uses the same 8-block `AXD` DiT skeleton to synthesize coupled bimanual hand and 6D object trajectories from a first RGB frame, a language prompt, and a 3D Gaussian Splatting scene in two stages.
 
 If you have read a language-model path, start at [[flow-matching]].

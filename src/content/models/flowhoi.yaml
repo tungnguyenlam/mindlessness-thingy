@@ -1,0 +1,45 @@
+# FlowHOI as described in the paper (arXiv:2602.13444v1) and official code/configs.
+# Stage 1 (Grasping DiT, d = 256) and Stage 2 (Manipulation DiT, d = 512) share the 8-block AXD
+# architecture; the backbone fields below describe the full-sequence Stage 2 Manipulation DiT.
+title: FlowHOI
+family: flowhoi
+kind: pipeline
+
+input: { v: "First-frame RGB, text command, 3DGS scene", source: flowhoi-paper, where: "§IV-A" }
+output: { v: "Bimanual MANO hands, signed distances, 6D object pose", source: flowhoi-paper, where: "§IV-A, Eqs. 6–8" }
+seq_unit: { v: frame, source: flowhoi-paper, where: "§IV-A" }
+seq_length: { v: 200, source: flowhoi-paper, where: "App. A", note: "50 grasping + 150 manipulation frames; the released configs train with num_frames = 224 and crop to 200 at sampling" }
+tokens_per_step: { v: 1, source: flowhoi-paper, where: "§IV-C", note: "one 117-D hand-object frame token per timestep" }
+output_dim: { v: 117, source: flowhoi-paper, where: "§IV-A, Eqs. 7–8; App. A", note: "2 hands × 54 (3 translation + 6 wrist 6D rot + 24 PCA pose + 21 signed distances) + 9 object pose" }
+
+layers: { v: 8, source: flowhoi-paper, where: "App. A", note: "both the grasping DiT (d = 256) and manipulation DiT (d = 512) use 8 blocks" }
+layer_pattern: { v: "AXD*8", source: flowhoi-paper, where: "§IV-C; App. A", note: "self-attention, cross-attention to text and scene tokens, dense FFN" }
+hidden_size: { v: 512, source: flowhoi-paper, where: "App. A", note: "manipulation DiT; the grasping DiT uses d = 256" }
+
+attention: { v: mha, source: flowhoi-hot3d-config, where: "arch: dit_scene; heads: 8" }
+heads: { v: 8, source: flowhoi-hot3d-config, where: "heads", note: "manipulation DiT; the grasping DiT uses 4 heads (flowhoi-grasp-config)" }
+causal: { v: false, source: flowhoi-paper, where: "§IV-C", note: "bidirectional temporal self-attention across all N frames" }
+
+ffn: { v: dense, source: flowhoi-paper, where: "App. A" }
+ffn_activation: { v: GELU, source: flowhoi-repo, where: "model/hoi_dit_scene.py (MLP uses nn.GELU)" }
+ffn_hidden: { v: 1024, source: flowhoi-paper, where: "App. A", note: "2 × hidden size 512; the grasping DiT uses 512" }
+
+objective: { v: flow-matching, source: flowhoi-paper, where: "§III; §IV-C, Eqs. 18, 25", note: "optimal-transport path with x₁-prediction and velocity derived via Eq. 19" }
+sampler: { v: Euler ODE solver, source: flowhoi-paper, where: "§V-B; App. A" }
+sampling_steps: { v: 50, source: flowhoi-paper, where: "§V-B; App. A" }
+modulation: { v: adaln, source: flowhoi-paper, where: "App. A", note: "adaLN-Zero in model/hoi_dit_scene.py" }
+modulation_from: { v: "MLP(τ) + ViT global scene token S_global", source: flowhoi-paper, where: "§IV-C, Eq. 16; App. A" }
+cross_inputs: { v: "T5-Large text tokens and 256 Perceiver local scene tokens", source: flowhoi-paper, where: "§IV-C, Eq. 15; App. A" }
+
+stages:
+  - { id: rgb, col: 0, row: 0, label: First RGB frame, sub: "initial hands, object", role: activation, source: flowhoi-paper, where: "§IV-A; §IV-C" }
+  - { id: prompt, col: 1, row: 0, label: Text command, sub: "grasp + manipulation", role: op, source: flowhoi-paper, where: "§IV-A; §IV-C" }
+  - { id: gs, col: 2, row: 0, label: 3DGS scene, sub: "N_s Gaussians + voxels", role: activation, source: flowhoi-paper, where: "§IV-A; §IV-C" }
+  - { id: init, col: 0, row: 1, label: WiLoR + SAM3D, sub: "x_init, BPS(M): 256", role: weight, frozen: true, link: mano, from: [rgb], source: flowhoi-paper, where: "§IV-C; App. A" }
+  - { id: t5, col: 1, row: 1, label: T5-Large, sub: text tokens, role: weight, frozen: true, from: [prompt], source: flowhoi-paper, where: "§IV-C; App. A" }
+  - { id: feat3d, col: 2, row: 1, label: Concerto + SceneSplat, sub: "1,536 + 768 per point", role: weight, frozen: true, from: [gs], source: flowhoi-paper, where: "§IV-C, Eq. 11; App. A" }
+  - { id: grasp_dit, col: 0, row: 2, label: Grasping DiT, sub: "8 blocks, d = 256", role: weight, link: dit, from: [init, t5], source: flowhoi-paper, where: "§IV-C, Eq. 17; App. A" }
+  - { id: scene_enc, col: 2, row: 3, label: Gated fusion + Perceiver, sub: "256 local + 1 ViT token", role: weight, from: [feat3d], source: flowhoi-paper, where: "§IV-C, Eqs. 12–16; App. A" }
+  - { id: xg, col: 0, row: 3, label: Grasp prefix x^g, sub: "50 × 108, inpaint τ < 0.9", role: activation, link: flow-matching, from: [grasp_dit], source: flowhoi-paper, where: "§IV-A; §IV-C, Eq. 23" }
+  - { id: manip_dit, col: 1, row: 4, label: Manipulation DiT, role: weight, backbone: true, from: [xg, t5, scene_enc], source: flowhoi-paper, where: "§IV-C, Eqs. 22–24; App. A" }
+  - { id: out, col: 1, row: 5, label: HOI trajectory x, sub: "200 × 117, world frame", role: activation, from: [manip_dit], source: flowhoi-paper, where: "§IV-A, Eq. 6; App. A" }

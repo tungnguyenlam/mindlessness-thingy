@@ -1,0 +1,7 @@
+title: "DiffH2O: Diffusion-Based Synthesis of Hand-Object Interactions from Textual Descriptions"
+short: DiffH2O
+authors: Sammy Christen, Shreyas Hampali, Fadime Sener, Edoardo Remelli, Tomas Hodan, Eric Sauser, Shugao Ma, Bugra Tekin
+year: 2024
+url: https://arxiv.org/abs/2403.17827
+type: paper
+notes: SIGGRAPH Asia 2024. Two-stage diffusion baseline for hand-object interaction generation.

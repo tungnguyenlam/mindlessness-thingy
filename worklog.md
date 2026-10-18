@@ -131,3 +131,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: owner found the note hard to read; rewrote around four ideas (adapter split, observation reuse, ternary kernels, precision flipping a discrete choice) with plain prose that keeps because/so; two new diagrams (ternary matmul, SmolVLA position-embedding index), a robot-loop Calc; tables now use Spec columns; fixed [[vla]] rendering as 'policy policy'; Spec gained columns/values/note; AGENTS.md Writing rules updated
 - files: src/content/notes/systems/vla-cpp.mdx src/components/viz/Spec.astro AGENTS.md .agents/skills/write-article/SKILL.md
 - open: other notes still pack numbers into one Spec value and could move to columns; dropped from the note: four-suite LIBERO, SimplerEnv, ALOHA runs, roofline numbers (still in research/vla-cpp-facts.md)
+
+## 2026-10-19 · content(flowhoi): add pipeline model data, system note and sources
+- did: Added FlowHOI (arXiv:2602.13444, NeurIPS 2026) fact sheet, 6 primary sources, pipeline model YAML, system note with ModelOverview/ModelSpec/ModelDiagram/Compare/Calc/Stepper/ArchDiagrams, and linked it into generative-hand-motion and stablehand.
+- files: research/flowhoi-facts.md, src/content/models/flowhoi.yaml, src/content/notes/systems/flowhoi.mdx, src/content/notes/paths/generative-hand-motion.mdx, src/content/notes/systems/stablehand.mdx, src/content/sources/{flowhoi-paper,flowhoi-repo,flowhoi-hot3d-config,flowhoi-grasp-config,grab-paper,diffh2o-paper}.yaml
+- open: Total parameter count is not reported in the FlowHOI paper or released configs; paper vs. code differences (gated fusion vs. App. A cross-attention, num_frames 224 cropped to 200, max_scene_points 10000 vs. 25000) are documented in the note and fact sheet.

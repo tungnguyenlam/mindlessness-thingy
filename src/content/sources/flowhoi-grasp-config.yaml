@@ -1,0 +1,8 @@
+title: FlowHOI EgoDex grasping prior args.json (Hugging Face)
+short: FlowHOI grasp config
+authors: Huajian Zeng et al.
+year: 2026
+url: https://huggingface.co/huajian-zeng/flowhoi/blob/main/egodex_grasp/args.json
+type: config
+accessed: 2026-10-18
+notes: Configuration of the released EgoDex grasping prior checkpoint.

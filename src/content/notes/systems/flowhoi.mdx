@@ -1,0 +1,282 @@
+---
+title: FlowHOI
+kind: system
+summary: "A two-stage flow-matching DiT that generates bimanual MANO hand and 6D object trajectories from a first RGB frame, a language prompt, and a 3D Gaussian Splatting scene."
+domains: [robotics, generative]
+prerequisites: [flow-matching, dit, adaln, mano]
+builds_on: []
+contrasts_with: []
+related: [stablehand, vla]
+sources: [flowhoi-paper, flowhoi-repo, flowhoi-hot3d-config, flowhoi-grasp-config, grab-paper, diffh2o-paper]
+status: draft
+updated: 2026-10-19
+---
+
+Generating dexterous hand-object interactions (HOI) for robot manipulation requires trajectories that satisfy both fine-grained finger contact on the object surface and collision-free object transport through the surrounding 3D workspace <Cite id="flowhoi-paper" where="§I" />. Prior diffusion generators such as DiffH2O <Cite id="diffh2o-paper" /> condition only on the target object and rely on test-time gradient guidance that takes over $6\text{ s}$ per clip <Cite id="flowhoi-paper" where="§I; Tab. I" />. FlowHOI replaces single-stage guided diffusion with a two-stage [[flow-matching]] [[dit]] that grounds bimanual [[mano]] hands and 6D object poses in a 3D Gaussian Splatting (3DGS) scene and a language instruction in $0.16\text{ s}$ <Cite id="flowhoi-paper" where="§IV; Tab. I" />.
+
+<ModelOverview model="flowhoi" />
+
+Two structural choices define the representation and generator <Cite id="flowhoi-paper" where="§I; §IV" />:
+- **Coupled hand-object token:** each frame packs both hands' [[mano]] parameters, per-joint signed distances to the object mesh, and 6D object pose into a $117$-D token anchored to the object at the transition frame $t_g$ <Cite id="flowhoi-paper" where="§IV-A, Eqs. 6–10" />.
+- **Two-stage $x_1$-predicted flow matching:** a grasping DiT synthesizes the $50$-frame approach prefix on a static object, and a manipulation DiT generates the full $200$-frame clip with subsequence soft inpainting for $\tau < 0.9$ <Cite id="flowhoi-paper" where="§IV-C, Eqs. 17–25" />.
+
+Two further choices ground the trajectory in 3D scenes and scale training to real robots <Cite id="flowhoi-paper" where="§IV-B; §IV-C; §V-E" />:
+- **Hybrid 3DGS and contrastive text grounding:** gated fusion of Concerto geometric and SceneSplat semantic features is compressed by a Perceiver into $256$ local cross-attention tokens alongside a voxel ViT [[adaln]] token and a TMR InfoNCE loss <Cite id="flowhoi-paper" where="§IV-C, Eqs. 11–16, 20–21" />.
+- **EgoDex grasp curation and robot retargeting:** an automated pipeline reconstructs static-object grasp clips from hand-only EgoDex video to pretrain Stage 1, and generated clips retarget to simulated and physical bimanual Franka-Allegro robots <Cite id="flowhoi-paper" where="§IV-B; §V-E" />.
+
+## At a glance
+
+The model card below covers the Stage 2 manipulation backbone (`SceneHOIDiT`); Stage 1 uses the same 8-block `AXD` layout at half the width ($d = 256$, $n_h = 4$, $d_{\text{ff}} = 512$) without 3D scene tokens <Cite id="flowhoi-paper" where="App. A" /><Cite id="flowhoi-grasp-config" where="latent_dim, ff_size, heads" />.
+
+<ModelSpec model="flowhoi" />
+
+Comparing FlowHOI with [[stablehand]] highlights how two bimanual [[mano]] flow-matching pipelines adapt the same 8-block `AXD` [[dit]] skeleton to different tasks: StableHand repairs noisy full-video hand tracks using per-part quality scores, whereas FlowHOI synthesizes coupled hand and object trajectories from a single initial RGB frame, a language prompt, and a 3DGS scene.
+
+<Compare
+  models={["stablehand", "flowhoi"]}
+  onlyDiff
+  caption="Both systems run an 8-block AXD flow-matching DiT with width 512 and 8 query heads, but StableHand denoises 4 per-hand part tokens per frame from full video while FlowHOI generates one coupled 117-D hand-object frame token conditioned on text and a 3DGS scene."
+/>
+
+The table below contrasts the two stages of FlowHOI and records the training settings from the paper and released checkpoints.
+
+<Spec
+  title="Stage 1 (Grasping DiT) vs. Stage 2 (Manipulation DiT)"
+  columns={["Setting", "Stage 1: Grasping", "Stage 2: Manipulation"]}
+  rows={[
+    { label: "Horizon × width", values: ["50 × 108-D", "200 × 117-D"], source: "flowhoi-paper", where: "§IV-A; App. A" },
+    { label: "Backbone (d, d_ff, n_h)", values: ["256, 512, 4", "512, 1,024, 8"], source: "flowhoi-paper", where: "App. A" },
+    { label: "Conditioning", values: ["BPS, T5(T_g), x_init", "BPS, T5(T), S, x^g"], source: "flowhoi-paper", where: "§IV-C, Eqs. 17, 22" },
+    { label: "Training steps", values: ["500K (EgoDex + mocap)", "200K (GRAB / HOT3D)"], source: "flowhoi-paper", where: "§V-B; App. A" },
+    { label: "Optimizer / CFG", values: ["AdamW, lr 1e-4", "CFG scale 2.5 (drop 0.1)"], source: "flowhoi-paper", where: "§V-B; App. A" },
+  ]}
+  note="Trained on a single RTX 6000 Ada (48 GB) GPU. In the released Hugging Face configs, num_frames is 224 during training with grasp_frame = 49, and sampling crops the generated trajectory to 200 frames."
+/>
+
+## Coupled hand-object representation
+
+Predicting hand joints and object pose in independent world coordinates leaves contact implicit: small translation errors detach fingers from the object or drive them inside the mesh <Cite id="flowhoi-paper" where="§IV-A" />. FlowHOI instead couples both hands and the object inside every frame token $\mathbf{x}_t = (\mathbf{H}_t^l, \mathbf{H}_t^r, \mathbf{O}_t) \in \mathbb{R}^D$ ($D = 117$) and anchors hand positions to the object at the grasp-to-manipulation transition frame $t_g = N_g - 1$ <Cite id="flowhoi-paper" where="§IV-A, Eqs. 6–10" />.
+
+<ArchDiagram
+  title="One coupled hand-object frame token x_t (symbols)"
+  blocks={[
+    { id: "anchor", label: "Transition object root", sub: "p^o at frame t_g", role: "cache", col: 0, row: 0 },
+    { id: "obj", label: "Object pose O_t", sub: "p_t^o, r_t^o: D_o", role: "activation", col: 2, row: 0 },
+    { id: "mesh", label: "Posed object mesh M_t", sub: "signed distances s_t^h", role: "op", col: 1, row: 1 },
+    { id: "hl", label: "Left hand state H_t^l", sub: "p̃^l, r^l, θ^l, s^l", role: "activation", col: 0, row: 2, link: "mano" },
+    { id: "hr", label: "Right hand state H_t^r", sub: "p̃^r, r^r, θ^r, s^r", role: "activation", col: 1, row: 2, link: "mano" },
+    { id: "xt", label: "Coupled frame token x_t", sub: "H_t^l ⊕ H_t^r ⊕ O_t: D", role: "activation", col: 1, row: 3 },
+  ]}
+  edges={[
+    { from: "obj", to: "mesh" },
+    { from: "anchor", to: "hl", label: "p_t^l − p_{t_g}^o", dashed: true },
+    { from: "mesh", to: "hl", dashed: true },
+    { from: "mesh", to: "hr", dashed: true },
+    { from: "hl", to: "xt" },
+    { from: "hr", to: "xt" },
+    { from: "obj", to: "xt" },
+  ]}
+  caption="Each frame packs left and right MANO hand states alongside the 6D object pose. Hand root translations are expressed relative to the object position at the grasp transition frame t_g, and each hand state carries per-joint signed distances to the posed object surface."
+/>
+
+At frame $t \in \{0, \dots, N - 1\}$, the object state $\mathbf{O}_t = (\boldsymbol{p}_t^o, \boldsymbol{r}_t^o) \in \mathbb{R}^9$ concatenates 3D translation $\boldsymbol{p}_t^o \in \mathbb{R}^3$ and continuous 6D rotation $\boldsymbol{r}_t^o \in \mathbb{R}^6$ <Cite id="flowhoi-paper" where="§IV-A, Eq. 7" />. Each hand $h \in \{l, r\}$ is represented by a $54$-D vector <Cite id="flowhoi-paper" where="§IV-A, Eq. 8" /><Cite id="flowhoi-repo" where="data_loaders/humanml/utils/data_utils.py" />:
+
+$$
+\mathbf{H}_t^h = \bigl(\tilde{\boldsymbol{p}}_t^h \in \mathbb{R}^3,\; \boldsymbol{r}_t^h \in \mathbb{R}^6,\; \boldsymbol{\theta}_t^h \in \mathbb{R}^{24},\; \mathbf{s}_t^h \in \mathbb{R}^{21}\bigr), \qquad \tilde{\boldsymbol{p}}_t^h = \boldsymbol{p}_t^h - \boldsymbol{p}_{t_g}^o
+$$
+
+Here $\boldsymbol{r}_t^h$ is the global wrist 6D orientation, $\boldsymbol{\theta}_t^h$ holds $24$ [[mano]] articulation coefficients in PCA space, and $\mathbf{s}_t^h$ records the $21$ per-joint signed distances from the hand's 3D joints $\boldsymbol{j}_k^{h,t}$ to the closest point $\Pi_{\mathcal{M}_t}(\boldsymbol{j}_k^{h,t})$ on the posed object mesh $\mathcal{M}_t$ <Cite id="flowhoi-paper" where="§IV-A, Eqs. 8–10" />. Anchoring $\tilde{\boldsymbol{p}}_t^h$ to $\boldsymbol{p}_{t_g}^o$ keeps the static-object grasp phase ($t \le t_g$) in an object-centric frame while allowing the manipulation phase ($t > t_g$) to transport both hands and object coherently <Cite id="flowhoi-paper" where="§IV-A, Eq. 10" />.
+
+<Calc
+  title="Coupled trajectory dimensions across Stage 1 and Stage 2"
+  inputs={[
+    { id: "N", label: "Total clip frames N", min: 100, max: 240, step: 10, value: 200 },
+    { id: "Ng", label: "Grasp prefix frames N_g", min: 20, max: 80, step: 5, value: 50 },
+    { id: "Js", label: "Signed-distance joints per hand J_s", min: 0, max: 21, step: 21, value: 21 },
+  ]}
+  outputs={[
+    { label: "Per-hand dimension (3 + 6 + 24 + J_s)", expr: "33 + Js", format: "number", role: "op" },
+    { label: "Stage 1 frame width D_h (both hands)", expr: "2 * (33 + Js)", format: "number", role: "activation" },
+    { label: "Stage 2 frame width D (both hands + 9-D object)", expr: "2 * (33 + Js) + 9", format: "number", role: "route" },
+    { label: "Stage 1 generated values (N_g × D_h)", expr: "Ng * 2 * (33 + Js)", format: "number", role: "activation" },
+    { label: "Stage 2 manipulated values ((N − N_g) × D)", expr: "(N - Ng) * (2 * (33 + Js) + 9)", format: "number", role: "route" },
+  ]}
+  bars={true}
+  note="Stage 1 predicts only the 108-D bimanual hand states across the first N_g = 50 frames while the object is static; Stage 2 predicts all 117 values across N = 200 frames."
+/>
+
+## Two-stage flow matching and soft inpainting
+
+Training a single network to synthesize both millimeter-accurate pre-grasp closure and long-horizon 3D object transport entangles local object geometry with global scene layout <Cite id="flowhoi-paper" where="§I; §IV-C" />. FlowHOI splits generation at the grasp completion frame $t_g = N_g - 1 = 49$: Stage 1 generates the $N_g = 50$-frame grasping prefix $\mathbf{x}^g \in \mathbb{R}^{N_g \times 108}$ on a static object, and Stage 2 generates the full $N = 200$-frame manipulation trajectory $\mathbf{x}^m \in \mathbb{R}^{N \times 117}$ conditioned on the 3DGS scene <Cite id="flowhoi-paper" where="§IV-C, Eqs. 17–25" />.
+
+<Stepper title="Two-stage x₁-predicted flow matching with subsequence soft inpainting">
+  <Step title="Stage 1 grasp synthesis (τ: 0 → 1)">
+    An MLLM extracts the grasping sub-instruction $T_g$ from the full prompt $T$. Starting from Gaussian noise $\mathbf{x}_0^g \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$, the 8-block Grasping DiT ($d = 256$) integrates 50 Euler steps conditioned on the object BPS encoding, $\mathrm{T5}(T_g)$, and the initial state $\mathbf{x}_{\text{init}}$ from frame $0$ to produce the 50-frame grasp trajectory $\mathbf{x}^g$ and transition state $\mathbf{x}_{t_g}^g$ <Cite id="flowhoi-paper" where="§IV-C, Eq. 17" />.
+  </Step>
+  <Step title="x₁-prediction along the optimal-transport path">
+    Both stages use optimal-transport conditional [[flow-matching]] $\mathbf{x}_\tau = (1 - (1 - \sigma_{\min})\tau)\mathbf{x}_0 + \tau \mathbf{x}_1$ with $\sigma_{\min} = 10^{-4}$. Instead of predicting velocity $\mathbf{v}$ directly—which amplifies high-frequency jitter in 6D rotations—the DiT predicts clean motion $\hat{\mathbf{x}}_1 = f_\theta(\mathbf{x}_\tau, \tau, \mathbf{c})$ and converts it to velocity $\mathbf{v}_\theta(\mathbf{x}_\tau, \tau, \mathbf{c}) = (f_\theta(\mathbf{x}_\tau, \tau, \mathbf{c}) - (1 - \sigma_{\min})\mathbf{x}_\tau) / (1 - (1 - \sigma_{\min})\tau)$ <Cite id="flowhoi-paper" where="§IV-C, Eqs. 18–19; App. B" />.
+  </Step>
+  <Step title="Stage 2 soft inpainting (τ < 0.9)">
+    During the first 45 of 50 Euler steps ($\tau < 0.9$), the Manipulation DiT ($d = 512$) overwrites the prefix $t \le t_g$ of its noisy state $\mathbf{x}_\tau^m$ with the Stage 1 grasp trajectory $\mathbf{x}_{[0, t_g]}^g$ (padded with the static initial object pose $\mathbf{O}_0$), while hard-clamping frame $t_g$ to $\mathbf{x}_{t_g}^g$. Bidirectional self-attention propagates the grasp contact configuration into the manipulation frames $t > t_g$ <Cite id="flowhoi-paper" where="§IV-C, Eqs. 23–24" />.
+  </Step>
+  <Step title="Unmasked full-clip refinement (τ ≥ 0.9)">
+    For the final 5 Euler steps ($\tau \ge 0.9$), prefix replacement is turned off—only the single transition frame $t_g$ remains clamped—so the Manipulation DiT jointly smooths velocities and contact forces across the grasp-to-manipulation boundary <Cite id="flowhoi-paper" where="§IV-C, Eq. 23" />.
+  </Step>
+</Stepper>
+
+Both DiT backbones stack $L = 8$ identical blocks with [[adaln]] modulation, bidirectional [[mha]] temporal self-attention across all frames, cross-attention to conditioning tokens, and a GELU [[transformer-block]] feed-forward network <Cite id="flowhoi-paper" where="§IV-C; App. A" /><Cite id="flowhoi-repo" where="model/hoi_dit_scene.py" />.
+
+<ModelDiagram
+  model="flowhoi"
+  caption="One block of the Stage 2 Manipulation DiT: AdaLN modulates each sublayer using the flow timestep τ and the ViT global scene token S_global, while cross-attention reads the T5 text tokens and 256 Perceiver local scene tokens."
+/>
+
+Along the optimal-transport path $\mathbf{x}_\tau = (1 - (1 - \sigma_{\min})\tau)\mathbf{x}_0 + \tau \mathbf{x}_1$ with $\sigma_{\min} = 10^{-4}$, each stage trains $f_\theta$ with an $x_1$-prediction loss $\mathcal{L}_{\text{flow}} = \mathbb{E}_{\tau, \mathbf{x}_0, \mathbf{x}_1}[\|f_\theta(\mathbf{x}_\tau, \tau, \mathbf{c}) - \mathbf{x}_1\|_2^2]$ and derives the Euler ODE velocity field analytically <Cite id="flowhoi-paper" where="§III, Eqs. 2–3; §IV-C, Eqs. 18–19" />:
+
+$$
+\mathbf{v}_\theta(\mathbf{x}_\tau, \tau, \mathbf{c}) = \frac{f_\theta(\mathbf{x}_\tau, \tau, \mathbf{c}) - (1 - \sigma_{\min})\mathbf{x}_\tau}{1 - (1 - \sigma_{\min})\tau}
+$$
+
+With binary mask $\mathbf{M}_t = 0$ for $t \le t_g$ and $\mathbf{M}_t = 1$ for $t > t_g$, Stage 2 sampling inpaints the Stage 1 prefix for $\tau < 0.9$ while clamping $\bar{\mathbf{x}}_\tau^m[t_g] \leftarrow \mathbf{x}_{t_g}^g$ at every step, and masks its training loss $\mathcal{L}_{\text{flow}}^m = \mathbb{E}[\|\mathbf{M} \odot (f_\theta(\bar{\mathbf{x}}_\tau^m, \tau, \mathbf{c}^m) - \mathbf{x}_1^m)\|_2^2]$ to $t > t_g$ <Cite id="flowhoi-paper" where="§IV-C, Eqs. 23–25" />:
+
+$$
+\bar{\mathbf{x}}_\tau^m = \begin{cases} \mathbf{M} \odot \mathbf{x}_\tau^m + (1 - \mathbf{M}) \odot \mathbf{x}_{[0, t_g]}^g, & \tau < 0.9 \\[4pt] \mathbf{x}_\tau^m, & \tau \ge 0.9 \end{cases}
+$$
+
+Predicting clean coordinates $\mathbf{x}_1$ rather than velocity $\mathbf{v}$ directly reduces positional jerk by $113\times$ and angular jerk by $339\times$ on GRAB <Cite id="flowhoi-paper" where="App. B, Tab. IV" />.
+
+<Spec
+  title="Prediction parameterization ablation on GRAB (Table IV)"
+  columns={["Metric", "v-prediction", "x₁-prediction (FlowHOI)"]}
+  rows={[
+    { label: "Positional jerk (m/s³ ↓)", values: ["4.9721", "0.0438"], source: "flowhoi-paper", where: "App. B, Tab. IV" },
+    { label: "Angular jerk (rad/s³ ↓)", values: ["137.9271", "0.4071"], source: "flowhoi-paper", where: "App. B, Tab. IV" },
+    { label: "Global positional acceleration Acc_g Pos (m/s² ↓)", values: ["0.2523", "0.0204"], source: "flowhoi-paper", where: "App. B, Tab. IV" },
+    { label: "Local positional acceleration Acc_l Pos (m/s² ↓)", values: ["0.1232", "0.0055"], source: "flowhoi-paper", where: "App. B, Tab. IV" },
+    { label: "Global rotational acceleration Acc_g Rot (rad/s² ↓)", values: ["0.9567", "0.0835"], source: "flowhoi-paper", where: "App. B, Tab. IV" },
+    { label: "Local rotational acceleration Acc_l Rot (rad/s² ↓)", values: ["3.2414", "0.0339"], source: "flowhoi-paper", where: "App. B, Tab. IV" },
+  ]}
+  note="Both models use the same 50-step Euler ODE solver on GRAB; x₁-prediction derives velocity via Eq. 19 at each step."
+/>
+
+## 3DGS scene and language grounding
+
+Cross-attending a $200$-frame clip directly to thousands of 3D Gaussian primitives costs $\mathcal{O}(N \cdot N_s)$ per layer, while point geometry alone misses semantic affordances <Cite id="flowhoi-paper" where="§IV-C" />. FlowHOI fuses pretrained geometric and semantic features on $N_s$ Farthest-Point-Sampled Gaussian centroids $\mathbf{X} \in \mathbb{R}^{N_s \times 3}$, compresses them through a Perceiver into $L_s = 256$ local cross-attention tokens, and pairs them with a voxel ViT global token for [[adaln]] <Cite id="flowhoi-paper" where="§IV-C, Eqs. 11–16; App. A" />.
+
+<ArchDiagram
+  title="Dual-stream 3DGS scene grounding and TMR contrastive alignment (symbols)"
+  blocks={[
+    { id: "gs", label: "Sampled 3DGS centroids X", sub: "N_s points in R³", role: "activation", col: 1, row: 0 },
+    { id: "vox", label: "Occupancy voxel grid V", sub: "binary 3D grid", role: "activation", col: 2, row: 0 },
+    { id: "conc", label: "Concerto geometry E", sub: "N_s × d_e (frozen)", role: "weight", col: 0, row: 1 },
+    { id: "splat", label: "SceneSplat semantics U", sub: "N_s × d_u (frozen)", role: "weight", col: 1, row: 1 },
+    { id: "vit", label: "Voxel ViT encoder", sub: "S_global: d_s", role: "weight", col: 2, row: 1 },
+    { id: "gate", label: "Gated fusion + Fourier γ(X)", sub: "Ẽ + σ(α)⊙Ũ: N_s × d_s", role: "route", col: 0, row: 2 },
+    { id: "perc", label: "Perceiver bottleneck", sub: "S_local: L_s × d_s", role: "weight", col: 1, row: 2 },
+    { id: "dit", label: "Manipulation DiT blocks", sub: "N × d", role: "weight", col: 1, row: 3, link: "dit" },
+    { id: "tmr", label: "TMR InfoNCE alignment", sub: "training only, loss L_align", role: "op", col: 0, row: 3 },
+  ]}
+  edges={[
+    { from: "gs", to: "conc" },
+    { from: "gs", to: "splat" },
+    { from: "vox", to: "vit" },
+    { from: "conc", to: "gate", label: "Φ_e" },
+    { from: "splat", to: "gate", label: "Φ_u" },
+    { from: "gate", to: "perc" },
+    { from: "perc", to: "dit", label: "cross-attn" },
+    { from: "vit", to: "dit", label: "AdaLN", side: "right" },
+    { from: "dit", to: "tmr", label: "x̂_1", dashed: true },
+  ]}
+  caption="Concerto geometric features and SceneSplat semantic features are combined by a channel-wise sigmoid gate α, augmented with Fourier coordinates γ(X), and compressed by a Perceiver into L_s local scene tokens. A voxel ViT provides a global scene token for AdaLN, and a training-only TMR head aligns motion and text latents."
+/>
+
+Frozen Concerto extracts geometric features $\mathbf{E} \in \mathbb{R}^{N_s \times d_e}$ ($d_e = 1{,}536$) and frozen SceneSplat extracts semantic features $\mathbf{U} \in \mathbb{R}^{N_s \times d_u}$ ($d_u = 768$) <Cite id="flowhoi-paper" where="§IV-C, Eq. 11; App. A" />. Linear maps $\Phi_e, \Phi_u$ project both streams to $d_h = 512$, where a channel-wise gate $\boldsymbol{\alpha} \in \mathbb{R}^{d_h}$ fuses them before concatenating Fourier coordinates $\gamma(\mathbf{X})$ and compressing to $L_s = 256$ queries $\mathbf{Q}_0$ via a 2-layer Perceiver <Cite id="flowhoi-paper" where="§IV-C, Eqs. 12–15; App. A" /><Cite id="flowhoi-hot3d-config" where="scene_perceiver_num_latents, scene_perceiver_layers" />:
+
+$$
+\mathbf{F} = \Phi_e(\mathbf{E}) + \sigma(\boldsymbol{\alpha}) \odot \Phi_u(\mathbf{U}), \qquad \mathbf{S}_{\text{local}} = \mathrm{Perceiver}\bigl(\Psi([\mathbf{F},\, \gamma(\mathbf{X})]);\, \mathbf{Q}_0\bigr) \in \mathbb{R}^{L_s \times d_s}
+$$
+
+The Perceiver cuts scene cross-attention cost from $\mathcal{O}(N \cdot N_s)$ to $\mathcal{O}(L_s \cdot N_s + N \cdot L_s)$, while a 6-layer ViT encodes a $48 \times 48 \times 24$ occupancy grid $\mathbf{V}$ into $\mathbf{S}_{\text{global}} \in \mathbb{R}^{1 \times d_s}$ for [[adaln]] <Cite id="flowhoi-paper" where="§IV-C, Eqs. 15–16; App. A" /><Cite id="flowhoi-hot3d-config" where="voxel_grid_size, vit_depth" />. During training, a 4-layer Transformer motion encoder and pooled T5-Large text features are aligned with a symmetric InfoNCE loss $\mathcal{L} = \mathcal{L}_{\text{flow}} + \lambda_{\text{align}}\mathcal{L}_{\text{align}}$ ($\lambda_{\text{align}} = 0.1$) <Cite id="flowhoi-paper" where="§IV-C, Eqs. 20–21, 26; App. A" />.
+
+<Callout type="note" title="Paper vs. released code and configs">
+Section IV-C (Eqs. 12–13) and `GatedSceneFusion` in `model/hoi_dit_scene.py` fuse Concerto and SceneSplat features with the channel-wise sigmoid gate $\mathbf{F} = \tilde{\mathbf{E}} + \sigma(\boldsymbol{\alpha}) \odot \tilde{\mathbf{U}}$, whereas Appendix A describes bidirectional cross-attention <Cite id="flowhoi-paper" where="§IV-C, Eqs. 12–13; App. A" /><Cite id="flowhoi-repo" where="model/hoi_dit_scene.py" />. Similarly, Appendix A quotes up to $N_s = 25{,}000$ FPS scene points and $N = 200$ frames, while `hot3d_full/args.json` trains with `max_scene_points: 10000` (`scene_fps1024`) and `num_frames: 224` cropped to $200$ at inference <Cite id="flowhoi-hot3d-config" where="max_scene_points, num_frames" /><Cite id="flowhoi-repo" where="sample/condition_hands.py" />.
+</Callout>
+
+Ablating the text and scene encoders in Table III confirms that combining T5 with $\mathcal{L}_{\text{align}}$ raises action recognition accuracy from $0.89$ (CLIP) to $0.94$, and fusing Concerto geometry with SceneSplat semantics outperforms either 3D encoder alone on both action recognition (AR) and final object displacement error (FDE) <Cite id="flowhoi-paper" where="§V-F, Tab. III" />.
+
+<Spec
+  title="Text and 3D scene conditioning ablations (Table III)"
+  columns={["Encoder setting", "AR (↑)", "FDE (m ↓)"]}
+  rows={[
+    { label: "Text: CLIP", values: ["0.89", "—"], source: "flowhoi-paper", where: "§V-F, Tab. III(a)" },
+    { label: "Text: CLIP + L_align", values: ["0.88", "—"], source: "flowhoi-paper", where: "§V-F, Tab. III(a)" },
+    { label: "Text: T5-Large", values: ["0.92", "—"], source: "flowhoi-paper", where: "§V-F, Tab. III(a)" },
+    { label: "Text: T5-Large + L_align (FlowHOI)", values: ["0.94", "—"], source: "flowhoi-paper", where: "§V-F, Tab. III(a)" },
+    { label: "Scene: w/o scene", values: ["0.73", "0.33"], source: "flowhoi-paper", where: "§V-F, Tab. III(b)" },
+    { label: "Scene: PointNet++", values: ["0.59", "0.44"], source: "flowhoi-paper", where: "§V-F, Tab. III(b)" },
+    { label: "Scene: Concerto only (geometric)", values: ["0.75", "0.26"], source: "flowhoi-paper", where: "§V-F, Tab. III(b)" },
+    { label: "Scene: SceneSplat only (semantic)", values: ["0.73", "0.30"], source: "flowhoi-paper", where: "§V-F, Tab. III(b)" },
+    { label: "Scene: Concerto + SceneSplat (FlowHOI)", values: ["0.78", "0.24"], source: "flowhoi-paper", where: "§V-F, Tab. III(b)" },
+  ]}
+  note="AR is classification accuracy of a pretrained action recognizer on generated motions; FDE is the Euclidean distance between predicted and ground-truth final object positions."
+/>
+
+## EgoDex reconstruction and robot execution
+
+Mocap datasets with 3D object meshes (GRAB <Cite id="grab-paper" /> has $1{,}335$ clips; HOT3D provides $1{,}802$ clips) are small, whereas EgoDex provides large-scale 3D hand keypoints and text without 3D object meshes <Cite id="flowhoi-paper" where="§IV-B; §V-A; App. D" />. Because an object stays static before lift-off at $t_g$, FlowHOI reconstructs metric object meshes from EgoDex videos in three steps to pretrain Stage 1, and retargets Stage 2 trajectories to simulated and physical bimanual Franka-Allegro robots <Cite id="flowhoi-paper" where="§IV-B; §V-C; §V-E" />.
+
+<ArchDiagram
+  title="EgoDex static-grasp curation and robot retargeting pipeline (symbols)"
+  blocks={[
+    { id: "ego", label: "EgoDex video + keypoints", sub: "RGB, hand joints, prompt", role: "activation", col: 0, row: 0 },
+    { id: "tg", label: "Transition detector", sub: "wrist speed min → t_g", role: "op", col: 0, row: 1 },
+    { id: "sam", label: "SAM + Depth + SAM3D", sub: "static mesh M before t_g", role: "weight", col: 1, row: 1 },
+    { id: "opt", label: "Contact-penetration IK", sub: "solve Δp^o, Δθ at frame t_g", role: "op", col: 0, row: 2, link: "mano" },
+    { id: "stage1", label: "Curated grasp prefix x^g", sub: "trains Grasping DiT", role: "activation", col: 0, row: 3 },
+    { id: "retarget", label: "Scaled PyRoki IK", sub: "MANO → Allegro joints", role: "op", col: 1, row: 3 },
+    { id: "exec", label: "DexTrack + Franka-Allegro", sub: "Isaac Gym + robot arms", role: "route", col: 1, row: 4 },
+  ]}
+  edges={[
+    { from: "ego", to: "tg" },
+    { from: "ego", to: "sam" },
+    { from: "tg", to: "opt" },
+    { from: "sam", to: "opt", label: "mesh M" },
+    { from: "opt", to: "stage1" },
+    { from: "stage1", to: "retarget", dashed: true },
+    { from: "retarget", to: "exec" },
+  ]}
+  caption="During the pre-grasp prefix [0, t_g] the target object is static, allowing SAM3D and metric depth to recover a single object mesh M and align it to tracked MANO hands by optimizing Δp^o and Δθ. At inference, generated MANO trajectories are scaled by 1.6×, solved via PyRoki IK, and tracked by a DexTrack PPO policy."
+/>
+
+The curation pipeline smooths wrist velocity ($\sigma = 2.0$) and detects $t_g$ where speed hits a local minimum inside a $1\text{ s}$ window with a $> 30^\circ$ wrist rotation change <Cite id="flowhoi-paper" where="§IV-B; App. C-A" />. Across 8 frames from $[0, t_g]$, GPT-4o extracts the object noun, SAM3 segments the object, Depth Anything 3 estimates metric depth, and SAM3D reconstructs a metric mesh $\mathcal{M}$ <Cite id="flowhoi-paper" where="§IV-B; App. C-B" />. PyRoki IK fits [[mano]] at $t_g$ and optimizes an object offset $\Delta \boldsymbol{p}^o \in \mathbb{R}^3$ and pose correction $\Delta \boldsymbol{\theta} \in \mathbb{R}^{24}$ propagated across $0 \dots t_g$ <Cite id="flowhoi-paper" where="§IV-B; App. C-C" />:
+
+$$
+\min_{\Delta \boldsymbol{p}^o,\, \Delta \boldsymbol{\theta}}\; \mathcal{L}_{\text{dist}} + \lambda_{\text{pen}}\mathcal{L}_{\text{pen}} + \lambda_{\text{reg}}\mathcal{L}_{\text{reg}}
+$$
+
+Here $\mathcal{L}_{\text{dist}}$ pulls at least three fingertips (including the thumb) onto the surface while $\mathcal{L}_{\text{pen}}$ penalizes interior penetration, cutting grasp error (GE) on GRAB by $40\%$ (from $0.10\text{ mm}$ to $0.06\text{ mm}$) <Cite id="flowhoi-paper" where="§IV-B; §V-F, Tab. II" />. To execute on dual 7-DOF Franka Panda arms with 16-DOF, 4-finger Allegro Hand v5 hands ($\sim 1.6\times$ human scale), FlowHOI scales [[mano]] keypoints by $1.6\times$, offsets ring-finger keypoints laterally for the pinky, solves joint angles with PyRoki IK, and tracks them with a DexTrack PPO residual policy in Isaac Gym <Cite id="flowhoi-paper" where="§V-C; §V-E; App. E; App. F" />.
+
+<Spec
+  title="Main quantitative comparison on GRAB and HOT3D (Table I and Table II)"
+  columns={["Dataset / Method", "IV (cm³ ↓)", "CR (% ↑)", "AR (↑)", "Phy (% ↑)", "SR (% ↑)", "HT (s ↑)", "Time (s ↓)"]}
+  rows={[
+    { label: "GRAB — Real Mocap", values: ["6.49", "6.62", "1.00", "95.56", "77.06", "2.40", "—"], source: "flowhoi-paper", where: "§V-D, Tab. I" },
+    { label: "GRAB — DiffH2O", values: ["13.11", "8.14", "0.87", "89.44", "33.03", "0.35", "6.34"], source: "flowhoi-paper", where: "§V-D, Tab. I" },
+    { label: "GRAB — LatentHOI", values: ["13.76", "9.18", "0.78", "96.40", "28.44", "0.29", "3.57"], source: "flowhoi-paper", where: "§V-D, Tab. I" },
+    { label: "GRAB — FlowHOI (w/o EgoDex prior)", values: ["10.40", "6.78", "—", "—", "—", "—", "—"], source: "flowhoi-paper", where: "§V-F, Tab. II (GE = 0.10 mm)" },
+    { label: "GRAB — FlowHOI (full)", values: ["10.93", "6.85", "0.95", "90.90", "55.96", "1.50", "0.16"], source: "flowhoi-paper", where: "§V-D, Tab. I; Tab. II (GE = 0.06 mm)" },
+    { label: "HOT3D — Real Mocap", values: ["2.88", "1.69", "1.00", "16.80", "6.67", "0.08", "—"], source: "flowhoi-paper", where: "§V-D, Tab. I" },
+    { label: "HOT3D — DiffH2O", values: ["3.25", "2.07", "0.71", "16.47", "4.00", "0.03", "6.54"], source: "flowhoi-paper", where: "§V-D, Tab. I" },
+    { label: "HOT3D — LatentHOI", values: ["1.54", "1.59", "0.65", "14.36", "0.00", "0.00", "3.21"], source: "flowhoi-paper", where: "§V-D, Tab. I" },
+    { label: "HOT3D — FlowHOI (full)", values: ["3.36", "2.14", "0.78", "17.15", "5.33", "0.03", "0.16"], source: "flowhoi-paper", where: "§V-D, Tab. I" },
+  ]}
+  note="IV: intersection volume; CR: contact ratio; AR: action recognition accuracy; Phy: physical plausibility (no penetration with ≥ 3 contacting fingers including thumb); SR and HT: Isaac Gym task success rate and hold time; Time: inference time per 200-frame clip."
+/>
+
+## What it reuses
+
+- [[flow-matching]]: optimal-transport linear interpolation between $\mathbf{x}_0 \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$ and clean trajectory $\mathbf{x}_1$, integrated with a 50-step Euler ODE solver <Cite id="flowhoi-paper" where="§III, Eqs. 2–3; §V-B" />.
+- [[dit]] and [[transformer-block]]: 8-block `AXD` stack combining bidirectional [[mha]] temporal self-attention, cross-attention to text and Perceiver scene tokens, and a dense GELU FFN <Cite id="flowhoi-paper" where="§IV-C; App. A" />.
+- [[adaln]]: adaptive layer normalization (`adaLN-Zero` in code) driven by the flow timestep $\tau$ in Stage 1 and by $\tau$ plus the ViT global scene token $\mathbf{S}_{\text{global}}$ in Stage 2 <Cite id="flowhoi-paper" where="§IV-C, Eq. 16; App. A" /><Cite id="flowhoi-repo" where="model/hoi_dit_scene.py" />.
+- [[mano]]: parametric 3D hand surface model providing the $24$-D PCA articulation space and $21$ 3D joints for both hands <Cite id="flowhoi-paper" where="§IV-A, Eq. 8" />.
+- Related motion and action systems: [[stablehand]] (which uses the same 8-block `AXD` flow-matching DiT backbone for observation-anchored hand motion recovery) and [[vla]] (which maps visual and language context directly to robot actions).

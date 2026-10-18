@@ -1,0 +1,7 @@
+title: "GRAB: A Dataset of Whole-Body Human Grasping of Objects"
+short: GRAB
+authors: Omid Taheri, Nima Ghorbani, Michael J. Black, Dimitrios Tzionas
+year: 2020
+url: https://grab.is.tue.mpg.de/
+type: paper
+notes: ECCV 2020. Whole-body and bimanual hand-object motion-capture dataset (1,335 sequences, 51 objects).

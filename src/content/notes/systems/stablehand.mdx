@@ -6,10 +6,10 @@ domains: [vision, hands, generative, robotics]
 prerequisites: [flow-matching, dit, mano]
 builds_on: []
 contrasts_with: []
-related: [rope, adaln]
+related: [rope, adaln, flowhoi]
 sources: [stablehand-paper, stablehand-repo, stablehand-enhanced-docs, stablehand-dit-hot3d-config, wilor-paper, depth-anything-3-paper, hot3d-paper, arctic-paper]
 status: draft
-updated: 2026-10-18
+updated: 2026-10-19
 ---
 
 StableHand isn't a language model. It reads first-person (egocentric) video and outputs a 3D trajectory for both hands in world coordinates. Per-frame hand estimators fail exactly when the data is most useful: when a hand leaves the view or is hidden behind the object it is holding. StableHand fills those gaps from a learned prior of two-handed motion, so that large collections of human video can supervise robot learning <Cite id="stablehand-repo" where="README, Highlight" />.
@@ -147,4 +147,6 @@ The enhanced model reports 45.19 mm on HOT3D and 92.52 mm on ARCTIC <Cite id="st
 
 ## Where it sits on the map
 
-StableHand shares the low-level machinery with the language-model notes: the [[transformer-block]], [[rope]] for positions, and attention. It uses it differently. A language model generates one token at a time and keeps a [[kv-cache]]. StableHand refines a whole 150-frame clip at once over 20 integration steps, so there is nothing to cache between steps. Its own branch of the map runs through [[flow-matching]], [[dit]] and [[adaln]] for generation, and [[mano]] for the hands.
+StableHand shares the low-level machinery with the language-model notes: the [[transformer-block]], [[rope]] for positions, and attention. It uses it differently: a language model generates one token at a time and keeps a [[kv-cache]], whereas StableHand refines a whole 150-frame clip at once over 20 integration steps, leaving nothing to cache between steps.
+
+Its own branch of the map runs through [[flow-matching]], [[dit]] and [[adaln]] for generation, and [[mano]] for the hands. [[flowhoi]] reuses the same 8-block `AXD` DiT layout to synthesize bimanual hand and 6D object trajectories from a single initial frame, a language prompt, and a 3DGS scene.

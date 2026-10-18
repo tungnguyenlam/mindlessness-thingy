@@ -1,0 +1,8 @@
+title: FlowHOI HOT3D manipulation args.json (Hugging Face)
+short: FlowHOI HOT3D config
+authors: Huajian Zeng et al.
+year: 2026
+url: https://huggingface.co/huajian-zeng/flowhoi/blob/main/hot3d_full/args.json
+type: config
+accessed: 2026-10-18
+notes: Configuration of the released scene-conditioned HOT3D manipulation checkpoint.
