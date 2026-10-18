@@ -1,0 +1,8 @@
+title: "MiniCPM-V-4.7-1B config.json (Hugging Face)"
+short: "MiniCPM-V-4.7-1B config"
+authors: "OpenBMB"
+year: 2026
+url: "https://huggingface.co/openbmb/MiniCPM-V-4.7-1B/blob/main/config.json"
+type: config
+accessed: 2026-10-18
+notes: "Config for the dense 1B sibling: same 27-layer SigLIP2 vision tower with insert_layer_id 6, paired with a 24-layer dense qwen3_5_text language backbone (hidden_size 1024, 18 linear_attention + 6 full_attention layers)."

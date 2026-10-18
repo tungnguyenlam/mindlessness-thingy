@@ -198,5 +198,6 @@ Shared symbols (the generated symbol table, `SYMBOLS` in `src/lib/models/overvie
 | `d_h^R` | MLA decoupled RoPE width | `c^KV`, `c^Q`, `k^R` | MLA latents and RoPE key |
 | `d_ff` | dense FFN hidden size | `d_e` | expert hidden size |
 | `N_r`, `K_r`, `N_s` | routed experts, routed per token, shared | `k` | conv kernel size |
+| `n_qk`, `n_v` | DeltaNet Q/K and value heads | `d_qk` | DeltaNet Q/K head dimension |
 
 A new symbol goes in this table and in `SYMBOLS` in the same commit.

@@ -1,0 +1,8 @@
+title: "LLaVA-UHD v4: What Makes Efficient Visual Encoding in MLLMs?"
+short: "LLaVA-UHD v4"
+authors: "Tsinghua University, ModelBest"
+year: 2026
+url: "https://arxiv.org/abs/2605.08985"
+type: paper
+accessed: 2026-10-18
+notes: "Introduces slice-based encoding with intra-ViT early token compression in shallow ViT layers, cutting visual-encoding FLOPs by 55.8% under 16x compression."

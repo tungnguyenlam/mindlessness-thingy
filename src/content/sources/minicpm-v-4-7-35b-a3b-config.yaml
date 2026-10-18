@@ -1,0 +1,8 @@
+title: "MiniCPM-V-4.7-35B-A3B config.json and safetensors index (Hugging Face)"
+short: "MiniCPM-V-4.7-35B-A3B config"
+authors: "OpenBMB"
+year: 2026
+url: "https://huggingface.co/openbmb/MiniCPM-V-4.7-35B-A3B/blob/main/config.json"
+type: config
+accessed: 2026-10-18
+notes: "Architecture config (text_config: qwen3_5_moe_text, vision_config: minicpmv4_7_vision, insert_layer_id: 6, downsample_mode: 16x, mrope_mode: canvas) and model.safetensors.index.json (35,212,875,824 BF16 parameters)."

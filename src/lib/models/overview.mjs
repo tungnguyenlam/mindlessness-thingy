@@ -51,6 +51,7 @@ function mixerInfo(m, ctx, c) {
       cacheLink: linkIf(ctx, 'kv-cache'),
     };
   if (c === 'C') return { short: 'Conv', label: 'Gated short conv', link: linkIf(ctx, 'gated-short-conv'), cache: 'Conv window', cacheLink: undefined };
+  if (c === 'G') return { short: 'DeltaNet', label: 'Gated DeltaNet', link: linkIf(ctx, 'gated-deltanet'), cache: 'DeltaNet state', cacheLink: undefined };
   return { short: 'Mamba-2', label: 'Mamba-2', link: linkIf(ctx, 'mamba-2'), cache: 'SSM state', cacheLink: undefined };
 }
 
@@ -69,7 +70,7 @@ const normName = (m) => (/rmsnorm/i.test(String(m.values.norm?.v ?? 'RMSNorm')) 
 export function layerDiagram(m, ctx, { title, zoom = false } = {}) {
   const { v, z, layers, count, present } = access(m);
   if (!layers) throw new Error(`model "${m.id}" needs a layer_pattern`);
-  const mixers = present('ACM');
+  const mixers = present('ACMG');
   const ffns = present('DE');
   const times = (c, list) => (list.length > 1 ? `× ${count(c)}` : null);
   const width = Math.max(mixers.length, ffns.length, 1) === 1 ? 1 : 3;
@@ -98,7 +99,8 @@ export function layerDiagram(m, ctx, { title, zoom = false } = {}) {
     let sub = times(c, mixers);
     if (c === 'A') sub = join(sub, attn === 'gqa' || attn === 'mqa' ? `${z('heads', 'n_h')} Q / ${z('kv_heads', 'n_kv')} KV heads` : `${z('heads', 'n_h')} heads`);
     if (c === 'C') sub = join(sub, `kernel ${z('conv_window', 'k')}`);
-    const open = zoom && 'AC'.includes(c) ? `mixer-${c}` : undefined;
+    if (c === 'G') sub = join(sub, `${z('linear_k_heads', 'n_qk')} QK / ${z('linear_v_heads', 'n_v')} V heads`);
+    const open = zoom && 'ACG'.includes(c) ? `mixer-${c}` : undefined;
     blocks.push({ id: `mix-${c}`, label: info.label, sub: sub || undefined, role: 'op', col, row: R.mix, ...(open ? { open } : { link: info.link }) });
     blocks.push({ id: `cache-${c}`, label: info.cache, sub: c === 'A' ? 'grows with context' : 'fixed size', role: 'cache', col, row: R.cache, link: info.cacheLink });
     edges.push({ from: 'n1', to: `mix-${c}` }, { from: `mix-${c}`, to: `cache-${c}`, dashed: true }, { from: `mix-${c}`, to: 'add1' });
@@ -156,12 +158,13 @@ function wholeModel(m, ctx) {
       stack.push(add({ id: `run-${r.from}`, label, sub: r.from === r.to ? `layer ${r.from}` : `layers ${r.from}–${r.to}`, role: 'op', open: 'layer' }));
     }
   } else {
-    const mix = present('ACM').map((c) => `${access(m).count(c)} ${mixerInfo(m, ctx, c).short}`);
-    stack.push(add({ id: 'stack', label: 'Layer stack', sub: layers ? `${mix.join(' · ')}, interleaved` : `${z('layers', 'L')} layers`, role: 'op', ...(layers ? { open: 'layer' } : {}) }));
+    const mix = present('ACMG').map((c) => `${access(m).count(c)} ${mixerInfo(m, ctx, c).short}`);
+    const mixSub = `${mix.join(' · ')}, interleaved`;
+    stack.push(add({ id: 'stack', label: 'Layer stack', sub: layers ? (mixSub.length <= 28 ? mixSub : mix.join(' · ')) : `${z('layers', 'L')} layers`, role: 'op', ...(layers ? { open: 'layer' } : {}) }));
   }
   chain('h0', ...stack);
   // What decoding keeps between steps, beside the stack.
-  const caches = present('ACM').map((c) => mixerInfo(m, ctx, c).cache);
+  const caches = present('ACMG').map((c) => mixerInfo(m, ctx, c).cache);
   // Bytes per token across all layers (derived, 16-bit), when the data gives it.
   const kv = m.derived?.kv_bytes_per_token?.v;
   const kvPerToken = kv ? formatDerived(DERIVED.find((x) => x.key === 'kv_bytes_per_token'), kv) : null;
@@ -232,16 +235,17 @@ function gqaDetail(m, ctx) {
   const kvh = attn === 'mha' ? nh : attn === 'mqa' ? '1' : z('kv_heads', 'n_kv');
   const share = typeof v('heads') === 'number' && typeof v('kv_heads') === 'number' ? n(v('heads') / v('kv_heads')) : 'n_h / n_kv';
   const pos = v('qk_norm') === true ? 'QK-Norm, RoPE' : 'RoPE';
+  const outGate = v('attn_output_gate') === true;
   const blocks = [
     { id: 'h', label: 'Normed hidden h', sub: `T × ${d}`, role: 'activation', col: 1, row: 0 },
-    { id: 'q', label: 'Queries', sub: `T × ${nh} × ${dh}`, role: 'activation', col: 0, row: 1 },
+    { id: 'q', label: outGate ? 'Queries + gate g' : 'Queries', sub: outGate ? `2 × (T × ${nh} × ${dh})` : `T × ${nh} × ${dh}`, role: 'activation', col: 0, row: 1 },
     { id: 'k', label: 'Keys', sub: `T × ${kvh} × ${dh}`, role: 'activation', col: 1, row: 1 },
     { id: 'v', label: 'Values', sub: `T × ${kvh} × ${dh}`, role: 'activation', col: 2, row: 1 },
     { id: 'qn', label: pos, sub: 'per query head', role: 'op', col: 0, row: 2, link: linkIf(ctx, 'rope') },
     { id: 'kn', label: pos, sub: 'per key head', role: 'op', col: 1, row: 2, link: linkIf(ctx, 'rope') },
     { id: 'cache', label: 'KV cache', sub: 'keys, values of past tokens', role: 'cache', col: 1, row: 3, span: 2, link: linkIf(ctx, 'kv-cache') },
     { id: 'attn', label: 'Causal attention', sub: attn === 'gqa' ? `${share} query heads share a KV head` : `softmax(q·kᵀ / √${dh}) · v`, role: 'op', col: 0, row: 4, span: 2, link: linkIf(ctx, attn) },
-    { id: 'out', label: 'Attention output', sub: `T × ${d}`, role: 'activation', col: 0, row: 5, span: 2 },
+    { id: 'out', label: 'Attention output', sub: outGate ? `σ(g) ⊙ attn → T × ${d}` : `T × ${d}`, role: 'activation', col: 0, row: 5, span: 2 },
   ];
   const edges = [
     { from: 'h', to: 'q', label: 'W_Q' },
@@ -256,6 +260,35 @@ function gqaDetail(m, ctx) {
     { from: 'attn', to: 'out', label: 'W_O' },
   ];
   return { title: `${m.title}: inside attention`, blocks, edges };
+}
+
+/** Gated DeltaNet linear attention: QKV + depthwise conv, decay/step gates, recurrent state S_t = α_t S + β_t(v − S k)kᵀ, gated RMSNorm. */
+function deltanetDetail(m, ctx) {
+  const { z } = access(m);
+  const [d, k] = [z('hidden_size', 'd'), z('conv_window', 'k')];
+  const [nqk, nv, dqk, dv] = [z('linear_k_heads', 'n_qk'), z('linear_v_heads', 'n_v'), z('linear_k_dim', 'd_qk'), z('linear_v_dim', 'd_v')];
+  const blocks = [
+    { id: 'h', label: 'Normed hidden h', sub: `T × ${d}`, role: 'activation', col: 1, row: 0 },
+    { id: 'z', label: 'Output gate z', sub: `T × ${nv} × ${dv}`, role: 'activation', col: 0, row: 1 },
+    { id: 'qkv', label: 'QKV + depthwise conv', sub: `Q, K: ${nqk}×${dqk}; V: ${nv}×${dv}; k=${k}`, role: 'op', col: 1, row: 1 },
+    { id: 'gates', label: 'Decay α_t, rate β_t', sub: `T × ${nv} each`, role: 'route', col: 2, row: 1 },
+    { id: 'rule', label: 'Gated delta rule', sub: 'S_t = α_t S + β_t (v − S k) kᵀ', role: 'op', col: 1, row: 2, link: linkIf(ctx, 'gated-deltanet') },
+    { id: 'state', label: 'Recurrent state S', sub: `${nv} × ${dqk} × ${dv} + conv`, role: 'cache', col: 2, row: 2 },
+    { id: 'norm', label: 'RMSNorm(y) ⊙ SiLU(z)', sub: `T × ${nv} × ${dv}`, role: 'op', col: 0, row: 3, span: 2 },
+    { id: 'out', label: 'DeltaNet output', sub: `T × ${d}`, role: 'activation', col: 0, row: 4, span: 2 },
+  ];
+  const edges = [
+    { from: 'h', to: 'z', label: 'W_z' },
+    { from: 'h', to: 'qkv', label: 'W_QKV' },
+    { from: 'h', to: 'gates', label: 'W_a, W_b' },
+    { from: 'qkv', to: 'rule', label: 'q, k, v' },
+    { from: 'gates', to: 'rule' },
+    { from: 'rule', to: 'state', dashed: true },
+    { from: 'rule', to: 'norm', label: 'y = S_t q' },
+    { from: 'z', to: 'norm' },
+    { from: 'norm', to: 'out', label: 'W_O' },
+  ];
+  return { title: `${m.title}: inside Gated DeltaNet`, blocks, edges };
 }
 
 /** LFM2's gated short convolution: (B, C, h̃) = Linear(h); y = B ⊙ h̃; z = Conv_k(y); out = W(C ⊙ z). */
@@ -375,10 +408,11 @@ export function overviewParts(m, ctx) {
   const parts = [{ id: 'model', tab: 'Whole model', props: wholeModel(m, ctx) }];
   if (layers) parts.push({ id: 'layer', tab: 'One layer', props: layerDiagram(m, ctx, { zoom: true }) });
   const attn = String(v('attention') ?? '');
-  for (const c of present('ACM')) {
+  for (const c of present('ACMG')) {
     if (c === 'A' && attn === 'mla') parts.push({ id: 'mixer-A', tab: 'Attention (MLA)', props: mlaDetail(m, ctx) });
     else if (c === 'A') parts.push({ id: 'mixer-A', tab: `Attention (${ATTN_SHORT[attn] ?? 'attn'})`, props: gqaDetail(m, ctx) });
     else if (c === 'C') parts.push({ id: 'mixer-C', tab: 'Gated conv', props: convDetail(m, ctx) });
+    else if (c === 'G') parts.push({ id: 'mixer-G', tab: 'Gated DeltaNet', props: deltanetDetail(m, ctx) });
   }
   for (const c of present('DE')) {
     if (c === 'D') parts.push({ id: 'ffn-D', tab: 'Dense FFN', props: denseDetail(m, ctx) });
@@ -398,6 +432,10 @@ const SYMBOLS = [
   ['n_kv', 'key/value heads', 'kv_heads'],
   ['d_h', 'head dimension', 'head_dim'],
   ['d_v', 'value head dimension', 'v_head_dim'],
+  ['n_qk', 'DeltaNet Q/K heads', 'linear_k_heads'],
+  ['n_v', 'DeltaNet value heads', 'linear_v_heads'],
+  ['d_qk', 'DeltaNet Q/K head dim', 'linear_k_dim'],
+  ['d_v', 'DeltaNet value head dim', 'linear_v_dim'],
   ['d_q', 'query latent width', 'q_lora_rank'],
   ['d_c', 'KV latent width (cached)', 'kv_lora_rank'],
   ['d_h^R', 'decoupled RoPE width', 'rope_head_dim'],

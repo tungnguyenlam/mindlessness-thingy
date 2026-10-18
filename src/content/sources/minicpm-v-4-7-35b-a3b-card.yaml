@@ -1,0 +1,8 @@
+title: "MiniCPM-V-4.7-35B-A3B model card (Hugging Face)"
+short: "MiniCPM-V-4.7-35B-A3B card"
+authors: "OpenBMB"
+year: 2026
+url: "https://huggingface.co/openbmb/MiniCPM-V-4.7-35B-A3B"
+type: model-card
+accessed: 2026-10-18
+notes: "Overview of MiniCPM-V 4.7 35B-A3B: first MoE in the MiniCPM-V series, Lookahead Expert Scheduling (LES), mixed 4x/16x intra-ViT visual token compression, and on-device decoding results."

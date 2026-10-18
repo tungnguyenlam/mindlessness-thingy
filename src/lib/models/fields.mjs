@@ -35,6 +35,7 @@ export const FIELDS = [
   { key: 'head_dim', label: 'Head dimension', group: 'mixer', kind: 'count' },
   { key: 'v_head_dim', label: 'Value head dimension', group: 'mixer', kind: 'count' },
   { key: 'qk_norm', label: 'QK-Norm', group: 'mixer', kind: 'bool' },
+  { key: 'attn_output_gate', label: 'Attention output gate', group: 'mixer', kind: 'bool' },
   { key: 'latent_norm', label: 'RMSNorm on latents', group: 'mixer', kind: 'bool', concept: 'mla' },
   { key: 'kv_lora_rank', label: 'KV latent width d_c', group: 'mixer', kind: 'count', concept: 'mla' },
   { key: 'q_lora_rank', label: 'Query latent width', group: 'mixer', kind: 'count', concept: 'mla' },
@@ -46,6 +47,11 @@ export const FIELDS = [
   { key: 'index_head_dim', label: 'Indexer head dimension', group: 'mixer', kind: 'count', concept: 'dsa' },
   { key: 'conv_layers', label: 'Conv layers', group: 'mixer', kind: 'count', concept: 'gated-short-conv' },
   { key: 'conv_window', label: 'Conv window', group: 'mixer', kind: 'count', concept: 'gated-short-conv' },
+  { key: 'linear_layers', label: 'Gated DeltaNet layers', group: 'mixer', kind: 'count', concept: 'gated-deltanet' },
+  { key: 'linear_k_heads', label: 'DeltaNet key/query heads', group: 'mixer', kind: 'count', concept: 'gated-deltanet' },
+  { key: 'linear_v_heads', label: 'DeltaNet value heads', group: 'mixer', kind: 'count', concept: 'gated-deltanet' },
+  { key: 'linear_k_dim', label: 'DeltaNet key head dim', group: 'mixer', kind: 'count', concept: 'gated-deltanet' },
+  { key: 'linear_v_dim', label: 'DeltaNet value head dim', group: 'mixer', kind: 'count', concept: 'gated-deltanet' },
 
   { key: 'ffn', label: 'FFN type', group: 'ffn', kind: 'slug' },
   { key: 'ffn_activation', label: 'FFN activation', group: 'ffn', kind: 'text' },
@@ -75,6 +81,7 @@ export const SUBLAYERS = {
   A: { label: 'Attention', role: 'cache', concept: null }, // concept comes from the model's `attention`
   C: { label: 'Gated short conv', role: 'op', concept: 'gated-short-conv' },
   M: { label: 'Mamba-2', role: 'activation', concept: 'mamba-2' },
+  G: { label: 'Gated DeltaNet', role: 'activation', concept: 'gated-deltanet' },
   D: { label: 'Dense FFN', role: 'weight', concept: null },
   E: { label: 'MoE FFN', role: 'route', concept: 'moe' },
 };

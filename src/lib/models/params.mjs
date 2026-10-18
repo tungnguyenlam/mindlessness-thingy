@@ -46,9 +46,10 @@ export function sublayerWeights(m, code) {
     if (['mha', 'gqa', 'mqa'].includes(attn)) {
       const kvh = attn === 'mqa' ? 1 : attn === 'mha' ? nh : g('kv_heads');
       if (!(nh && dh && kvh)) return { missing: 'attention sizes' };
+      const outGate = m.values.attn_output_gate?.v === true;
       return {
         rows: [
-          mat('W_Q', 'queries', D, [nh * dh, 'n_h·d_h']),
+          mat('W_Q', outGate ? 'queries + output gate' : 'queries', D, [outGate ? 2 * nh * dh : nh * dh, outGate ? '2·n_h·d_h' : 'n_h·d_h']),
           mat('W_K, W_V', 'keys, values', D, [kvh * dh, 'n_kv·d_h'], 2),
           mat('W_O', 'output', [nh * dh, 'n_h·d_h'], D),
         ],
@@ -64,6 +65,21 @@ export function sublayerWeights(m, code) {
         mat('Linear in', 'B, C, h̃', D, [3 * d, '3·d']),
         mat('Conv', 'depthwise kernel', D, [k, 'k']),
         mat('Linear out', 'output', D, D),
+      ],
+    };
+  }
+  if (code === 'G') {
+    const [nqk, nv, dqk, dv, k] = [g('linear_k_heads'), g('linear_v_heads'), g('linear_k_dim'), g('linear_v_dim'), g('conv_window')];
+    if (!(nqk && nv && dqk && dv && k)) return { missing: 'Gated DeltaNet sizes' };
+    const qkvWidth = 2 * nqk * dqk + nv * dv;
+    const vWidth = nv * dv;
+    return {
+      rows: [
+        mat('W_QKV', 'queries, keys, values', D, [qkvWidth, '2·n_qk·d_qk + n_v·d_v']),
+        mat('W_z', 'output gate z', D, [vWidth, 'n_v·d_v']),
+        mat('W_a, W_b', 'decay α_t, rate β_t', D, [nv, 'n_v'], 2),
+        mat('Conv', 'depthwise causal kernel', [qkvWidth, '2·n_qk·d_qk + n_v·d_v'], [k, 'k']),
+        mat('W_O', 'output', [vWidth, 'n_v·d_v'], D),
       ],
     };
   }
@@ -101,7 +117,7 @@ export function paramBreakdown(m) {
     else parts.push({ id: 'head', label: 'Output head', layers: 1, total: d * V, active: d * V, rows: [mat('W_out', 'logits', [d, 'd'], [V, 'V'])] });
   } else missing.push('embedding');
   if (layers) {
-    for (const code of ['A', 'C', 'M', 'D', 'E']) {
+    for (const code of ['A', 'C', 'M', 'G', 'D', 'E']) {
       const count = layers.filter((l) => l.includes(code)).length;
       if (!count) continue;
       const w = sublayerWeights(m, code);

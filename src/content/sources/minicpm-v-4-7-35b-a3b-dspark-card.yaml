@@ -1,0 +1,8 @@
+title: "MiniCPM-V-4.7-35B-A3B-DSpark model card and config.json (Hugging Face)"
+short: "MiniCPM-V-4.7-35B-A3B-DSpark"
+authors: "OpenBMB"
+year: 2026
+url: "https://huggingface.co/openbmb/MiniCPM-V-4.7-35B-A3B-DSpark"
+type: model-card
+accessed: 2026-10-18
+notes: "389M-parameter 5-layer GQA DSpark draft model paired with MiniCPM-V-4.7-35B-A3B, reading target hidden states from layers [3, 11, 19, 27, 35] and drafting 15 tokens per pass."

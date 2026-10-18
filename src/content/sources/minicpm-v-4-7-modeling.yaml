@@ -1,0 +1,8 @@
+title: "transformers modeling_minicpmv4_7.py and configuration_minicpmv4_7.py"
+short: "MiniCPM-V 4.7 modeling code"
+authors: "OpenBMB, Hugging Face"
+year: 2026
+url: "https://github.com/huggingface/transformers/blob/main/src/transformers/models/minicpmv4_7/modeling_minicpmv4_7.py"
+type: repo
+accessed: 2026-10-18
+notes: "Implementation of MiniCPMV4_7VisionModel, MiniCPMV4_7ViTWindowAttentionMerger (2x2 window attention + MLP after layer 6), MiniCPMV4_7Merger (2x2 spatial merge + MLP to LLM hidden size), and Canvas M-RoPE."

@@ -1,0 +1,33 @@
+title: MiniCPM-V 4.7 tokenizer
+note: minicpm-v-4-7-tokenizer
+family: minicpm-v
+file: minicpm-v-4-7-35b-a3b-tokenizer
+algorithm: { v: Byte-level BPE, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer.json model.type: BPE + ByteLevel" }
+base_vocab: { v: 248044, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer.json model.vocab" }
+merges: { v: 247587, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer.json model.merges" }
+added_tokens: { v: 100, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer.json added_tokens (ids 248044..248143)" }
+max_id: { v: 248143, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer.json added_tokens (<|turn_eos|>)" }
+normalizer: { v: NFC, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer.json normalizer.type" }
+digits: { v: one digit per token, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "pre_tokenizer Split \\p{N}" }
+add_bos: { v: "no", source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer_config.json bos_token: null; post_processor ByteLevel" }
+chat_format: { v: ChatML, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer_config.json chat_template (<|im_start|>...<|im_end|>)" }
+pretokenizer:
+  - { v: "English contractions ('s, 't, 're, 've, 'm, 'll, 'd) split off", regex: "(?i:'s|'t|'re|'ve|'m|'ll|'d)", source: minicpm-v-4-7-35b-a3b-tokenizer, where: "pre_tokenizer Split, branch 1" }
+  - { v: "A word: letters, with at most one space or symbol in front", regex: "[^\\r\\n\\p{L}\\p{N}]?\\p{L}+", source: minicpm-v-4-7-35b-a3b-tokenizer, where: "pre_tokenizer Split, branch 2" }
+  - { v: "One digit at a time (never merged across digits)", regex: "\\p{N}", source: minicpm-v-4-7-35b-a3b-tokenizer, where: "pre_tokenizer Split, branch 3" }
+  - { v: "Punctuation with an optional space in front and the line breaks after it", regex: " ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*", source: minicpm-v-4-7-35b-a3b-tokenizer, where: "pre_tokenizer Split, branch 4" }
+  - { v: "Whitespace that ends in line breaks, then any other whitespace", regex: "\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+", source: minicpm-v-4-7-35b-a3b-tokenizer, where: "pre_tokenizer Split, last branches" }
+specials:
+  source: minicpm-v-4-7-35b-a3b-tokenizer
+  where: tokenizer.json added_tokens
+  tokens:
+    - { token: "<|endoftext|>", id: 248044, use: end of document and padding }
+    - { token: "<|im_start|>", id: 248045, use: start of a chat turn }
+    - { token: "<|im_end|>", id: 248046, use: end of a chat turn (eos_token) }
+    - { token: "<|vision_start|>", id: 248053, use: "start of visual span (with <|vision_end|>, <|image_pad|>, <|video_pad|>)" }
+    - { token: "<|image_pad|>", id: 248056, use: placeholder replaced by compressed visual patch embeddings }
+    - { token: "<tool_call>", id: 248058, use: "tool call span (with </tool_call>, <tool_response>)" }
+    - { token: "<|fim_prefix|>", id: 248060, use: "fill-in-the-middle code completion (with fim_middle, fim_suffix)" }
+    - { token: "<think>", id: 248068, use: "reasoning trace span (with </think>)" }
+    - { token: "<slice>", id: 248088, use: "MiniCPM-V high-resolution image slice and grounding tags (<image>, <box>, <point>)" }
+    - { token: "<|turn_eos|>", id: 248143, use: end of turn in omni/duplex speech mode }

@@ -1,0 +1,36 @@
+title: MiniCPM-V 4.7 (35B-A3B)
+note: minicpm-v-4-7-35b-a3b
+family: minicpm-v
+params_total: { v: 35e9, display: "35.2B (34.7B LLM + 553M vision)", source: minicpm-v-4-7-35b-a3b-card, where: "Overview; model.safetensors.index.json" }
+params_active: { v: 3.45e9, display: "3B class (3.45B LLM + 553M vision)", source: minicpm-v-4-7-35b-a3b-card, where: "Overview; model.safetensors.index.json" }
+layers: { v: 40, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.num_hidden_layers" }
+layer_pattern: { v: "GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE", source: minicpm-v-4-7-35b-a3b-config, where: "text_config.layer_types (full_attention_interval: 4)" }
+hidden_size: { v: 2048, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.hidden_size" }
+vocab_size: { v: 248144, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.vocab_size" }
+tie_embeddings: { v: false, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.tie_word_embeddings" }
+norm: { v: "RMSNorm (1 + w, zero-centered), ε = 10⁻⁶", source: qwen3-5-moe-modeling, where: "Qwen3_5MoeRMSNorm; text_config.rms_norm_eps" }
+attention: { v: gqa, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.num_attention_heads, num_key_value_heads" }
+heads: { v: 16, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.num_attention_heads" }
+kv_heads: { v: 2, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.num_key_value_heads" }
+head_dim: { v: 256, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.head_dim" }
+qk_norm: { v: true, source: qwen3-5-moe-modeling, where: "Qwen3_5MoeAttention (q_norm, k_norm)" }
+attn_output_gate: { v: true, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.attn_output_gate" }
+linear_layers: { v: 30, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.layer_types (30 linear_attention)" }
+linear_k_heads: { v: 16, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.linear_num_key_heads" }
+linear_v_heads: { v: 32, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.linear_num_value_heads" }
+linear_k_dim: { v: 128, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.linear_key_head_dim" }
+linear_v_dim: { v: 128, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.linear_value_head_dim" }
+conv_window: { v: 4, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.linear_conv_kernel_dim" }
+rope_theta: { v: 10000000, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.rope_parameters.rope_theta" }
+rope_scaling: { v: "Canvas M-RoPE, 25% partial rotary (64 of 256 dims), interleaved [11, 11, 10]", source: minicpm-v-4-7-35b-a3b-config, where: "mrope_mode: canvas; text_config.rope_parameters" }
+ffn: { v: moe, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.num_experts" }
+ffn_activation: { v: SwiGLU, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.hidden_act: silu" }
+routed_experts: { v: 256, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.num_experts" }
+active_experts: { v: 8, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.num_experts_per_tok" }
+shared_experts: { v: 1, source: qwen3-5-moe-modeling, where: "Qwen3_5MoeSparseMoeBlock.shared_expert (gated by σ)" }
+expert_hidden: { v: 512, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.moe_intermediate_size, shared_expert_intermediate_size" }
+router_scoring: { v: softmax, source: qwen3-5-moe-modeling, where: "Qwen3_5MoeTopKRouter.forward" }
+routed_scaling: { v: 1.0, source: qwen3-5-moe-modeling, where: "Qwen3_5MoeTopKRouter (renormalized top-k softmax)" }
+mtp_depth: { v: 0, display: "none — separate 5-layer DSpark drafter", source: minicpm-v-4-7-modeling, where: "_keys_to_ignore_on_load_unexpected = [^mtp.*]; DSpark card" }
+context_length: { v: 262144, display: 256K, source: minicpm-v-4-7-35b-a3b-config, where: "text_config.max_position_embeddings" }
+tokenizer: { v: minicpm-v-4-7, source: minicpm-v-4-7-35b-a3b-tokenizer, where: "tokenizer.json" }

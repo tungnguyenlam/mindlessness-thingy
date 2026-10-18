@@ -1,0 +1,8 @@
+title: "transformers modeling_qwen3_5_moe.py"
+short: "Qwen3.5-MoE modeling code"
+authors: "Qwen Team, Hugging Face"
+year: 2026
+url: "https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3_5_moe/modeling_qwen3_5_moe.py"
+type: repo
+accessed: 2026-10-18
+notes: "Implementation of the qwen3_5_moe_text language backbone: Qwen3_5MoeGatedDeltaNet (linear attention), Qwen3_5MoeAttention (gated GQA with QK-Norm and M-RoPE), and Qwen3_5MoeSparseMoeBlock (top-k softmax router plus sigmoid-gated shared expert)."

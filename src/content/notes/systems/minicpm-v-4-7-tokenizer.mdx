@@ -1,0 +1,35 @@
+---
+title: MiniCPM-V 4.7 tokenizer
+kind: system
+summary: The 248K byte-level BPE tokenizer used by MiniCPM-V 4.7 (1B, 35B-A3B, and DSpark), inherited from Qwen3.5 with NFC normalization, single-digit splitting, and multimodal slice and grounding tags.
+domains: [llm, tokenization]
+prerequisites: [byte-level-bpe]
+builds_on: []
+contrasts_with: [deepseek-v3-tokenizer, lfm2-5-128k-tokenizer]
+related: [minicpm-v-4-7-35b-a3b]
+sources: [minicpm-v-4-7-35b-a3b-tokenizer, minicpm-v-4-7-35b-a3b-config, minicpm-v-4-7-1b-config]
+status: draft
+updated: 2026-10-18
+---
+
+[[minicpm-v-4-7-35b-a3b]], its 1B sibling, and its DSpark speculative drafter share one [[byte-level-bpe]] tokenizer (`Qwen2Tokenizer` in `transformers`) with 248,044 base tokens and 100 added control tokens, filling all 248,144 rows of the embedding table <Cite id="minicpm-v-4-7-35b-a3b-tokenizer" where="tokenizer.json; tokenizer_config.json" />.
+
+## How it splits text
+
+<TokenizerFlow tokenizer="minicpm-v-4-7" />
+
+Before running byte-level BPE, the tokenizer applies Unicode `NFC` normalization so canonically equivalent characters map to the same byte sequence <Cite id="minicpm-v-4-7-35b-a3b-tokenizer" where="tokenizer.json normalizer" />. Its pre-tokenizer regex (`\p{N}`) isolates every digit into its own piece so numbers are tokenized digit by digit, while English contractions split off and words keep at most one leading space <Cite id="minicpm-v-4-7-35b-a3b-tokenizer" where="tokenizer.json pre_tokenizer" />.
+
+## At a glance
+
+<Tokenizer id="minicpm-v-4-7" full />
+
+## Multimodal and omni control tokens
+
+The 100 added tokens (`248044` to `248143`) combine standard ChatML turn delimiters (`<|im_start|>`, `<|im_end|>`) and reasoning tags (`<think>`, `</think>`) with vision and speech spans <Cite id="minicpm-v-4-7-35b-a3b-tokenizer" where="tokenizer.json added_tokens" />. High-resolution images use `<|vision_start|>` and `<|vision_end|>` around `<|image_pad|>` placeholders alongside `<image>`, `<slice>`, `<box>`, `<quad>`, and `<point>` grounding tags, while `<|audio|>`, `<|listen|>`, `<|speak|>`, and `<|timbre_*|>` reserve ids for omni duplex audio checkpoints <Cite id="minicpm-v-4-7-35b-a3b-tokenizer" where="tokenizer.json added_tokens" />.
+
+## Vocabulary size comparison
+
+<TokenizerCompare tokenizers={["minicpm-v-4-7", "deepseek-v3", "lfm2-5-128k"]} />
+
+With 248,044 base BPE tokens—nearly twice the 128K vocabularies of [[deepseek-v3-tokenizer]] and [[lfm2-5-128k-tokenizer]]—the tokenizer encodes multilingual text (Chinese, Japanese, and Vietnamese) in fewer tokens while keeping single-digit granularity on numbers <Cite id="minicpm-v-4-7-35b-a3b-tokenizer" where="tokenizer.json model.vocab" />. The ids run from `0` to `248143`, matching `vocab_size: 248144` in `text_config` with zero unused embedding rows <Cite id="minicpm-v-4-7-35b-a3b-config" where="text_config.vocab_size" />.

@@ -46,6 +46,7 @@ const CAPTIONS: Record<string, string> = {
         ? `Each query head scores every earlier token. With grouped-query attention several query heads share one cached key/value head, so the cache holds ${z('kv_heads', 'n_kv')} heads instead of ${z('heads', 'n_h')}.`
         : 'Each query head scores every earlier token, reading the keys and values of past tokens from the cache.',
   'mixer-C': `Two gates around a depthwise convolution with a short kernel. While decoding, the layer only keeps the last ${z('conv_window', 'k')} inputs, so its cache never grows with context.`,
+  'mixer-G': `Gated DeltaNet linear attention: a depthwise convolution (kernel ${z('conv_window', 'k')}) feeds the gated delta recurrence S_t = α_t S + β_t (v − S k) kᵀ over a fixed-size ${z('linear_v_heads', 'n_v')} × ${z('linear_k_dim', 'd_qk')} × ${z('linear_v_dim', 'd_v')} state per layer, so state memory never grows with context.`,
   'ffn-D': 'A gated FFN: the gate path goes through the activation and multiplies the up path element by element, then the down projection returns to width d.',
   'ffn-E': `The router scores all ${z('routed_experts', 'N_r')} routed experts and keeps ${z('active_experts', 'K_r')}; their outputs are mixed by the gate weights g.${m.values.shared_experts ? ' Shared experts run for every token.' : ''}`,
   mtp: 'Used in training: predicts one token further ahead, reusing the main model’s embedding table and output head.',
@@ -68,7 +69,7 @@ const symbols = symbolRows(m).map((r: any) => ({ ...r, ...value(r.key) }));
 // A derivation, so it is shown beside the reported totals, never instead of them.
 const pb = paramBreakdown(m);
 const n = (x: number) => x.toLocaleString('en-US');
-const CODE_LABEL: Record<string, string> = { A: parts.find((p) => p.id === 'mixer-A')?.tab ?? 'Attention', C: 'Gated conv', M: 'Mamba-2', D: 'Dense FFN', E: 'MoE FFN' };
+const CODE_LABEL: Record<string, string> = { A: parts.find((p) => p.id === 'mixer-A')?.tab ?? 'Attention', C: 'Gated conv', M: 'Mamba-2', G: 'Gated DeltaNet', D: 'Dense FFN', E: 'MoE FFN' };
 const times = (p: any, x: number) => (p.layers > 1 ? `${p.layers} layers × ${fmtParams(x)}` : undefined);
 const bars: { label: string; sub?: string; total: number; active: number; title: string }[] = [];
 for (const p of pb.parts as any[]) {
@@ -98,7 +99,7 @@ const pctText = (x: number) => `${x > 0 ? '+' : '−'}${Math.abs(x * 100).toFixe
 if (bars.length) parts.push({ id: 'params', tab: 'Parameters', props: null } as any);
 
 // The matrices behind one tab: mixer-A → A, ffn-E → E; the layer tab sums each sublayer kind.
-const TAB_CODE: Record<string, string> = { 'mixer-A': 'A', 'mixer-C': 'C', 'ffn-D': 'D', 'ffn-E': 'E' };
+const TAB_CODE: Record<string, string> = { 'mixer-A': 'A', 'mixer-C': 'C', 'mixer-G': 'G', 'ffn-D': 'D', 'ffn-E': 'E' };
 const weightTable = (tab: string) => {
   const code = TAB_CODE[tab];
   if (!code) return null;

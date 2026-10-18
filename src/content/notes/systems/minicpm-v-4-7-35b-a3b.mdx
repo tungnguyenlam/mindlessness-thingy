@@ -1,0 +1,158 @@
+---
+title: "MiniCPM-V 4.7 (35B-A3B)"
+kind: system
+summary: "OpenBMB's multimodal MoE flagship: a 27-layer ViT with intra-ViT early compression and mixed 16×/4× token downsampling feeding a 40-layer Qwen3.5-35B-A3B hybrid Gated DeltaNet + gated GQA + MoE backbone."
+domains: [llm, moe, ssm, multimodal, attention, inference]
+prerequisites: [gated-deltanet, gqa, moe, vision-language-connector, rope, kv-cache]
+builds_on: []
+contrasts_with: [nemotron-3-5-super-vl, deepseek-v3]
+related: [mtp, minicpm-v-4-7-tokenizer]
+sources:
+  - minicpm-v-4-7-35b-a3b-card
+  - minicpm-v-4-7-35b-a3b-config
+  - minicpm-v-4-7-35b-a3b-tokenizer
+  - minicpm-v-4-7-modeling
+  - qwen3-5-moe-modeling
+  - minicpm-v-4-7-les-docs
+  - minicpm-v-4-7-35b-a3b-dspark-card
+  - llava-uhd-v4-paper
+  - minicpm-v-4-7-1b-config
+status: draft
+updated: 2026-10-18
+---
+
+MiniCPM-V 4.7 (`openbmb/MiniCPM-V-4.7-35B-A3B`) is the flagship checkpoint of OpenBMB's MiniCPM-V 4.7 multimodal series, pairing a 553M-parameter vision encoder with a 34.7B-parameter (`Qwen3.5-35B-A3B`) hybrid [[gated-deltanet]] and [[moe]] language backbone that activates 3.45B language parameters per token <Cite id="minicpm-v-4-7-35b-a3b-card" where="Overview; model.safetensors.index.json" />. Its sister model (`openbmb/MiniCPM-V-4.7-1B`) shares the identical vision encoder and two-stage compression pipeline on top of a dense 28-layer `Qwen3-0.6B` language model <Cite id="minicpm-v-4-7-1b-config" where="vision_config; text_config" />.
+
+## Whole model
+
+<ModelOverview model="minicpm-v-4-7-35b-a3b" />
+
+Every four layers in the 40-layer language stack repeat three [[gated-deltanet]] linear-attention layers followed by one [[gqa]] full-attention layer (`full_attention_interval: 4`), and every layer ends with a 256-expert sparse [[moe]] feed-forward block <Cite id="minicpm-v-4-7-35b-a3b-config" where="text_config.layer_types, full_attention_interval, num_experts" />.
+
+<LayerStrip model="minicpm-v-4-7-35b-a3b" />
+
+<ModelSpec model="minicpm-v-4-7-35b-a3b" />
+
+<Spec
+  title="Vision encoder, compression, and serving stack"
+  rows={[
+    { label: 'Released checkpoint parameters (BF16)', value: '35,212,875,824 (34.66B LLM + 553M vision)', source: 'minicpm-v-4-7-35b-a3b-config', where: 'model.safetensors.index.json' },
+    { label: 'Vision tower (MiniCPMV4_7VisionTransformer)', value: '27 layers, width 1152, FFN 4304, 16 heads, patch 14', source: 'minicpm-v-4-7-35b-a3b-config', where: 'vision_config' },
+    { label: 'Intra-ViT early merger (vit_merger)', value: 'Inserted after ViT layer 6 (7th layer); 2×2 window attention + MLP (4608 → 17216 → 1152)', source: 'minicpm-v-4-7-35b-a3b-config', where: 'vision_config.vit_merger_config' },
+    { label: 'Post-ViT connector (model.merger)', value: '2×2 spatial group + MLP (4608 → 4608 → 2048)', source: 'minicpm-v-4-7-modeling', where: 'MiniCPMV4_7Merger' },
+    { label: 'Mixed downsampling modes', value: '16× default (vit_merger 4× × merger 4×) or 4× fine detail (merger only)', source: 'minicpm-v-4-7-modeling', where: 'downsample_mode in MiniCPMV4_7Model.get_image_features' },
+    { label: 'Max visual token budget per image', value: '1,225 tokens (~1960×1960 at 16×)', source: 'minicpm-v-4-7-35b-a3b-card', where: 'preprocessor_config.json max_VisTokens' },
+    { label: 'DSpark speculative drafter', value: '5-layer MoE drafter (4.40B params), up to 2.25× speedup', source: 'minicpm-v-4-7-35b-a3b-dspark-card', where: 'config.json; README' },
+    { label: 'Lookahead Expert Scheduling (LES)', value: 'Predicts expert routing N layers ahead on CPU/GPU; +76.6% decode throughput', source: 'minicpm-v-4-7-les-docs', where: 'docs/les/lookahead-expert-scheduling.md' },
+  ]}
+/>
+
+## Two-stage visual token compression
+
+Standard vision-language models run every Vision Transformer layer over the full patch grid before a [[vision-language-connector]] downsamples the tokens at the very end. Adopted from LLaVA-UHD v4, MiniCPM-V 4.7 moves the first $4\times$ compression inside the 27-layer SigLIP2-derived ViT (`insert_layer_id: 6`, after the 7th layer), cutting ViT compute by $55.8\%$ on the remaining 20 layers <Cite id="llava-uhd-v4-paper" where="README; architecture" /> <Cite id="minicpm-v-4-7-35b-a3b-config" where="vision_config.vit_merger_config" />.
+
+<ArchDiagram
+  title="Intra-ViT early compression and mixed 16× / 4× downsampling"
+  caption="In 16× mode, vit_merger compresses 2×2 patch windows after the early ViT stack and model.merger compresses another 2×2 grid into the LLM width d. In 4× mode, vit_merger is bypassed so all ViT layers run at full patch resolution."
+  blocks={[
+    { id: 'patches', label: 'Patch embeddings', sub: 'H_p × W_p × d_vit', role: 'activation', col: 1, row: 0 },
+    { id: 'early', label: 'Early ViT stack', sub: 'full patch grid', role: 'op', col: 1, row: 1 },
+    { id: 'vmerge', label: 'Intra-ViT vit_merger', sub: 'window attn + MLP + mean', role: 'weight', col: 0, row: 2 },
+    { id: 'bypass', label: 'Fine-detail bypass', sub: 'H_p × W_p × d_vit', role: 'route', col: 2, row: 2 },
+    { id: 'deep', label: 'Deep ViT stack', sub: '(H_p/s) × (W_p/s) × d_vit', role: 'op', col: 1, row: 3 },
+    { id: 'cmerge', label: 'Post-ViT merger', sub: 's·s·d_vit → s·s·d_vit → d', role: 'weight', col: 1, row: 4, link: 'vision-language-connector' },
+    { id: 'vtok', label: 'Visual tokens', sub: 'T_v × d', role: 'activation', col: 1, row: 5 },
+  ]}
+  edges={[
+    { from: 'patches', to: 'early' },
+    { from: 'early', to: 'vmerge', label: 'default mode' },
+    { from: 'early', to: 'bypass', dashed: true, label: 'detail mode' },
+    { from: 'vmerge', to: 'deep' },
+    { from: 'bypass', to: 'deep', dashed: true },
+    { from: 'deep', to: 'cmerge' },
+    { from: 'cmerge', to: 'vtok' },
+  ]}
+/>
+
+Inside `MiniCPMV4_7ViTWindowAttentionMerger` (`vit_merger`), non-overlapping $2 \times 2$ patch windows run local window self-attention (`window_kernel_size: (2, 2)`), concatenate four $1152$-dim vectors into $4608$ dimensions, and pass through $\text{LayerNorm}(4608) \to \text{Linear}(4608 \to 17216) \to \text{GELU} \to \text{Linear}(17216 \to 1152)$ plus a four-patch mean residual <Cite id="minicpm-v-4-7-modeling" where="MiniCPMV4_7ViTWindowAttentionMerger.forward" />. After the final ViT layer, `MiniCPMV4_7Merger` (`model.merger`) groups another $2 \times 2$ window ($4608$) through $\text{LayerNorm}(4608) \to \text{Linear}(4608 \to 4608) \to \text{GELU} \to \text{Linear}(4608 \to 2048)$ into width $d = 2048$ <Cite id="minicpm-v-4-7-modeling" where="MiniCPMV4_7Merger.forward" />.
+
+When `downsample_mode="4x"` is selected for dense OCR or tiny visual details, `get_image_features` sets `use_vit_merger = False`, skipping `vit_merger` so all 27 ViT layers process the unmerged patch grid and only the post-ViT `merger` ($4\times$) runs <Cite id="minicpm-v-4-7-modeling" where="MiniCPMV4_7Model.get_image_features" />. At the default $16\times$ compression, a $1960 \times 1960$ image ($140 \times 140 = 19,600$ patches of $14 \times 14$ pixels) becomes $35 \times 35 = 1,225$ visual tokens (`max_VisTokens: 1225`) <Cite id="minicpm-v-4-7-35b-a3b-card" where="Overview; preprocessor_config.json" />.
+
+## Canvas M-RoPE for sliced images and video
+
+When an ultra-high-resolution image is split into a global thumbnail plus local spatial sub-slices, standard 3D multimodal [[rope]] resets spatial $(h, w)$ coordinates inside each slice, losing where a slice sits on the original image. MiniCPM-V 4.7 introduces `mrope_mode: "canvas"`, which computes each slice token's $(t, h, w)$ position on a unified normalized canvas of the whole image (`canvas_norm_size: 100`) <Cite id="minicpm-v-4-7-35b-a3b-config" where="mrope_mode, canvas_norm_size" /> <Cite id="minicpm-v-4-7-modeling" where="MiniCPMV4_7Model.get_rope_index" />.
+
+<ShapeFlow
+  title="Partial rotary and interleaved Canvas M-RoPE on one query/key head"
+  steps={[
+    { label: 'Head vector', shape: ['T', 'n_h', 'd_h'], note: 'head_dim = 256 after QK-Norm' },
+    { label: 'Partial rotary split', shape: ['T', 'n_h', 'd_rot + d_pass'], changed: 2, note: '25% rotated (64 dims), 75% unrotated (192 dims)' },
+    { label: 'Rotary frequency pairs', shape: ['T', 'n_h', 'n_pair', 'd_pair'], changed: 2, note: '32 complex frequency pairs (θ = 10,000,000)' },
+    { label: 'Interleaved [t, h, w]', shape: ['T', 'n_h', 's_t + s_h + s_w', 'd_pair'], changed: 2, note: 'sections [11, 11, 10] interleaved across 32 pairs' },
+  ]}
+/>
+
+Only the first $25\%$ of each $256$-dim query or key head ($64$ dims, or $32$ frequency pairs) is rotated (`partial_rotary_factor: 0.25`, $\theta = 10,000,000$), while $192$ dims pass through unrotated <Cite id="minicpm-v-4-7-35b-a3b-config" where="text_config.rope_parameters" />. Across those $32$ pairs, temporal, height, and width frequencies (`mrope_section: [11, 11, 10]`) are interleaved (`mrope_interleaved: true`) <Cite id="minicpm-v-4-7-35b-a3b-config" where="text_config.rope_parameters" />. For a slice at grid index $(r, c)$ in an $(R, C)$ grid of $(H_s, W_s)$ tokens, token $(i, j)$ receives canvas height $\lfloor r \cdot \frac{100}{R} + i \cdot \frac{100}{R \cdot H_s} \rfloor$ and width $\lfloor c \cdot \frac{100}{C} + j \cdot \frac{100}{C \cdot W_s} \rfloor$ <Cite id="minicpm-v-4-7-modeling" where="MiniCPMV4_7Model.get_rope_index" />.
+
+## Hybrid Gated DeltaNet and gated GQA backbone
+
+By delegating 30 of its 40 layers to [[gated-deltanet]] (`Qwen3_5MoeGatedDeltaNet`) and keeping [[gqa]] (`Qwen3_5MoeAttention`) in only 10 layers (`3, 7, 11, ..., 39`), the backbone bounds its recurrent state while retaining exact long-range retrieval every fourth layer <Cite id="minicpm-v-4-7-35b-a3b-config" where="text_config.layer_types" />.
+
+<Calc
+  title="Per-layer and total state memory across 40 hybrid layers"
+  caption="Drag the sequence length T. The 30 Gated DeltaNet layers keep a constant FP32 recurrent state (S_t plus a 3-step conv buffer) totaling 61.9 MB regardless of context length, while only the 10 GQA layers grow with T (20 KB per token in BF16)."
+  inputs={[
+    { id: 'T', label: 'Context length T (tokens)', min: 4096, max: 262144, step: 4096, default: 65536 },
+  ]}
+  bars={[
+    { label: '10 GQA layers: BF16 KV cache (grows with T)', role: 'cache', expr: '10 * 2 * 2 * 256 * 2 * T / (1024 * 1024)', unit: 'MiB' },
+    { label: '30 Gated DeltaNet layers: FP32 state + BF16 conv (fixed)', role: 'activation', expr: '30 * (32 * 128 * 128 * 4 + 8192 * 3 * 2) / (1024 * 1024)', unit: 'MiB' },
+    { label: 'If all 40 layers were GQA (4× larger KV cache)', role: 'op', expr: '40 * 2 * 2 * 256 * 2 * T / (1024 * 1024)', unit: 'MiB' },
+  ]}
+  outputs={[
+    { label: 'Hybrid total state (10 GQA + 30 DeltaNet)', expr: '(10 * 2 * 2 * 256 * 2 * T + 30 * (32 * 128 * 128 * 4 + 8192 * 3 * 2)) / (1024 * 1024)', unit: 'MiB' },
+  ]}
+/>
+
+In each Gated DeltaNet layer, $h_t \in \mathbb{R}^{2048}$ projects to $n_{qk} = 16$ query and key heads of width $d_{qk} = 128$ ($2048$ each, L2-normalized and repeated $2\times$ to match $32$ value heads) and $n_v = 32$ value heads of width $d_v = 128$ ($4096$), passes through a causal depthwise $\text{Conv1d}$ of kernel $k = 4$ over all $8192$ channels, and updates the FP32 matrix state $S_t \in \mathbb{R}^{32 \times 128 \times 128}$ via $S_t = \alpha_t S_{t-1} + \beta_t (v_t - S_{t-1} k_t) k_t^\top$ before gated normalization $\text{RMSNorm}(S_t q_t) \odot \text{SiLU}(z_t)$ <Cite id="qwen3-5-moe-modeling" where="Qwen3_5MoeGatedDeltaNet.forward" />.
+
+In the 10 full-attention layers, `head_dim` is $256$—twice $d / n_h = 128$—so $16$ query heads span $4096$ dimensions while $2$ [[kv-cache]] heads span $512$ dimensions ($8:1$ GQA) <Cite id="minicpm-v-4-7-35b-a3b-config" where="text_config.head_dim, num_attention_heads, num_key_value_heads" />. With `attn_output_gate: true`, `q_proj` outputs $8192$ dimensions ($2 \times 4096$), splitting off a query-conditioned gate $g_Q$ that scales the attention output via $\sigma(g_Q) \odot \text{Attn}(Q, K, V)$ before `o_proj` ($4096 \to 2048$) <Cite id="qwen3-5-moe-modeling" where="Qwen3_5MoeAttention.forward" />. Every layer's [[moe]] block routes tokens to the top $8$ of $256$ SwiGLU experts ($d_e = 512$) via softmax and adds one shared expert (`shared_expert_intermediate_size: 512`) gated by $\sigma(w_{\text{shared}}^\top u_t)$ <Cite id="qwen3-5-moe-modeling" where="Qwen3_5MoeSparseMoeBlock.forward" />.
+
+<Callout type="pitfall">
+Although `text_config` contains `"mtp_num_hidden_layers": 1`, the main BF16 checkpoint ships zero `mtp.*` tensors in `model.safetensors.index.json`, and `MiniCPMV4_7PreTrainedModel` explicitly sets `_keys_to_ignore_on_load_unexpected = [r"^mtp.*"]` <Cite id="minicpm-v-4-7-modeling" where="MiniCPMV4_7PreTrainedModel" />. Speculative decoding instead uses the separate 5-layer DSpark checkpoint (`openbmb/MiniCPM-V-4.7-35B-A3B-DSpark`) <Cite id="minicpm-v-4-7-35b-a3b-dspark-card" where="README" />.
+</Callout>
+
+## Inference: LES, layer-wise quantization, and DSpark
+
+Because $93.4\%$ of the language backbone's parameters ($32.36\text{B}$ of $34.66\text{B}$) live in the 256 routed experts per layer while only 8 experts ($3.125\%$) run per token, OpenBMB pairs the model with three inference optimizations across `llama.cpp-omni`, SGLang, and vLLM <Cite id="minicpm-v-4-7-35b-a3b-card" where="Inference; Deployment" />.
+
+<ArchDiagram
+  title="Lookahead Expert Scheduling (LES) and DSpark speculative decoding"
+  caption="LES uses an early layer's hidden state h_l to predict expert routing at layer l + N and prefetch expert weights asynchronously, while the 5-layer DSpark drafter proposes multiple candidate tokens verified in one target forward pass."
+  blocks={[
+    { id: 'hl', label: 'Hidden state h_l', sub: 'T × d at layer l', role: 'activation', col: 0, row: 0 },
+    { id: 'look', label: 'Lookahead router', sub: 'gate_(l+N) · h_l → top-K_r', role: 'route', col: 0, row: 1 },
+    { id: 'pre', label: 'Async expert prefetch', sub: 'loads K_r × (d × d_e) weights', role: 'weight', col: 0, row: 2 },
+    { id: 'hln', label: 'Layer l + N MoE', sub: 'T × d', role: 'op', col: 1, row: 2, link: 'moe' },
+    { id: 'dspark', label: 'DSpark MoE drafter', sub: 'drafts γ tokens: γ × d', role: 'weight', col: 2, row: 1, link: 'mtp' },
+    { id: 'verify', label: 'Target batch verify', sub: 'accepts verified prefix', role: 'op', col: 1, row: 3 },
+  ]}
+  edges={[
+    { from: 'hl', to: 'look', dashed: true, label: 'lookahead N' },
+    { from: 'hl', to: 'hln', label: 'layers l..l+N' },
+    { from: 'look', to: 'pre' },
+    { from: 'pre', to: 'hln' },
+    { from: 'hln', to: 'verify' },
+    { from: 'dspark', to: 'verify', label: 'draft ids' },
+  ]}
+/>
+
+- **Lookahead Expert Scheduling (`LES`)**: Because residual updates across adjacent layers are small, `llama.cpp-omni` multiplies the hidden state at layer $l$ by the router matrix of layer $l + N$ ($N \in [1, 8]$) to predict its top-8 experts ahead of time and prefetch their weights into cache before layer $l + N$ executes, improving CPU decode speed by $49.1\%$ (`21.6 → 32.2 tok/s`) and hybrid CPU+GPU decode speed by $76.6\%$ (`14.1 → 24.9 tok/s`) <Cite id="minicpm-v-4-7-les-docs" where="Principle; Benchmark Results" />.
+- **Layer-wise sensitivity quantization**: Rather than uniform bit-width across all 40 layers, OpenBMB profiles per-layer quantization error and keeps sensitive layers and shared/router projections at higher precision in the official `GGUF` (`Q4_K_M` at $22.0\text{ GB}$ down to `Q2_K` at $13.3\text{ GB}$) and `AWQ` (`24 GB`) checkpoints <Cite id="minicpm-v-4-7-35b-a3b-card" where="Model Zoo; Quantization" />.
+- **DSpark speculative decoding (`MiniCPM-V-4.7-35B-A3B-DSpark`)**: A dedicated 5-layer `Qwen3_5MoeForCausalLM` drafter (`4.40B` parameters, keeping the same 256-expert MoE geometry and $248,144$ vocabulary) drafts tokens for target verification in SGLang (`--speculative-algorithm EAGLE`), reaching up to $2.25\times$ decoding speedup <Cite id="minicpm-v-4-7-35b-a3b-dspark-card" where="config.json; Usage" />.
+
+## Tokenizer
+
+<Tokenizer model="minicpm-v-4-7-35b-a3b" />
+
+MiniCPM-V 4.7 uses the [[minicpm-v-4-7-tokenizer]], a 248,144-token [[byte-level-bpe]] vocabulary (`248,044` base tokens plus `100` added control tokens for ChatML, `<think>`, `<slice>`, `<|image_pad|>`, and duplex audio) with untied input and output embeddings <Cite id="minicpm-v-4-7-35b-a3b-tokenizer" where="tokenizer.json" /> <Cite id="minicpm-v-4-7-35b-a3b-config" where="text_config.vocab_size, tie_word_embeddings" />.

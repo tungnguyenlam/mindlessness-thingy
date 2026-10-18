@@ -1,0 +1,8 @@
+title: "MiniCPM-V-4.7-35B-A3B tokenizer files (Hugging Face)"
+short: "MiniCPM-V-4.7-35B-A3B tokenizer"
+authors: "OpenBMB, Qwen Team"
+year: 2026
+url: "https://huggingface.co/openbmb/MiniCPM-V-4.7-35B-A3B/tree/main"
+type: config
+accessed: 2026-10-18
+notes: "tokenizer.json, tokenizer_config.json and chat_template.jinja: 248,044 base BPE tokens plus 100 special tokens (ids 248,044–248,143)."

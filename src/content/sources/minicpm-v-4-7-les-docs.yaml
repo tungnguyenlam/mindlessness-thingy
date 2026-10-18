@@ -1,0 +1,8 @@
+title: "LES: Lookahead Expert Scheduling (OpenBMB llama.cpp-omni)"
+short: "LES docs"
+authors: "OpenBMB"
+year: 2026
+url: "https://github.com/OpenBMB/llama.cpp-omni/blob/main/docs/les/lookahead-expert-scheduling.md"
+type: docs
+accessed: 2026-10-18
+notes: "Cross-layer routing prediction for expert prefetching, contiguous expert weight repacking, layer-wise mixed-precision quantization, and step-by-step iPad Pro M4 decode speed ablation."

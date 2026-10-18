@@ -33,6 +33,7 @@ TOKENIZERS = {
     'deepseek-v3': {'repo': 'deepseek-ai/DeepSeek-V3', 'chat': ('tokenizer_config.json', 'chat_template')},
     'lfm2': {'repo': 'LiquidAI/LFM2.5-1.2B-Instruct', 'chat': ('chat_template.jinja', None)},
     'lfm2-5-128k': {'repo': 'LiquidAI/LFM2.5-2.6B', 'chat': ('chat_template.jinja', None)},
+    'minicpm-v-4-7': {'repo': 'openbmb/MiniCPM-V-4.7-35B-A3B', 'chat': ('tokenizer_config.json', 'chat_template')},
 }
 
 # Short on purpose: each one has to fit on a phone screen as a row of token chips.
