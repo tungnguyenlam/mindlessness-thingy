@@ -73,7 +73,7 @@ It scaffolds the sections with `{/* TODO */}` prompts in the right order, pictur
 - Use `[[slug]]` for every mention of another note's idea on first use in a section. `[[slug|custom text]]` changes the link text. Never link with a raw URL.
 - Set `status: draft` and `updated:` to today.
 
-Style: follow [Writing](../../../AGENTS.md#writing) (reader, order, symbols, numbers). In short: short paragraphs, plain verbs, no hype, every symbol defined on first use, every number cited.
+Style: follow [Writing](../../../AGENTS.md#writing) (reader, order, symbols, numbers). In short: explain how and why instead of reporting results, plain words for readers who aren't native English speakers, keep the "because" and "so" that carry the reasoning, short paragraphs, every symbol defined on first use, every number cited.
 
 ## 7. Check and look
 

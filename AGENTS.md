@@ -135,7 +135,7 @@ Available in every note without imports. Full props are in each file under `src/
 | `<Tokenizer>` | `model=`: a card for the model's tokenizer (kind, ids vs embedding rows, one sample and one chat turn as tokens, which models share it), linking to the tokenizer note. `id= full`: every fact, the splitting rules and the special tokens, for that note. |
 | `<TokenizerFlow>` | Text becoming ids for one tokenizer, stage by stage (pre-tokenizer pieces, bytes, BPE tokens), with tabs for sample texts. Generated from the released tokenizer files. |
 | `<TokenizerCompare>` | Tokens needed for the same sample texts across tokenizers, as bars. |
-| `<Spec>` | Tables of numbers that aren't model fields (benchmarks, training compute). Every row needs a `source`. |
+| `<Spec>` | Tables of numbers that aren't model fields (benchmarks, training compute). Every row needs a `source`. With several numbers per row, give each its own column (`columns` + `values`), never one packed string; `note` explains symbols under the table. |
 | `<Cite>` | Inline citation of a source, with an optional location. |
 | `<Callout>` | `note`, `intuition` or `pitfall` asides. Use sparingly. |
 | `<Figure>` | A captioned wrapper for anything else. |
@@ -160,9 +160,11 @@ Read this before writing a note or drawing a diagram. The checks catch shape and
 
 ### Writing
 
-- **Reader:** knows basic linear algebra and what a transformer is, but not this idea. Don't explain matrix multiplication; do explain why a latent is cached.
+- **Reader:** knows basic linear algebra and what a transformer is, but not this idea. Many readers aren't native English speakers. Don't explain matrix multiplication; do explain why a latent is cached.
+- **Explain, don't report.** A note teaches how something works and why; it is not a summary of a paper's results. Each section answers one question the reader would ask, and keeps only the numbers that support the answer. A system note opens by saying what problem the system solves and the two to four ideas that make it work.
 - **Order inside a section:** the problem in two or three sentences, linking whatever left it open → the visual → the intuition in plain words → the equation → what it implies (cost, tradeoff, what a model chose).
-- **Sentences:** short paragraphs (under 90 words), plain verbs, active voice, no hype ("revolutionary", "simply", "just"). Prefer a concrete sentence ("the cache holds 576 numbers per token") over an abstract one ("the cache is much smaller").
+- **Sentences:** plain everyday words, one claim per sentence, active voice, no hype ("revolutionary", "simply", "just"). Keep the connectors that carry the reasoning ("because", "so", "which means", "but"): a longer sentence that says *why* beats two short ones the reader has to join. Avoid semicolons and em-dash asides that hide a second claim, idioms and metaphors ("arrives with", "pays for"), and more than two or three numbers in one sentence. Short paragraphs (under 90 words). Prefer a concrete sentence ("the cache holds 576 numbers per token") over an abstract one ("the cache is much smaller").
+- **Same thing, same word.** Pick one term for each thing and keep it for the whole note ("action chunk", not also "chunk of actions" and "prediction").
 - **Symbols:** define each symbol on first use in a note, in words ("$d_c$, the latent width"). Use the shared vocabulary below so the same letter means the same thing on every page.
 - **Numbers:** every architecture number is cited where it appears (`<Cite>`, `<Spec>`, `<ModelSpec>`). When sources disagree, say so and prefer the released `config.json`. When you can't source a number, leave it out and write that it's unverified.
 - **Claims about behaviour** (why a design works, what it costs) need a source or a visible derivation (a `<Calc>`, a formula). Mark your own reasoning as such ("this suggests…").
