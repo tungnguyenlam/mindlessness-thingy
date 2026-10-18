@@ -126,3 +126,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: wrote the system note for the vla.cpp runtime (arXiv:2606.08094): adapters/backends architecture, iterative vs regression heads, observation reuse, BitVLA ternary kernels, LIBERO and device latency tables, quantization costs, UR10e and horizon sweeps; 2 sources, fact sheet, stubs vla, action-chunking, observation-reuse
 - files: src/content/notes/systems/vla-cpp.mdx src/content/notes/concepts/{vla,action-chunking,observation-reuse}.mdx src/content/sources/vla-cpp-{paper,repo}.yaml research/vla-cpp-facts.md
 - open: repo README is ahead of the paper (extra policies, Hexagon backend); GR00T-N1.6 success gap left unexplained by the paper
+
+## 2026-10-18 · content(vla-cpp): rewrite as an explanation, not a results dump
+- did: owner found the note hard to read; rewrote around four ideas (adapter split, observation reuse, ternary kernels, precision flipping a discrete choice) with plain prose that keeps because/so; two new diagrams (ternary matmul, SmolVLA position-embedding index), a robot-loop Calc; tables now use Spec columns; fixed [[vla]] rendering as 'policy policy'; Spec gained columns/values/note; AGENTS.md Writing rules updated
+- files: src/content/notes/systems/vla-cpp.mdx src/components/viz/Spec.astro AGENTS.md .agents/skills/write-article/SKILL.md
+- open: other notes still pack numbers into one Spec value and could move to columns; dropped from the note: four-suite LIBERO, SimplerEnv, ALOHA runs, roofline numbers (still in research/vla-cpp-facts.md)

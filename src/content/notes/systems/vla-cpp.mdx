@@ -12,13 +12,15 @@ status: draft
 updated: 2026-10-18
 ---
 
-A trained [[vla]] policy usually arrives with the stack it was trained in: PyTorch, the repo's preprocessing, its own action head. A robot has to run it next to sensing and control, on the processor and memory the robot already has. vla.cpp is a C++ runtime that serves eleven policies through one server and one bundle format, treating PyTorch as a conversion-time tool rather than a runtime dependency. What the policies share moves into the runtime; what they differ in stays in a small model adapter.
+A [[vla|VLA]] policy is trained in PyTorch, but a robot often can't run PyTorch, because its small computer is already busy with sensors and motor control. vla.cpp converts eleven such policies into one file format and serves them all from one C++ server, so PyTorch is needed only for the conversion <Cite id="vla-cpp-paper" where="Abstract, §I" />. It works because each policy splits in two. What every policy shares (loading weights, matrix math on each chip) lives in the runtime. What differs (the attention pattern, how actions are produced) lives in a small per-policy adapter.
 
-## One runtime, eleven policies
+Three more ideas follow that split: observation reuse, ternary weights, and checking that the converted policy computes the same actions.
+
+## How a request flows
 
 <ArchDiagram
   title="One request through vla.cpp"
-  caption="The client sends images, a tokenized instruction and the robot state; the C++ server runs them through the policy's adapter on one hardware backend and returns a chunk of actions with timings, which the client replays. CUDA, Metal, CPU, SYCL and OpenVINO share the backend interface, and vision weights may travel in a companion GGUF file."
+  caption="Follow the arrows from the robot client: the observation goes in, the policy's adapter runs on one hardware backend, and an action chunk comes back for the client to execute."
   groups={[{ label: 'vla.cpp server (C++)', blocks: ['proto', 'adapter', 'backends', 'bundle'] }]}
   blocks={[
     { id: 'client', label: 'Robot client', sub: 'sensing · replay', role: 'op', col: 0, row: 0 },
@@ -40,17 +42,23 @@ A trained [[vla]] policy usually arrives with the stack it was trained in: PyTor
   ]}
 />
 
-The runtime splits into three layers <Cite id="vla-cpp-paper" where="§III" />. **Model adapters** define each policy's computation: its attention pattern, its conditioning path and its action generation. **Hardware backends** execute the shared tensor operations. The **client** owns sensing and control — tokenization, normalization, command mapping, replay — and it may be Python; model execution is C++ <Cite id="vla-cpp-paper" where="§III-C" />.
+The robot client sends three things: camera images, the instruction as token ids, and the robot's current state. The server runs them through the policy and sends back an action chunk, which is a short sequence of future actions, together with timings. The client then executes those actions on the robot <Cite id="vla-cpp-paper" where="§III-C" />.
 
-A policy ships as GGUF: weights, architecture metadata and the normalization statistics in one bundle, with vision weights in a companion file. The C++ server holds the weights and answers synchronous requests over ZeroMQ with Protocol Buffers; requests carry images, token ids, state and optional noise or masks, and responses carry the chunk, its dimensions and timings <Cite id="vla-cpp-paper" where="§III-C" />. A new policy adds an adapter, a converter and a runtime registration; the server, the protocol and the client do not change <Cite id="vla-cpp-paper" where="§III-C" />.
+The runtime has three layers, and each one has a single job <Cite id="vla-cpp-paper" where="§III" />:
 
-Eleven policies run on that one interface: SmolVLA, Evo-1, π0, π0.5, GR00T-N1.5/1.6/1.7, VLA-JEPA, VLA-Adapter, OpenVLA-OFT and BitVLA <Cite id="vla-cpp-paper" where="Fig. 1, Table I" />. Coverage is uneven — BitVLA's ternary path is CUDA-only and OpenVLA-OFT was profiled on Metal and OpenVINO alone <Cite id="vla-cpp-paper" where="Table I" />. What varies per policy is exactly what an adapter must preserve: attention patterns, conditioning, masks and where the state token sits <Cite id="vla-cpp-paper" where="§III-B" />.
+1. A **model adapter** describes one policy's computation: which tokens attend to which, how the observation conditions the action head, and how actions are produced.
+2. A **hardware backend** runs the tensor operations that every policy shares. The paper measures five backends: CUDA, Metal, CPU, SYCL and OpenVINO.
+3. The **client** handles sensing and control: tokenizing the instruction, normalizing inputs, mapping actions to robot commands and replaying them. The client can be written in Python, because only model execution has to be C++ <Cite id="vla-cpp-paper" where="§III-C" />.
 
-## Two action heads, one interface
+Each policy ships as a GGUF bundle, the file format of llama.cpp. The bundle holds the weights, the architecture metadata and the normalization statistics, and the vision weights go in a second file beside it <Cite id="vla-cpp-paper" where="§III-C" />. Because the server and the protocol are shared, adding a policy means writing an adapter, a converter and a runtime registration, and nothing else changes <Cite id="vla-cpp-paper" where="§III-C" />.
+
+The paper runs eleven policies this way: SmolVLA, Evo-1, π0, π0.5, GR00T-N1.5, N1.6 and N1.7, VLA-JEPA, VLA-Adapter, OpenVLA-OFT and BitVLA <Cite id="vla-cpp-paper" where="Fig. 1, Table I" />. Not every policy runs on every backend, though. For example, BitVLA's ternary path exists only on CUDA <Cite id="vla-cpp-paper" where="Table I" />.
+
+## Two kinds of action head
 
 <ArchDiagram
   title="Iterative and regression action heads"
-  caption="Iterative heads start from a noisy chunk and integrate a learned velocity field over T steps; each step sees the same conditioning C, which is what makes reuse possible. Regression heads return the chunk in one pass. Both hand the client the same chunk and dimensions."
+  caption="The left path refines a noisy chunk over T steps, and every step reads the same conditioning C. The right path produces the chunk in one pass. Both end at the same action chunk."
   blocks={[
     { id: 'obs', label: 'Observation', sub: 'images · instruction', role: 'activation', col: 1, row: 0 },
     { id: 'cond', label: 'Conditioning C', sub: 'F(o)', role: 'activation', col: 0, row: 1 },
@@ -71,194 +79,244 @@ Eleven policies run on that one interface: SmolVLA, Evo-1, π0, π0.5, GR00T-N1.
   ]}
 />
 
-An observation $o = (I_{1:V}, \ell, s)$ is $V$ camera images, a tokenized instruction $\ell$ and the robot state $s$. A policy turns it into a chunk $A \in \mathbb{R}^{H \times d_a}$: $H$ actions of $d_a$ command dimensions. The client executes the first $S$ of them, with $1 \le S \le H$, before observing again <Cite id="vla-cpp-paper" where="§III-A" />. That split is [[action-chunking]], and both head styles below return through it.
+The eleven policies produce actions in two different ways, and the server has to serve both through one interface. Both kinds take the same input and return the same output. The input is an observation $o = (I_{1:V}, \ell, s)$: $V$ camera images, the instruction $\ell$ and the robot state $s$. The output is an action chunk $A \in \mathbb{R}^{H \times d_a}$, which means $H$ future actions, each with $d_a$ numbers (one per joint or gripper command).
 
-Iterative heads compute observation conditioning $C = F_\theta(o)$, start from a noise chunk $X^0$ and refine it with $T$ Euler steps <Cite id="vla-cpp-paper" where="§III-A, Eq. 1" />:
+The robot executes only the first $S$ actions, where $1 \le S \le H$, and then observes again <Cite id="vla-cpp-paper" where="§III-A" />. Predicting $H$ actions but executing $S$ of them is [[action-chunking]].
+
+An **iterative head** starts from a random chunk and improves it step by step. It first turns the observation into conditioning features $C = F_\theta(o)$. Then it starts from a noise chunk $X^0$ and applies $T$ Euler steps, each one moving the chunk a little in the direction a learned velocity field $v_\theta$ points <Cite id="vla-cpp-paper" where="§III-A, Eq. 1" />:
 
 $$
 X^{k+1} = X^k + (\tau_{k+1} - \tau_k)\, v_\theta(X^k, \tau_k, C, s)
 $$
 
-$\tau$ is an integration schedule, not physical time, and $v_\theta$ is the learned [[flow-matching]] velocity field. Each checkpoint keeps its own convention: SmolVLA and π0 integrate from 1 to 0, GR00T-N1.7 from 0 to 1, and Evo-1 starts from uniform noise; reversing the direction means flipping the sign of the velocity <Cite id="vla-cpp-paper" where="§III-A" />.
+Here $\tau$ is a position along the path from noise to actions, not physical time, and the velocity field is trained with [[flow-matching]]. The checkpoints don't agree on direction: SmolVLA and π0 go from $\tau = 1$ to $0$, while GR00T-N1.7 goes from $0$ to $1$. So an adapter that reverses the direction must also flip the sign of the velocity <Cite id="vla-cpp-paper" where="§III-A" />.
 
-BitVLA, OpenVLA-OFT and VLA-Adapter skip the loop and regress the chunk directly, $A = R_\theta(o)$ <Cite id="vla-cpp-paper" where="§III-A" />. Both paths return a chunk and its dimensions through the same interface, so the client does not know which kind it is driving.
+A **regression head** skips the loop and predicts the chunk in one pass, $A = R_\theta(o)$. BitVLA, OpenVLA-OFT and VLA-Adapter work this way <Cite id="vla-cpp-paper" where="§III-A" />. Since both heads return a chunk and its size through the same interface, the client never needs to know which kind of head it is talking to.
 
-## Paying for the observation once
+## Observation reuse keeps iterative heads cheap
 
 <Calc
-  title="What retaining the observation buys"
+  title="What reusing the observation saves"
   inputs={[
     { id: 'P', label: 'Fixed work per request P (ms)', min: 5, max: 100, step: 0.5, value: 32.6 },
     { id: 'E', label: 'Work per solver step E (ms)', min: 1, max: 20, step: 0.1, value: 5.8 },
     { id: 'T', label: 'Solver steps T', min: 1, max: 16, step: 1, value: 4 },
   ]}
   outputs={[
-    { label: 'Model latency P + T·E (ms)', expr: 'P + T * E', format: 'number', role: 'op' },
-    { label: 'Speedup vs recomputing conditioning every step', expr: 'T * (P + E) / (P + T * E)', format: 'ratio', role: 'activation' },
-    { label: 'Share of latency spent in the solver steps', expr: 'T * E / (P + T * E)', format: 'percent', role: 'op' },
+    { label: 'Latency with reuse, P + T·E (ms)', expr: 'P + T * E', format: 'number', role: 'op' },
+    { label: 'Speedup over recomputing every step', expr: 'T * (P + E) / (P + T * E)', format: 'ratio', role: 'activation' },
+    { label: 'Share of latency spent in solver steps', expr: 'T * E / (P + T * E)', format: 'percent', role: 'op' },
   ]}
-  note="Defaults are the measured GR00T-N1.7 fit on RTX 3060: about 32.6 ms of fixed work and 5.8 ms per solver step, vision included. Drag T down to 1 to see why reuse is worth more as the step count grows."
+  note="Defaults are the paper's fit for GR00T-N1.7 on an RTX 3060: about 32.6 ms of fixed work and 5.8 ms per solver step. Raise T and watch the speedup grow, because the fixed work is paid only once."
 />
 
-In an iterative head the observation tokens form a prefix and the candidate-action tokens a suffix, and only the suffix changes from step to step. The runtime computes the prefix once per request and reuses its keys, values and projections across all $T$ steps <Cite id="vla-cpp-paper" where="§III-B" />.
+An iterative head runs its network $T$ times, but most of the input doesn't change between runs. The observation tokens (images, instruction, state) come first, as a prefix. The action tokens come after them, as a suffix. Only the suffix changes from one solver step to the next, so the runtime computes the prefix once per request and reuses its keys, values and projections at every step <Cite id="vla-cpp-paper" where="§III-B" />.
 
-π0 caches each layer's prefix keys and values for joint attention; SmolVLA alternates joint and cross attention and caches the cross-attention projections; GR00T-style heads cache backbone features for a separate action transformer <Cite id="vla-cpp-paper" where="§III-B" />. That is [[observation-reuse]], the same prefix idea as a [[kv-cache]], applied to one request: the cache is thrown away when the next observation arrives <Cite id="vla-cpp-paper" where="§III-B" />.
+This is [[observation-reuse]]. It is the same idea as a [[kv-cache]], but it lives for one request only, because the next request brings a new observation <Cite id="vla-cpp-paper" where="§III-B" />.
 
-With conditioning time $P$ and expert-step time $E$, model latency is approximately $L_{\text{model}}(T) \approx P + T\,E$, against $T(P + E)$ if conditioning were recomputed at every step; the idealized speedup is $T(P+E)/(P+TE)$, between 1 and $T$ <Cite id="vla-cpp-paper" where="Eq. 3" />.
+What gets reused depends on the policy, which is why this logic lives in the adapter. π0 keeps each layer's prefix keys and values. SmolVLA keeps the projections its cross-attention layers read. GR00T-style heads keep the backbone features that feed a separate action transformer <Cite id="vla-cpp-paper" where="§III-B" />.
 
-The sweep shows the fixed part staying put. On GR00T-N1.7 the vision stage takes 18.5 to 18.9 ms at every step count, while backbone-plus-head time grows from 19.6 ms at one step to 107.5 ms at sixteen; the measured fit is 13.9 + 5.8T ms, or about 32.6 ms of fixed work plus 5.8 ms per step once vision is included <Cite id="vla-cpp-paper" where="§IV-E, Table VI" />.
+The calculator above shows the cost. Call $P$ the time to process the observation and $E$ the time for one solver step. With reuse, one request takes about $P + T\,E$. Without reuse, every step would process the observation again and take $T(P + E)$. The speedup is the ratio of the two, $T(P+E)/(P+TE)$, which is between 1 and $T$ <Cite id="vla-cpp-paper" where="Eq. 3" />.
 
 <Spec
-  title="GR00T-N1.7 solver sweep, RTX 3060 (100 episodes per stack): success runtime/PyTorch, backbone-plus-head ms, relative RMS error against the T = 4 output"
+  title="GR00T-N1.7 with more or fewer solver steps (RTX 3060)"
+  columns={['Steps T', 'Success, vla.cpp', 'Success, PyTorch', 'Vision (ms)', 'Backbone + head (ms)', 'Error vs T = 4']}
   rows={[
-    { label: 'T = 1', value: '99/96 · 19.60 · 0.2290', source: 'vla-cpp-paper', where: 'Table VI' },
-    { label: 'T = 2', value: '95/98 · 25.79 · 0.0684', source: 'vla-cpp-paper', where: 'Table VI' },
-    { label: 'T = 4', value: '98/94 · 37.21 · 0', source: 'vla-cpp-paper', where: 'Table VI' },
-    { label: 'T = 8', value: '98/95 · 60.54 · 0.0321', source: 'vla-cpp-paper', where: 'Table VI' },
-    { label: 'T = 16', value: '95/97 · 107.50 · 0.0483', source: 'vla-cpp-paper', where: 'Table VI' },
+    { label: '1', values: ['99', '96', '18.49', '19.60', '0.2290'], source: 'vla-cpp-paper', where: 'Table VI' },
+    { label: '2', values: ['95', '98', '18.83', '25.79', '0.0684'], source: 'vla-cpp-paper', where: 'Table VI' },
+    { label: '4', values: ['98', '94', '18.68', '37.21', '0'], source: 'vla-cpp-paper', where: 'Table VI' },
+    { label: '8', values: ['98', '95', '18.68', '60.54', '0.0321'], source: 'vla-cpp-paper', where: 'Table VI' },
+    { label: '16', values: ['95', '97', '18.86', '107.50', '0.0483'], source: 'vla-cpp-paper', where: 'Table VI' },
+  ]}
+  note="Success is out of 100 episodes. Error is the relative RMS difference from the T = 4 actions on the same inputs."
+/>
+
+The measurements match this model. The vision time stays near 18.5 ms whatever $T$ is, because the observation is processed once. The backbone-plus-head time grows by about 5.8 ms for each extra step <Cite id="vla-cpp-paper" where="§IV-E, Table VI" />. Success stays between 95 and 99 at every step count, so on this benchmark the number of steps barely affects the task <Cite id="vla-cpp-paper" where="Table VI" />.
+
+Reuse removes the repeated observation work, but it can't make the steps themselves cheaper. Even with reuse, the action head still takes almost half of SmolVLA's and GR00T-N1.6's time <Cite id="vla-cpp-paper" where="§IV-E" />. The reason is that the action head is small, so it does little arithmetic for each byte it reads and is limited by memory bandwidth, not compute <Cite id="vla-cpp-paper" where="§IV-E, Fig. 3" />.
+
+## Ternary weights: BitVLA on an 8 GB board
+
+<ArchDiagram
+  title="One ternary matrix multiply in BitVLA"
+  caption="Weights are stored as packed ternary codes and activations are rounded to integers, so the multiply runs on integer tensor cores. Two scale factors turn the integer sums back into real values."
+  blocks={[
+    { id: 'x', label: 'Activations x', sub: 'M × K', role: 'activation', col: 0, row: 0 },
+    { id: 'quant', label: 'Round rows to int8', sub: 'scale α_m per row', role: 'op', col: 0, row: 1 },
+    { id: 'w', label: 'Ternary weights q', sub: 'K → N, packed', role: 'weight', col: 1, row: 0 },
+    { id: 'mma', label: 'Integer matmul', sub: 'IMMA tensor cores', role: 'op', col: 1, row: 1 },
+    { id: 'acc', label: 'int32 sums', sub: 'M × N', role: 'activation', col: 1, row: 2 },
+    { id: 'y', label: 'Output y', sub: 'M × N, × α_m β_g', role: 'activation', col: 1, row: 3 },
+  ]}
+  edges={[
+    { from: 'x', to: 'quant' },
+    { from: 'quant', to: 'mma' },
+    { from: 'w', to: 'mma' },
+    { from: 'mma', to: 'acc' },
+    { from: 'acc', to: 'y', label: 'rescale' },
   ]}
 />
 
-Success stays between 95 and 99 of 100 across the sweep, so one to sixteen steps barely moves the task numbers on this benchmark <Cite id="vla-cpp-paper" where="Table VI" />. Caching does not remove the expert's cost: with prefix features already reused, the action expert still takes nearly half of SmolVLA's and GR00T-N1.6's execution time, and for BitVLA's direct head it is almost all of it <Cite id="vla-cpp-paper" where="§IV-E" />. A roofline analysis puts the prefix computation above both devices' ridge points while the small expert sits at low arithmetic intensity <Cite id="vla-cpp-paper" where="§IV-E, Fig. 3" />.
-
-## Ternary execution on tensor cores
-
-BitVLA's weights are scaled ternary, $q \in \{-1, 0, 1\}$, packed as four two-bit codes per byte <Cite id="vla-cpp-paper" where="§III-D" />. On CUDA the runtime quantizes each activation row to int8 around its largest magnitude, multiplies activations against the packed weights with integer matrix-multiply–accumulate instructions, accumulates in 32-bit integers, and converts to bfloat16 scaled by the row and output-group factors <Cite id="vla-cpp-paper" where="§III-D, Eq. 4" />. The baseline kernel uses dp4a dot products on CUDA cores; the multi-row path uses IMMA tensor-core instructions, adapting packed-weight techniques from Ladder, BitBLAS and bitnet.cpp <Cite id="vla-cpp-paper" where="§III-D" />.
+BitVLA's weights can only be $-1$, $0$ or $+1$, times a scale factor. A value with three choices fits in two bits, so the runtime packs four weights into each byte <Cite id="vla-cpp-paper" where="§III-D" />. To multiply, it first rounds each row of activations to 8-bit integers, using that row's largest value as the scale $\alpha_m$. It then multiplies the integer activations by the ternary weights on tensor cores, adds the products in 32-bit integers, and multiplies the result by the row scale $\alpha_m$ and the weight-group scale $\beta_g$ <Cite id="vla-cpp-paper" where="§III-D, Eq. 4" />.
 
 <Spec
-  title="BitVLA ternary execution, S = 8, client inference per executed action including preprocessing and transport"
+  title="BitVLA with and without the tensor-core kernel (S = 8)"
+  columns={['Device', 'Old kernel (ms)', 'Tensor-core kernel (ms)', 'Speedup', 'Successes of 200']}
   rows={[
-    { label: 'dp4a on RTX 3060', value: '172.8 ms', source: 'vla-cpp-paper', where: '§IV-D, Table III' },
-    { label: 'IMMA kernel on RTX 3060', value: '37.85 ms (4.57×), 200/200', source: 'vla-cpp-paper', where: '§IV-D, Table III' },
-    { label: 'dp4a on AGX Orin', value: '406.6 ms', source: 'vla-cpp-paper', where: '§IV-D, Table III' },
-    { label: 'IMMA kernel on AGX Orin', value: '101.11 ms (4.02×), 200/200', source: 'vla-cpp-paper', where: '§IV-D, Table III' },
-    { label: 'Model file, packed vs unpacked', value: '1.34 vs 5.6 GiB', source: 'vla-cpp-paper', where: '§IV-D' },
-    { label: 'Loading allocation, packed vs unpacked', value: '1.15 vs 11.1 GiB', source: 'vla-cpp-paper', where: '§IV-D' },
-    { label: 'IMMA kernel on 8 GB Orin Nano', value: '355.65 ms, 200/200, 2199 MiB peak RSS', source: 'vla-cpp-paper', where: 'Table III, §IV-D' },
+    { label: 'RTX 3060', values: ['172.8', '37.85', '4.57×', '200'], source: 'vla-cpp-paper', where: 'Table III' },
+    { label: 'Jetson AGX Orin', values: ['406.6', '101.11', '4.02×', '200'], source: 'vla-cpp-paper', where: 'Table III' },
+    { label: 'Jetson Orin Nano 8 GB', values: ['—', '355.65', '—', '200'], source: 'vla-cpp-paper', where: 'Table III' },
   ]}
+  note="Time per executed action, measured at the client, so it includes preprocessing and transport. The old kernel uses dp4a dot products on ordinary CUDA cores."
 />
 
-Storage and arithmetic are separate wins. Packing shrinks the model file from 5.6 GiB to 1.34 GiB and the transient host allocation during loading from 11.1 GiB to 1.15 GiB without changing latency; replacing the kernel is what removes the time <Cite id="vla-cpp-paper" where="§IV-D" />. The packed path is also the paper's smallest deployment: the full policy completes 200 of 200 LIBERO-Object episodes on an 8 GB Jetson Orin Nano, at 2199 MiB peak process RSS <Cite id="vla-cpp-paper" where="Abstract, §IV-D" />.
+Packing and the new kernel solve two different problems. Packing saves memory: the model file shrinks from 5.6 GiB to 1.34 GiB, and the memory needed while loading drops from 11.1 GiB to 1.15 GiB, but latency doesn't change <Cite id="vla-cpp-paper" where="§IV-D" />. The tensor-core kernel saves time, about four times on both boards in the table. Together they let the full policy run on an 8 GB Jetson Orin Nano, where it completes all 200 episodes using 2199 MiB of process memory at its peak <Cite id="vla-cpp-paper" where="Abstract, §IV-D" />.
 
-## Does it still solve the task?
+## Does the converted policy still work?
 
 <Spec
-  title="LIBERO-Object, 100 episodes per model (95% Wilson interval; ref. = published rate, or the authors' PyTorch reproduction marked ∗)"
+  title="Success on LIBERO-Object after conversion (100 episodes per policy)"
+  columns={['Policy', 'Success (%)', '95% interval', 'Reference (%)']}
   rows={[
-    { label: 'SmolVLA', value: '96% [90.2, 98.4] · ref 96.0', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'Evo-1', value: '96% [90.2, 98.4] · ref 97.7', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'π0', value: '82% [73.3, 88.3] · ref 79.0∗', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'π0.5', value: '96% [90.2, 98.4] · ref 98.2', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'GR00T-N1.5', value: '95% [88.8, 97.8] · ref 95.0∗', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'GR00T-N1.6', value: '88% [80.2, 93.0] · ref 99.0∗', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'GR00T-N1.7', value: '99% [94.6, 99.8] · ref 99.0∗', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'VLA-JEPA', value: '100% [96.3, 100] · ref 99.6', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'VLA-Adapter', value: '96% [90.2, 98.4] · ref 99.2', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'OpenVLA-OFT', value: '97% [91.5, 99.0] · ref 98.4', source: 'vla-cpp-paper', where: 'Table I' },
-    { label: 'BitVLA', value: '100% [96.3, 100] · ref 99.6', source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'SmolVLA', values: ['96', '90.2 – 98.4', '96.0'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'Evo-1', values: ['96', '90.2 – 98.4', '97.7'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'π0', values: ['82', '73.3 – 88.3', '79.0 ∗'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'π0.5', values: ['96', '90.2 – 98.4', '98.2'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'GR00T-N1.5', values: ['95', '88.8 – 97.8', '95.0 ∗'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'GR00T-N1.6', values: ['88', '80.2 – 93.0', '99.0 ∗'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'GR00T-N1.7', values: ['99', '94.6 – 99.8', '99.0 ∗'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'VLA-JEPA', values: ['100', '96.3 – 100', '99.6'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'VLA-Adapter', values: ['96', '90.2 – 98.4', '99.2'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'OpenVLA-OFT', values: ['97', '91.5 – 99.0', '98.4'], source: 'vla-cpp-paper', where: 'Table I' },
+    { label: 'BitVLA', values: ['100', '96.3 – 100', '99.6'], source: 'vla-cpp-paper', where: 'Table I' },
   ]}
+  note="The reference is the rate published for that model, or (∗) the paper authors' own run of the PyTorch original. The interval is a 95% Wilson interval."
 />
 
-Ten of the eleven land within 3.2 percentage points of their reference. GR00T-N1.6 is the exception, 88% against 99% for the authors' own PyTorch reproduction, and the paper leaves the cause unresolved <Cite id="vla-cpp-paper" where="§IV-B, §V" />. The references mix sources: π0 and the GR00T checkpoints are reproductions, SmolVLA, Evo-1, VLA-JEPA, VLA-Adapter, OpenVLA-OFT and BitVLA cite those models' reports, and π0.5's rate comes from LeRobot's documentation, so most rows are context rather than matched-checkpoint comparisons <Cite id="vla-cpp-paper" where="§IV-B" />.
+The first question after any conversion is whether the robot still succeeds. Ten of the eleven policies land within 3.2 percentage points of their reference. GR00T-N1.6 is the exception: it reaches 88%, while the authors' PyTorch run reaches 99%, and the paper does not find the cause <Cite id="vla-cpp-paper" where="§IV-B, §V" />. Most references come from other papers, not from the same checkpoint run the same way, so treat those rows as context rather than a direct comparison <Cite id="vla-cpp-paper" where="§IV-B" />.
 
 <Callout type="pitfall">
-Similar success rates do not establish numerical agreement. Different reference protocols, checkpoints or preprocessing can land near the same number while the actions differ; the paper checks numerical agreement separately, on fixed inputs <Cite id="vla-cpp-paper" where="§IV-B, §III-E" />.
+A similar success rate does not mean the two implementations compute the same actions. Two policies can both succeed 96% of the time while their actions differ, so the paper checks numerical agreement separately, on fixed inputs <Cite id="vla-cpp-paper" where="§IV-B, §III-E" />.
 </Callout>
 
-Across the four LIBERO suites the lowest rates are 83.5% for BitVLA and 89.0% for GR00T-N1.7, both on Long, the suite that needs the longest task sequences <Cite id="vla-cpp-paper" where="Table II" />. On SimplerEnv's WidowX tasks, GR00T-N1.6 reaches 80% and 70% at 252-pixel input <Cite id="vla-cpp-paper" where="§IV-B" />.
+## When a tiny precision change flips the gripper
 
-## Speed and memory across backends
-
-<Spec
-  title="Server latency on RTX 3090, mean of 200 calls after warmup (ms; ‡ = eager fallback; speedup is against the faster PyTorch configuration)"
-  rows={[
-    { label: 'SmolVLA', value: '55.8 vs eager 174.1, compiled 65.9 · 1.18×', source: 'vla-cpp-paper', where: 'Table IV' },
-    { label: 'π0', value: '97.9 vs eager 99.4, compiled 99.7 · 1.02×', source: 'vla-cpp-paper', where: 'Table IV' },
-    { label: 'Evo-1', value: '142.3 vs eager 161.6, compiled 142.5 · 1.00×', source: 'vla-cpp-paper', where: 'Table IV' },
-    { label: 'GR00T-N1.5', value: '75.4 vs eager 100.5, compiled 94.7 · 1.26×', source: 'vla-cpp-paper', where: 'Table IV' },
-    { label: 'GR00T-N1.6', value: '61.2 vs eager 76.0, compiled 61.1 · 1.00×', source: 'vla-cpp-paper', where: 'Table IV' },
-    { label: 'GR00T-N1.7', value: '59.9 vs eager 66.1, compiled 60.1‡ · 1.00×', source: 'vla-cpp-paper', where: 'Table IV' },
-    { label: 'BitVLA', value: '51.5 vs eager 319.7, compiled 94.6 · 1.84×', source: 'vla-cpp-paper', where: 'Table IV' },
+<ArchDiagram
+  title="How SmolVLA's vision encoder picks a position embedding"
+  caption="The patch coordinate is a real number, but the embedding table is indexed by whole numbers. A coordinate that lands on the other side of an index boundary picks a different row, and that small change grows into a different action."
+  blocks={[
+    { id: 'coord', label: 'Patch coordinate', sub: 'real number', role: 'activation', col: 0, row: 0 },
+    { id: 'index', label: 'Map to an index', sub: 'discrete', role: 'op', col: 0, row: 1 },
+    { id: 'table', label: 'Position embeddings', sub: 'learned table', role: 'weight', col: 1, row: 1 },
+    { id: 'emb', label: 'Chosen embedding', sub: 'one per patch', role: 'activation', col: 0, row: 2 },
+    { id: 'policy', label: 'Rest of the policy', sub: 'vision → action head', role: 'op', col: 0, row: 3 },
+    { id: 'act', label: 'Action chunk', sub: 'H × d_a, gripper included', role: 'activation', col: 1, row: 3 },
+  ]}
+  edges={[
+    { from: 'coord', to: 'index' },
+    { from: 'index', to: 'emb', label: 'selects' },
+    { from: 'table', to: 'emb' },
+    { from: 'emb', to: 'policy' },
+    { from: 'policy', to: 'act' },
   ]}
 />
 
-Against eager PyTorch the measured speedup is 1.02 to 6.21×, but compilation closes most of the gap: against the faster PyTorch configuration, vla.cpp wins 1.18×, 1.26× and 1.84× for SmolVLA, GR00T-N1.5 and BitVLA, and is level for the rest <Cite id="vla-cpp-paper" where="§IV-C, Table IV" />. One matched comparison runs the other way: on an RTX PRO Blackwell 1000, TensorRT serves GR00T-N1.7 in 70.5 ms against 130.2 ms for vla.cpp, keeping 98 of 100 successes against 96 <Cite id="vla-cpp-paper" where="§IV-C" />. The portability claim is the point — one implementation spans CUDA, Metal, CPU, SYCL and OpenVINO <Cite id="vla-cpp-paper" where="§III-C" />.
+Most rounding errors stay small as they pass through a network, but this one doesn't, because it changes a choice instead of a value. SmolVLA's vision encoder turns each image patch's coordinate into an integer index and uses it to pick a learned position embedding. If the coordinate is computed at a slightly different precision, it can land on the other side of an index boundary, and the encoder picks a different embedding <Cite id="vla-cpp-paper" where="§IV-F" />.
+
+On the robot this flipped the gripper. The largest action difference from the reference was about 1.97, mostly in the gripper channel, which is large enough to reverse the gripper command. When the runtime matched the reference's half precision for this step, the difference dropped below $10^{-2}$, and success on one LIBERO-Object task rose from 2 of 10 to 9 of 10 <Cite id="vla-cpp-paper" where="§IV-F" />. GR00T-N1.6 interpolates between embeddings instead of picking one, so it has no boundary to cross, and it succeeds 10 of 10 times at both precisions <Cite id="vla-cpp-paper" where="§IV-F" />.
+
+Bugs like this are why the runtime ships a prediction-check tool. It fixes every input (weights, images, tokens, state, noise, masks and schedules), runs both the runtime and the PyTorch reference, and reports the largest difference and the relative RMS difference. When the actions differ, comparing the intermediate tensors shows where the difference starts <Cite id="vla-cpp-paper" where="§III-E" />.
 
 <Spec
-  title="Device study: client inference per executed action (ms) / successes of 200, listed RTX 3060 · AGX Orin · Orin Nano († = simulator on another machine; OOM = out of memory)"
+  title="GR00T-N1.7 at lower weight precision (RTX 3060, S = 16)"
+  columns={['Weights', 'File (MB)', 'Speedup', 'Error vs BF16', 'Successes of 200']}
   rows={[
-    { label: 'SmolVLA (S = 4)', value: '28.16/181 · 65.41/181 · 141.81/176', source: 'vla-cpp-paper', where: 'Table III' },
-    { label: 'BitVLA (S = 8)', value: '37.85/200 · 101.11/200 · 355.65/200', source: 'vla-cpp-paper', where: 'Table III' },
-    { label: 'Evo-1 (S = 8)', value: '63.60/189 · 131.01/191 · 458.84/195', source: 'vla-cpp-paper', where: 'Table III' },
-    { label: 'GR00T-N1.5 (S = 16)', value: '14.17/192 · 28.78/195 · 84.76/192†', source: 'vla-cpp-paper', where: 'Table III' },
-    { label: 'π0 (S = 32, 50 on Nano)', value: '9.74/175 · 27.90/171 · 39.10/161†', source: 'vla-cpp-paper', where: 'Table III' },
-    { label: 'GR00T-N1.6 (S = 16)', value: '10.29/173 · 26.70/180 · OOM', source: 'vla-cpp-paper', where: 'Table III' },
-    { label: 'GR00T-N1.7 (S = 16)', value: '10.26/196 · 26.84/197 · OOM', source: 'vla-cpp-paper', where: 'Table III' },
+    { label: 'BF16', values: ['6292.4', '1.000×', '0', '196'], source: 'vla-cpp-paper', where: 'Table V' },
+    { label: 'Q8_0', values: ['5537.4', '1.077×', '0.0043', '197'], source: 'vla-cpp-paper', where: 'Table V' },
+    { label: 'Q4_0', values: ['5134.8', '1.081×', '0.0480', '190'], source: 'vla-cpp-paper', where: 'Table V' },
+    { label: 'Q8_0 + vision', values: ['5160.0', '1.131×', '0.0050', '195'], source: 'vla-cpp-paper', where: 'Table V' },
+    { label: 'Q4_0 + vision', values: ['4556.0', '1.144×', '0.0490', '195'], source: 'vla-cpp-paper', where: 'Table V' },
+  ]}
+  note="Error is the relative RMS difference over 5280 action values on fixed inputs. “+ vision” also quantizes the vision tower."
+/>
+
+Quantizing the weights shows the same lesson from the other side: the error on fixed inputs does not predict task success. Q4_0 and Q4_0 + vision have almost the same error, yet the first loses 6 episodes and the second loses only 1 <Cite id="vla-cpp-paper" where="§IV-D, Table V" />. The 3.0-point drop for Q4_0 also has a 95% interval of −7.1 to +0.8 points, so it may be noise <Cite id="vla-cpp-paper" where="§IV-D" />.
+
+## Is it faster than PyTorch?
+
+<Spec
+  title="Server latency on an RTX 3090 (mean of 200 calls after warmup)"
+  columns={['Policy', 'vla.cpp (ms)', 'PyTorch eager (ms)', 'PyTorch compiled (ms)', 'Speedup vs faster PyTorch']}
+  rows={[
+    { label: 'SmolVLA', values: ['55.8', '174.1', '65.9', '1.18×'], source: 'vla-cpp-paper', where: 'Table IV' },
+    { label: 'π0', values: ['97.9', '99.4', '99.7', '1.02×'], source: 'vla-cpp-paper', where: 'Table IV' },
+    { label: 'Evo-1', values: ['142.3', '161.6', '142.5', '1.00×'], source: 'vla-cpp-paper', where: 'Table IV' },
+    { label: 'GR00T-N1.5', values: ['75.4', '100.5', '94.7', '1.26×'], source: 'vla-cpp-paper', where: 'Table IV' },
+    { label: 'GR00T-N1.6', values: ['61.2', '76.0', '61.1', '1.00×'], source: 'vla-cpp-paper', where: 'Table IV' },
+    { label: 'GR00T-N1.7', values: ['59.9', '66.1', '60.1 ‡', '1.00×'], source: 'vla-cpp-paper', where: 'Table IV' },
+    { label: 'BitVLA', values: ['51.5', '319.7', '94.6', '1.84×'], source: 'vla-cpp-paper', where: 'Table IV' },
+  ]}
+  note="‡ Compilation failed and PyTorch fell back to eager mode."
+/>
+
+Speed is not the main point of vla.cpp, and the table shows why. Against plain (eager) PyTorch, vla.cpp is up to 6.21× faster. But compiled PyTorch closes most of that gap, so against the faster PyTorch setting vla.cpp clearly wins only for SmolVLA, GR00T-N1.5 and BitVLA <Cite id="vla-cpp-paper" where="§IV-C, Table IV" />. On an RTX PRO Blackwell 1000 GPU, TensorRT runs GR00T-N1.7 in 70.5 ms while vla.cpp needs 130.2 ms <Cite id="vla-cpp-paper" where="§IV-C" />. What vla.cpp offers instead is reach: one implementation runs on CUDA, Metal, CPU, SYCL and OpenVINO <Cite id="vla-cpp-paper" where="§III-C" />.
+
+Memory decides which policies fit on a small board at all. On the 8 GB Orin Nano, five of the seven tested policies load, but GR00T-N1.6 and N1.7 run out of memory <Cite id="vla-cpp-paper" where="§IV-D, Table III" />.
+
+## On a real robot, the execution horizon matters most
+
+<Calc
+  title="How often a blocking robot loop can act"
+  inputs={[
+    { id: 'S', label: 'Actions executed per chunk S', min: 1, max: 50, step: 1, value: 25 },
+    { id: 'L', label: 'Round-trip latency L_rt (ms)', min: 10, max: 4000, step: 10, value: 111.4 },
+    { id: 'dt', label: 'Time per action Δt (ms)', min: 10, max: 200, step: 5, value: 50 },
+  ]}
+  outputs={[
+    { label: 'Executed actions per second, S / (L_rt + S·Δt)', expr: '1000 * S / (L + S * dt)', format: 'number', role: 'op' },
+    { label: 'Share of time waiting for the policy', expr: 'L / (L + S * dt)', format: 'percent', role: 'activation' },
+  ]}
+  note="Defaults are the UR10e setup on the fastest backend: 25 actions at 20 Hz and 111.4 ms per round trip. Set L_rt to 3652.9 ms, the slowest CPU, to see the robot wait most of the time."
+/>
+
+The robot clients in the paper block: they send an observation, wait for the chunk, execute $S$ actions, and only then ask again. So the robot's real action rate depends on both the round-trip latency $L_{\text{rt}}$ and the time per action $\Delta t$, as $f_{\text{exec}} \approx S/(L_{\text{rt}} + S\,\Delta t)$ <Cite id="vla-cpp-paper" where="§IV-G, Eq. 6" />.
+
+<Spec
+  title="UR10e arm with SmolVLA on four backends (S = 25 at 20 Hz, 20 episodes each)"
+  columns={['Backend', 'Round trip (ms)', 'Successes of 20', 'Actions per second']}
+  rows={[
+    { label: 'CUDA, RTX 5070 laptop', values: ['111.4', '15', '17.7'], source: 'vla-cpp-paper', where: 'Table VII' },
+    { label: 'Metal, Mac Mini M4', values: ['582.0', '12', '12.8'], source: 'vla-cpp-paper', where: 'Table VII' },
+    { label: 'CPU, i9-14900HX', values: ['2164.4', '12', '7.1'], source: 'vla-cpp-paper', where: 'Table VII' },
+    { label: 'CPU, Ryzen 7 6850HS', values: ['3652.9', '14', '5.0'], source: 'vla-cpp-paper', where: 'Table VII' },
   ]}
 />
 
-Memory decides which policies fit onboard. Five of the seven models load on an 8 GB Orin Nano; GR00T-N1.6 and N1.7 run out of memory there, and GR00T-N1.5 and π0 need the simulator on another machine <Cite id="vla-cpp-paper" where="§IV-D, Table III" />. BitVLA peaks at 2199 MiB process RSS and 6504 MiB of system memory on the Nano, an increase of 4533 MiB over the initial baseline <Cite id="vla-cpp-paper" where="§IV-D" />.
-
-## What precision costs
+The slowest backend is about 33 times slower than the fastest, so the robot spends 73% of its time waiting instead of 8%. Success still barely changes, because every one of the 80 rollouts grasps and carries the cup, and all 27 failures happen at the release <Cite id="vla-cpp-paper" where="§IV-G" />. In this task, waiting makes the robot slower but not worse.
 
 <Spec
-  title="GR00T-N1.7 quantization, RTX 3060 (200 episodes per configuration, S = 16; e_rel over 5280 fixed-input action values; +V also quantizes the vision tower)"
+  title="SmolVLA on an Orin Nano with different execution horizons (H = 50, 50 episodes each)"
+  columns={['Actions executed S', 'Success (%)', 'Median latency (ms)', 'Actions per second of inference']}
   rows={[
-    { label: 'BF16', value: '6292.4 MB · 1.000× · 0 · 196/200', source: 'vla-cpp-paper', where: 'Table V' },
-    { label: 'Q8_0', value: '5537.4 MB · 1.077× · 0.0043 · 197/200', source: 'vla-cpp-paper', where: 'Table V' },
-    { label: 'Q4_0', value: '5134.8 MB · 1.081× · 0.0480 · 190/200', source: 'vla-cpp-paper', where: 'Table V' },
-    { label: 'Q8_0+V', value: '5160.0 MB · 1.131× · 0.0050 · 195/200', source: 'vla-cpp-paper', where: 'Table V' },
-    { label: 'Q4_0+V', value: '4556.0 MB · 1.144× · 0.0490 · 195/200', source: 'vla-cpp-paper', where: 'Table V' },
+    { label: '1', values: ['82', '358.4', '2.8'], source: 'vla-cpp-paper', where: 'Fig. 5' },
+    { label: '4', values: ['94', '356.6', '11.2'], source: 'vla-cpp-paper', where: 'Fig. 5' },
+    { label: '16', values: ['98', '447.0', '35.8'], source: 'vla-cpp-paper', where: 'Fig. 5' },
+    { label: '32', values: ['80', '456.7', '70.1'], source: 'vla-cpp-paper', where: 'Fig. 5' },
+    { label: '50', values: ['38', '457.0', '109.4'], source: 'vla-cpp-paper', where: 'Fig. 5' },
   ]}
+  note="Selected rows; the paper also reports S = 2 and S = 8. Latency excludes transport, and actions per second is S divided by latency."
 />
 
-Quantizing to Q4_0 takes the file from 6292.4 MB to 5134.8 MB, and 4556.0 MB with the vision tower quantized too; fixed inputs speed up 1.081× and 1.144×. Success falls from 196 of 200 at BF16 to 190 at Q4_0 — a 3.0-point drop with an approximate 95% interval of [−7.1, +0.8] <Cite id="vla-cpp-paper" where="§IV-D, Table V" />. The +V rows keep 195 of 200 at a similar relative error, so fixed-input error alone does not predict these outcomes <Cite id="vla-cpp-paper" where="§IV-D" />.
-
-The SmolVLA case study makes the failure mode concrete. Its vision encoder turns image-patch coordinates into discrete indices that select learned position embeddings; a coordinate computed at a different precision can cross an index boundary and select a different embedding <Cite id="vla-cpp-paper" where="§IV-F" />. Matching the half-precision reference drops the position-embedding relative error from 0.32 to 0.003 and lifts LIBERO-Object task 0, placing a soup container in a basket, from 2/10 to 9/10 <Cite id="vla-cpp-paper" where="§IV-F" />.
-
-The maximum action difference against the reference is about 1.97 after denormalization, concentrated on the gripper channel, and large enough to reverse the gripper command; matching index precision takes it below $10^{-2}$ <Cite id="vla-cpp-paper" where="§IV-F" />. GR00T-N1.6 uses interpolated position embeddings instead and scores 10/10 in both precision configurations <Cite id="vla-cpp-paper" where="§IV-F" />. On Metal, running the vision and language towers in 32-bit reduces the fixed-input discrepancy from 2.0e-3 to 8.3e-5, at a cost of 33 ms and 672 MiB <Cite id="vla-cpp-paper" where="§IV-F" />.
-
-The prediction-check tool is the general recipe: it fixes weights, images, tokens, state, noise, masks, schedules and transforms, compares runtime actions with reference actions, and reports maximum absolute and relative RMS error so a discrepancy can be traced through intermediate tensors <Cite id="vla-cpp-paper" where="§III-E" />.
-
-## On the robot
-
-<Spec
-  title="UR10e with SmolVLA, S = 25 at 20 Hz, 20 episodes per backend (f_exec = executed actions per wall-clock second)"
-  rows={[
-    { label: 'CUDA, RTX 5070 laptop', value: '111.4 ms · 15/20 [53.1, 88.8] · 17.7 Hz', source: 'vla-cpp-paper', where: 'Table VII' },
-    { label: 'Metal, Mac Mini M4', value: '582.0 ms · 12/20 [38.7, 78.1] · 12.8 Hz', source: 'vla-cpp-paper', where: 'Table VII' },
-    { label: 'CPU, i9-14900HX', value: '2164.4 ms · 12/20 [38.7, 78.1] · 7.1 Hz', source: 'vla-cpp-paper', where: 'Table VII' },
-    { label: 'CPU, Ryzen 7 6850HS', value: '3652.9 ms · 14/20 [48.1, 85.5] · 5.0 Hz', source: 'vla-cpp-paper', where: 'Table VII' },
-  ]}
-/>
-
-The client executes 25 actions and then waits. Round-trip latency spans 111.4 to 3652.9 ms across four backends — about 33× — and the effective rate falls from 17.7 to 5.0 Hz, since a blocking loop spends $f_{\text{exec}} \approx S/(L_{\text{rt}} + S\,\Delta t)$ actions per second for round-trip latency $L_{\text{rt}}$ and action interval $\Delta t$ <Cite id="vla-cpp-paper" where="§IV-G, Eq. 6" />. Binary success is mostly flat across backends, because all 80 rollouts grasp and carry the cup and the 27 failures happen at release; the share of wall time blocked on prediction still rises from 8% to 73% <Cite id="vla-cpp-paper" where="§IV-G" />.
-
-An embedded ALOHA deployment runs GR00T-N1.6 on AGX Orin at about 470 ms per predicted chunk, with $H = 8$, $S = 7$, completing 18/20 and 17/20 episodes on its two tasks <Cite id="vla-cpp-paper" where="§IV-G" />.
-
-<Spec
-  title="SmolVLA execution horizon on Orin Nano, H = 50, 50 episodes per setting (latency excludes transport; throughput S/L excludes action execution)"
-  rows={[
-    { label: 'S = 1', value: '82% · 358.4 ms median · 2.8 Hz', source: 'vla-cpp-paper', where: 'Fig. 5' },
-    { label: 'S = 2', value: '86% · 352.7 ms median · 5.7 Hz', source: 'vla-cpp-paper', where: 'Fig. 5' },
-    { label: 'S = 4', value: '94% · 356.6 ms median · 11.2 Hz', source: 'vla-cpp-paper', where: 'Fig. 5' },
-    { label: 'S = 8', value: '88% · 391.7 ms median · 20.4 Hz', source: 'vla-cpp-paper', where: 'Fig. 5' },
-    { label: 'S = 16', value: '98% · 447.0 ms median · 35.8 Hz', source: 'vla-cpp-paper', where: 'Fig. 5' },
-    { label: 'S = 32', value: '80% · 456.7 ms median · 70.1 Hz', source: 'vla-cpp-paper', where: 'Fig. 5' },
-    { label: 'S = 50', value: '38% · 457.0 ms median · 109.4 Hz', source: 'vla-cpp-paper', where: 'Fig. 5' },
-  ]}
-/>
-
-The execution horizon moves success more than the hardware did. With $H = 50$, success peaks at 49/50 at $S = 16$ and falls to 19/50 at $S = 50$, where the robot executes the full predicted chunk and replans only between chunks <Cite id="vla-cpp-paper" where="§IV-G" />. A controlled delay study on ALOHA holds at 9/10 or 10/10 for injected delays from 0 to 2000 ms, but ten episodes per condition cannot resolve changes near 100% fail rates <Cite id="vla-cpp-paper" where="§IV-G, Table VIII" />.
+The execution horizon $S$ changed success far more than the hardware did. With chunks of $H = 50$ actions, success peaks at 98% when the robot executes 16 actions before replanning. It falls to 38% when the robot executes the whole chunk and replans only between chunks <Cite id="vla-cpp-paper" where="§IV-G" />. A likely reason (our reading, not the paper's) is that the last actions of a long chunk were planned from an observation that is many actions old. This tradeoff between fewer policy calls and fresher observations is the core of [[action-chunking]].
 
 ## What it reuses
 
-- The [[vla]] policies themselves: trained in their own stacks, deployed as they are; vla.cpp only converts them <Cite id="vla-cpp-paper" where="§I" />.
-- [[flow-matching]] for the velocity field the iterative heads integrate.
-- The [[kv-cache]] idea, pointed at one request as [[observation-reuse]].
-- [[action-chunking]] for the prediction and execution horizons every sweep reports.
-- llama.cpp and ggml for the bundle format and the shared tensor execution <Cite id="vla-cpp-paper" where="§I, §III-C" />.
+- The [[vla|VLA]] policies themselves. They are trained in their own code, and vla.cpp only converts them <Cite id="vla-cpp-paper" where="§I" />.
+- [[flow-matching]] for the velocity field that iterative heads follow.
+- The [[kv-cache]] idea, applied within one request as [[observation-reuse]].
+- [[action-chunking]] for the prediction horizon $H$ and execution horizon $S$.
+- llama.cpp and ggml for the bundle format and the shared tensor operations <Cite id="vla-cpp-paper" where="§I, §III-C" />.
 
 ## The repository today
 
-The released repository is ahead of the paper: its support matrix lists more policies (Octo-Small, TurboVLA, ACT) and a Hexagon backend for Snapdragon CPUs, GPUs and NPUs alongside the five backends the paper measured, and it publishes prebuilt binaries, Python bindings, conversion and quantization docs, and a walkthrough of each policy on ggml <Cite id="vla-cpp-repo" />. One practical warning from its robot guide: the client owns preprocessing, and selecting the wrong architecture at launch "loads, runs and returns plausible, wrong actions" <Cite id="vla-cpp-repo" where="README, Rollout on a real robot" />.
+The released repository has moved past the paper. It lists more policies (Octo-Small, TurboVLA and ACT) and a Hexagon backend for Snapdragon chips, and it ships prebuilt binaries, Python bindings and a walkthrough of each policy <Cite id="vla-cpp-repo" />. Its robot guide gives one practical warning: the client does the preprocessing, so choosing the wrong architecture at launch "loads, runs and returns plausible, wrong actions" <Cite id="vla-cpp-repo" where="README, Rollout on a real robot" />.
