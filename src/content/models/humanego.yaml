@@ -1,0 +1,40 @@
+# HumanEgo as described in the paper (arXiv:2605.24934v3) and official code/configs.
+title: HumanEgo
+family: humanego
+kind: pipeline
+
+input: { v: "Egocentric RGB frame (240 × 320) and entity 6-DoF poses", source: humanego-paper, where: "§3.2–3.4; App. F.1, Tab. 1" }
+output: { v: "Bimanual SE(3) end-effector poses and binary grasps", source: humanego-paper, where: "§3.4; App. F.1" }
+seq_unit: { v: step, source: humanego-paper, where: "§3.4; App. F.1, Tab. 1" }
+seq_length: { v: 50, source: humanego-paper, where: "App. F.1, Tab. 1", note: "prediction horizon K = 50 action steps" }
+tokens_per_step: { v: 1, source: humanego-paper, where: "App. F.1", note: "one action-chunk query token per horizon step" }
+output_dim: { v: 20, source: humanego-repo, where: "training/FlowMatchingModel.py (base_action_dim = 10 * num_hands)", note: "bimanual: 2 hands × (3 pos + 6 6D rot + 1 grasp); single-hand tasks use 10, and object-motion co-training appends 9 object dims" }
+
+layers: { v: 6, source: humanego-paper, where: "App. F.1, Tab. 1" }
+layer_pattern: { v: "AXD*6", source: humanego-paper, where: "App. F.1", note: "self-attention over action chunk, region-biased cross-attention to RGB + ICT context, dense GELU FFN" }
+hidden_size: { v: 384, source: humanego-paper, where: "App. F.1, Tab. 1" }
+norm: { v: LayerNorm, source: humanego-repo, where: "training/FlowMatchingModel.py (nn.LayerNorm)" }
+
+attention: { v: mha, source: humanego-paper, where: "App. F.1, Tab. 1" }
+heads: { v: 8, source: humanego-paper, where: "App. F.1, Tab. 1" }
+causal: { v: false, source: humanego-paper, where: "App. F.1", note: "each action-chunk token attends to the full 50-step chunk" }
+
+ffn: { v: dense, source: humanego-repo, where: "training/FlowMatchingModel.py (TransformerDecoderBlock.mlp)" }
+ffn_activation: { v: GELU, source: humanego-repo, where: "training/FlowMatchingModel.py (nn.GELU)" }
+ffn_hidden: { v: 1536, source: humanego-serve-bread-config, where: "mlp_ratio: 4.0 (4 × 384)" }
+
+objective: { v: flow-matching, source: humanego-paper, where: "§3.4, Eq. 2; App. F.1" }
+sampler: { v: Euler ODE solver, source: humanego-paper, where: "§3.4; App. G.3, Tab. 1" }
+sampling_steps: { v: 20, source: humanego-paper, where: "App. G.3, Tab. 1" }
+cross_inputs: { v: "300 RGB patch tokens (16×16) and up to 8 ICT entity tokens", source: humanego-paper, where: "§3.3–3.4; App. F.1, Tab. 1" }
+
+stages:
+  - { id: rgb, col: 0, row: 0, label: Egocentric RGB, sub: "30 Hz Aria / RealSense", role: activation, source: humanego-paper, where: "§3.1; §3.5" }
+  - { id: pose3d, col: 2, row: 0, label: 3D tracker, sub: "Aria MPS / FK + depth", role: weight, frozen: true, source: humanego-paper, where: "§3.1; §3.3; §3.5" }
+  - { id: inpaint, col: 0, row: 1, label: SAM2 + LaMa, sub: "inpaint arm, draw kpts", role: weight, frozen: true, from: [rgb, pose3d], source: humanego-paper, where: "§3.2" }
+  - { id: ict, col: 2, row: 1, label: ICT encoder, sub: "N_e × 29 entity tokens", role: op, from: [pose3d], source: humanego-paper, where: "§3.3, Eq. 1" }
+  - { id: ctx, col: 1, row: 2, label: Context projections, sub: "(300 + N_e) × 384", role: weight, from: [inpaint, ict], source: humanego-paper, where: "App. F.1, Tab. 1" }
+  - { id: x0, col: 0, row: 2, label: Noisy chunk x_t, sub: "50 × 20 + MLP(t)", role: activation, link: flow-matching, source: humanego-paper, where: "§3.4; App. F.1" }
+  - { id: decoder, col: 1, row: 3, label: Flow-matching decoder, role: weight, backbone: true, from: [x0, { id: ctx, label: region attn }], source: humanego-paper, where: "§3.4; App. F.1" }
+  - { id: aux, col: 2, row: 4, label: Auxiliary heads, sub: "L_OM, L_2D, L_LC (train)", role: op, from: [{ id: ctx, dashed: true }, { id: decoder, dashed: true }], source: humanego-paper, where: "§3.4, Eq. 3; App. F.1" }
+  - { id: out, col: 1, row: 4, label: Bimanual actions a, sub: "50 × 20, 10 Hz loop", role: activation, link: action-chunking, from: [decoder], source: humanego-paper, where: "§3.4; App. G.3" }

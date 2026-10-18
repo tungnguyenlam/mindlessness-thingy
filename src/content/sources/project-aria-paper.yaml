@@ -1,0 +1,7 @@
+title: "Project Aria: A New Tool for Egocentric Multi-Modal AI Research"
+short: Project Aria paper
+authors: Jakob Engel, Kiran Somasundaram, Michael Goesele, Albert Sun, Alexander Gamino, Andrew Turner, Arjang Talattof, Arnie Yuan, Bilal Souti, Brighid Meredith, et al.
+year: 2023
+url: https://arxiv.org/abs/2308.13561
+type: paper
+notes: Hardware and Machine Perception Services (MPS) SLAM and stereo 3D hand tracking used for HumanEgo data collection.

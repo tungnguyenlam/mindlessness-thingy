@@ -1,0 +1,7 @@
+title: "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"
+short: ACT paper
+authors: Tony Z. Zhao, Vikash Kumar, Sergey Levine, Chelsea Finn
+year: 2023
+url: https://arxiv.org/abs/2304.13705
+type: paper
+notes: RSS 2023. Introduces Action Chunking with Transformers (ACT), used as the robot-teleoperation baseline in HumanEgo.

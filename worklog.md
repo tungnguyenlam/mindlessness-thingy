@@ -141,3 +141,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: wrote Contrastive World Models (arXiv:2609.22175v1) concept note with RSSM vs InfoMax diagram, 4-step patch InfoNCE stepper, 3-objective comparison diagram, patch-scoring calculator, DMC regime spec table, fact sheet, rssm stub, and 7 sources
 - files: research/contrastive-world-models-facts.md src/content/notes/concepts/{contrastive-world-models,rssm}.mdx src/content/sources/{contrastive-world-models-paper,planet-paper,dreamer-paper,cpc-paper,deep-infomax-paper,byol-paper,dbc-paper}.yaml
 - open: preprint does not report exact numerical values for horizon h, patch grid M x N, loss weights lambda_1/lambda_2, EMA decay tau, or wall-clock step latencies
+
+## 2026-10-19 · content(humanego): add pipeline model data, system note and sources
+- did: Added HumanEgo (arXiv:2605.24934v3) fact sheet, pipeline model data (AXD*6 384-d decoder, 9 stages), sources, and draft system note covering visual/kinematic embodiment bridge, 29-D ICT tokens, flow-matching policy + 3 auxiliary losses, and zero-shot cross-embodiment results.
+- files: research/humanego-facts.md, src/content/models/humanego.yaml, src/content/notes/systems/{humanego,flowhoi,stablehand}.mdx, src/content/sources/{humanego-paper,humanego-repo,humanego-serve-bread-config,project-aria-paper,act-paper}.yaml
+- open: action-chunking and vla remain stubs; paper vs released code differences on ICT dimension (29-D vs 28-D) and auxiliary heads documented inline

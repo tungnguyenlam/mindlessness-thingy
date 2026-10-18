@@ -1,0 +1,8 @@
+title: HumanEgo serve_bread config.json (Hugging Face)
+short: HumanEgo serve_bread config
+authors: Zhi Wang et al.
+year: 2026
+url: https://huggingface.co/Leo-TX/HumanEgo/blob/main/serve_bread/config.json
+type: config
+accessed: 2026-10-19
+notes: Training and architecture configuration shipped with the released serve_bread checkpoint.

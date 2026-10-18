@@ -1,0 +1,266 @@
+---
+title: HumanEgo
+kind: system
+summary: "A zero-shot human-to-robot manipulation framework that turns egocentric human video into arm-inpainted images and viewpoint-invariant Interaction-Centric Tokens for a flow-matching policy."
+domains: [robotics, vision, generative]
+prerequisites: [flow-matching, action-chunking, transformer-block, mha]
+builds_on: []
+contrasts_with: []
+related: [stablehand, flowhoi, vla, vla-cpp, dit, mano]
+sources: [humanego-paper, humanego-repo, humanego-serve-bread-config, project-aria-paper, act-paper, wilor-paper]
+status: draft
+updated: 2026-10-19
+---
+
+Training manipulation policies on robot teleoperation requires hundreds of hardware-specific demonstrations <Cite id="humanego-paper" where="§1" />. Human egocentric video is much faster to collect—a person wearing Project Aria smart glasses <Cite id="project-aria-paper" /> can record a task in $30\text{–}40\text{ s}$ anywhere—but human hands and robot grippers differ in both visual appearance and 3D kinematics <Cite id="humanego-paper" where="§1; App. D.2" />. HumanEgo bridges both sides of this embodiment gap without any robot demonstrations or internet-scale pretraining, reaching $92.5\%$ average real-world success from $30\text{ min}$ of human video per task ($75.0\%$ from $15\text{ min}$) and transferring zero-shot across Trossen, Franka, and UR10 arms <Cite id="humanego-paper" where="Abstract; §4.1; §4.3" />.
+
+<ModelOverview model="humanego" />
+
+Four ideas make zero-shot transfer work from minutes of video <Cite id="humanego-paper" where="§1; §3" />:
+- **Visual and kinematic embodiment bridge:** each frame has the human arm inpainted out, a virtual gripper and object keypoints rendered in its place, and the thumb–index pair mapped to an $\mathrm{SE}(3)$ gripper pose via MCP joints <Cite id="humanego-paper" where="§3.2; §3.3; App. E.3" />.
+- **Interaction-Centric Tokens (ICT):** every hand and object becomes a $29\text{-D}$ entity token combining its pose in a frozen episode reference frame with the relative poses of both hands in that entity's local frame, which are exact viewpoint-invariant <Cite id="humanego-paper" where="§3.3, Eq. 1" />.
+
+Two further choices handle learning from scarce trajectories and deployment <Cite id="humanego-paper" where="§3.4; §3.5" />:
+- **Flow-matching decoder with dense auxiliary objectives:** a 6-layer [[transformer-block]] decoder generates $50$-step bimanual [[action-chunking|action chunks]] via [[flow-matching]], while object-motion, 2D-trace, and latent-consistency heads amplify supervision <Cite id="humanego-paper" where="§3.4, Eqs. 2–3; App. F.1" />.
+- **Frontend swap at deployment:** the trained policy weights stay untouched on the robot; only the upstream perception modules swap from multi-view SLAM triangulation to static RGB-D depth back-projection and arm forward kinematics at $10\text{ Hz}$ <Cite id="humanego-paper" where="§3.5; App. G.1" />.
+
+## At a glance
+
+The model card below describes the bimanual policy configuration ($D_a = 20$ action dimensions across two arms, $\mathrm{ICT}_k \in \mathbb{R}^{29}$); single-arm tasks (`serve_bread`, `downstack_cups`, `adjust_table`) use the same 6-layer, $384$-width backbone with $D_a = 10$ and $20\text{-D}$ ICT tokens <Cite id="humanego-paper" where="App. F.1, Tab. 1" /><Cite id="humanego-repo" where="training/FlowMatchingModel.py; utils/ict.py" />.
+
+<ModelSpec model="humanego" />
+
+Comparing HumanEgo with [[stablehand]] and [[flowhoi]] shows how three egocentric manipulation pipelines use [[flow-matching]] transformers at different levels of abstraction: StableHand and FlowHOI denoise full-sequence [[mano]] hand meshes with 8-block [[dit]] stacks ($d = 512$), whereas HumanEgo compresses hands and objects into $29\text{-D}$ rigid entity tokens and runs a compact 6-block decoder ($d = 384$) in a closed $10\text{ Hz}$ robot control loop.
+
+<Compare
+  models={["humanego", "stablehand", "flowhoi"]}
+  onlyDiff
+  caption="HumanEgo uses a 6-layer, 384-width AXD transformer decoder over 50-step parallel-jaw action chunks, whereas StableHand and FlowHOI run 8-layer, 512-width AdaLN DiTs over 150–200 frames of 54-D per-hand MANO parameters."
+/>
+
+## Visual and kinematic embodiment bridge
+
+Passing raw human video directly to a policy fails on a robot ($7.5\%$ success on Water Flowers) because the visual stream shows human skin and fingers while the kinematic labels come from a 21-joint hand skeleton recorded by a moving head-mounted camera <Cite id="humanego-paper" where="§4.4, Fig. 9; App. E" />. HumanEgo removes the human body from both streams before the policy ever sees them <Cite id="humanego-paper" where="§3.2; §3.3" />.
+
+<ArchDiagram
+  title="Visual inpainting, MCP gripper retargeting, and kinematic grasp latching"
+  blocks={[
+    { id: "aria", label: "Aria recording", sub: "RGB + SLAM + hand kpts", role: "activation", col: 1, row: 0 },
+    { id: "sam", label: "SAM + LaMa", sub: "erase human arm", role: "weight", col: 0, row: 1 },
+    { id: "mcp", label: "MCP Gram-Schmidt", sub: "wrist, MCPs, tips", role: "op", col: 1, row: 1 },
+    { id: "tri", label: "DINO + CoTracker SVD", sub: "sweep tracks u_n → p_obj", role: "op", col: 2, row: 1 },
+    { id: "ee", label: "Virtual gripper T_ee, g", sub: "pose + aperture", role: "activation", col: 1, row: 2 },
+    { id: "rgb", label: "Agnostic RGB frame", sub: "gripper + object kpts", role: "activation", col: 0, row: 3 },
+    { id: "latch", label: "Kinematic grasp latch", sub: "lock T_obj^t to T_hand^t", role: "cache", col: 2, row: 3 },
+  ]}
+  edges={[
+    { from: "aria", to: "sam" },
+    { from: "aria", to: "mcp" },
+    { from: "aria", to: "tri" },
+    { from: "sam", to: "rgb" },
+    { from: "mcp", to: "ee" },
+    { from: "ee", to: "rgb", dashed: true },
+    { from: "tri", to: "latch" },
+    { from: "ee", to: "latch", dashed: true },
+  ]}
+  caption="On the visual branch, SAM2 and LaMa erase the human arm and overlay a virtual parallel-jaw gripper and object keypoints. On the spatial branch, five hand keypoints define a pinch-stable SE(3) gripper frame, and multi-view triangulation initializes the 6-DoF object pose before kinematic latching propagates it through hand occlusion."
+/>
+
+On the visual branch, a phase detector drops walking, the $\sim 1\text{ s}$ pre-episode head sweep, and transition buffers, keeping only active manipulation frames ($v_{\text{stop}} < 0.03\text{ m/s}$, $w_{\text{stop}} < 0.15\text{ rad/s}$ for $\ge 15$ frames) <Cite id="humanego-paper" where="App. E.1; App. E.2, Tab. 1" />. SAM2 segments the arm, LaMa inpaints the background, and a virtual gripper plus object keypoints are rendered onto the $240 \times 320$ frame <Cite id="humanego-paper" where="§3.2; App. F.1, Tab. 1" />.
+
+On the hand branch, defining a gripper frame from thumb and index fingertips degenerates during a pinch because the tips converge and collapse the jaw axis <Cite id="humanego-paper" where="§3.3; App. E.3" />. HumanEgo uses the fingertip midpoint for position $\mathbf{p}_{\text{ee}} = \tfrac{1}{2}(\mathbf{p}_{\text{thumb tip}} + \mathbf{p}_{\text{index tip}})$, and builds $R_{\text{ee}} = [\mathbf{x}_{\text{ee}} \mid \mathbf{y}_{\text{ee}} \mid \mathbf{z}_{\text{ee}}] \in \mathrm{SO}(3)$ from the wrist $\mathbf{p}_w$ and thumb/index MCP knuckles ($\mathbf{p}_{\text{tMCP}}, \mathbf{p}_{\text{iMCP}}$), which never collapse <Cite id="humanego-paper" where="App. E.3, Eqs. 5–6" />:
+
+$$
+\mathbf{x}_{\text{ee}} = \widehat{\mathbf{p}_{\text{iMCP}} - \mathbf{p}_{\text{tMCP}}}, \qquad \mathbf{y}_{\text{ee}} = \widehat{\tilde{\mathbf{y}} - (\tilde{\mathbf{y}}^\top \mathbf{x}_{\text{ee}})\mathbf{x}_{\text{ee}}}, \qquad \mathbf{z}_{\text{ee}} = \mathbf{x}_{\text{ee}} \times \mathbf{y}_{\text{ee}}
+$$
+
+where $\tilde{\mathbf{y}} = \tfrac{1}{2}(\mathbf{p}_{\text{tMCP}} + \mathbf{p}_{\text{iMCP}}) - \mathbf{p}_w$ and $g = \mathrm{clip}((\|\mathbf{p}_{\text{thumb tip}} - \mathbf{p}_{\text{index tip}}\| - d_{\min}) / (d_{\max} - d_{\min}), 0, 1)$ <Cite id="humanego-paper" where="App. E.3, Eqs. 6–7" />.
+
+On the object branch, Aria Gen1 lacks a depth sensor, so each demo starts with a $\sim 1\text{ s}$ ($\sim 30$-frame) head sweep on a static scene <Cite id="humanego-paper" where="App. E.1, Tab. 1" />. Grounding DINO and SAM2 segment each object, CoTracker3 tracks $N$ contour keypoints across the sweep, SVD triangulation lifts them to 3D via the Aria MPS SLAM pose $T_{\text{SLAM}}$ to give $\mathbf{p}_{\text{obj}}$, and Orient-Anything V2 estimates $R_{\text{obj}}$ <Cite id="humanego-paper" where="§3.3; App. E.1, Eq. 4" />. From grasp onset $t_0$, **kinematic latching** locks the occluded object pose to the hand <Cite id="humanego-paper" where="§3.3" />:
+
+$$
+T_{\text{obj}}^t = T_{\text{hand}}^t \cdot (T_{\text{hand}}^{t_0})^{-1}\, T_{\text{obj}}^{t_0}
+$$
+
+## Interaction-Centric Tokens (ICT)
+
+Unstructured 3D point clouds in camera coordinates leave hand–object relationships implicit and tie every coordinate to the camera viewpoint <Cite id="humanego-paper" where="§3.3; §4.1" />. HumanEgo treats each hand and object as an entity $k \in \{1, \dots, N_e\}$ and encodes its spatial state into an Interaction-Centric Token $\mathrm{ICT}_k \in \mathbb{R}^{29}$ <Cite id="humanego-paper" where="§3.3, Eq. 1" />.
+
+<ArchDiagram
+  title="Structure of one Interaction-Centric Token ICT_k (symbols)"
+  blocks={[
+    { id: "ref", label: "Episode frame REF", sub: "cam_init / static cam", role: "cache", col: 0, row: 0 },
+    { id: "ent", label: "Entity k pose T_E", sub: "hand or object pose", role: "activation", col: 1, row: 0 },
+    { id: "hands", label: "Hand poses T_LH, T_RH", sub: "both gripper poses", role: "activation", col: 2, row: 0 },
+    { id: "abs", label: "Reference pose ^REF T_E", sub: "pos + rot: D_pose", role: "activation", col: 0, row: 1 },
+    { id: "meta", label: "Type τ and grasp g", sub: "entity ID + aperture", role: "op", col: 1, row: 1 },
+    { id: "rel", label: "Local ^E T_LH, ^E T_RH", sub: "T_E⁻¹ T_H (view-invariant)", role: "route", col: 2, row: 1 },
+    { id: "ict", label: "Entity token ICT_k", sub: "concatenated: D_ict", role: "activation", col: 1, row: 2 },
+  ]}
+  edges={[
+    { from: "ref", to: "abs" },
+    { from: "ent", to: "abs" },
+    { from: "ent", to: "rel", label: "T_E⁻¹" },
+    { from: "hands", to: "rel" },
+    { from: "ent", to: "meta" },
+    { from: "abs", to: "ict" },
+    { from: "meta", to: "ict" },
+    { from: "rel", to: "ict" },
+  ]}
+  caption="Each entity k (a hand or an object) gets one token. Its pose in the episode reference frame (^REF T_E) anchors global placement, while the poses of both hands expressed in entity k's local coordinate frame (^E T_LH, ^E T_RH) cancel out the camera transform and are exact viewpoint-invariant."
+/>
+
+Each $\mathrm{SE}(3)$ transform is flattened into $9$ numbers by concatenating a $3\text{-D}$ normalized translation with a continuous $6\text{-D}$ rotation representation, giving the $29\text{-D}$ bimanual token ($20\text{-D}$ in single-hand tasks, which omit the second hand's $9\text{-D}$ block) <Cite id="humanego-paper" where="§3.3, Eq. 1" /><Cite id="humanego-repo" where="utils/ict.py; training/FlowMatchingModel.py" />:
+
+$$
+\mathrm{ICT}_k = \Bigl[\underbrace{\tau}_{1} \;\Big\|\; \underbrace{{}^{\mathrm{REF}}T_E}_{9} \;\Big\|\; \underbrace{{}^ET_{LH}}_{9} \;\Big\|\; \underbrace{{}^ET_{RH}}_{9} \;\Big\|\; \underbrace{g}_{1}\Bigr] \in \mathbb{R}^{29}
+$$
+
+Here $\tau$ identifies the entity type ($1$ left hand, $2$ right hand, $3$ anchor object, $4$ other object), and ${}^{\mathrm{REF}}T_E$ is entity $k$'s pose in the fixed episode reference frame $\mathrm{REF}$ (the camera pose frozen at the first manipulation frame during human recording, or the static camera frame on the robot) <Cite id="humanego-paper" where="§3.3, Eq. 1; §3.5" /><Cite id="humanego-repo" where="utils/ict.py" />.
+
+The relative blocks ${}^ET_{LH} = T_E^{-1} T_{LH}$ and ${}^ET_{RH} = T_E^{-1} T_{RH}$ express the left and right hands in entity $k$'s local frame $E$, while $g$ stores the grasp state (aperture in $[0, 1]$ for hands; $-1$ sentinel for objects) <Cite id="humanego-paper" where="§3.3, Eq. 1" /><Cite id="humanego-repo" where="utils/ict.py" />. Because $T_E^{-1} T_H$ multiplies out any world-to-camera extrinsic, the $18$ hand–entity numbers in every object token are **exact viewpoint-invariant** <Cite id="humanego-paper" where="§3.3" />.
+
+<Calc
+  title="Context sequence and token dimensions in HumanEgo"
+  inputs={[
+    { id: "nh", label: "Tracked hands n_hand (1 = single-arm, 2 = bimanual)", min: 1, max: 2, step: 1, value: 2 },
+    { id: "nobj", label: "Scene objects n_obj", min: 1, max: 6, step: 1, value: 2 },
+    { id: "K", label: "Action chunk horizon K", min: 10, max: 100, step: 10, value: 50 },
+  ]}
+  outputs={[
+    { label: "ICT token width D_ict = 1 + 9 + 9·n_hand + 1", expr: "11 + 9 * nh", format: "number", role: "activation" },
+    { label: "Active entity tokens N_e = n_hand + n_obj (padded to 8)", expr: "nh + nobj", format: "number", role: "route" },
+    { label: "Total context tokens (300 RGB patches + 8 ICT slots)", expr: "300 + 8", format: "number", role: "op" },
+    { label: "Bimanual/single-arm action chunk values (K × 10·n_hand)", expr: "K * 10 * nh", format: "number", role: "activation" },
+    { label: "Cross-attention pairs per layer (K × 308)", expr: "K * 308", format: "number", role: "weight" },
+  ]}
+  bars={true}
+  note="A 240 × 320 RGB image with 16 × 16 patches produces 15 × 20 = 300 visual tokens, concatenated with max_ict = 8 padded ICT slots to form a 308-token conditioning sequence."
+/>
+
+Isolating the visual and spatial branches on Water Flowers (Table below) shows why explicit entity geometry dominates: even replacing human RGB with real robot RGB (zero visual domain gap) plateaus at $32.5\%$ without ICT, whereas adding ICT to raw human RGB jumps from $7.5\%$ to $85.0\%$, and combining inpainted keypoint RGB with ICT reaches $95.0\%$ <Cite id="humanego-paper" where="§4.4, Fig. 9" />.
+
+<Spec
+  title="Visual vs. spatial representation ablation on Water Flowers (30 min human video, Fig. 9)"
+  columns={["Observation configuration", "Visual stream", "Spatial ICT", "Success (%)"]}
+  rows={[
+    { label: "Human RGB only", values: ["Raw human RGB", "No", "7.5"], source: "humanego-paper", where: "§4.4, Fig. 9" },
+    { label: "+ Keypoints & arm inpainting", values: ["Inpainted RGB + virtual gripper/kpts", "No", "20.0"], source: "humanego-paper", where: "§4.4, Fig. 9" },
+    { label: "Robot RGB only (no visual gap)", values: ["Real robot RGB", "No", "32.5"], source: "humanego-paper", where: "§4.4, Fig. 9" },
+    { label: "ICT only (no image branch)", values: ["None", "Yes (29-D)", "75.0"], source: "humanego-paper", where: "§4.4, Fig. 9" },
+    { label: "Human RGB + ICT", values: ["Raw human RGB", "Yes (29-D)", "85.0"], source: "humanego-paper", where: "§4.4, Fig. 9" },
+    { label: "HumanEgo (full)", values: ["Inpainted RGB + virtual gripper/kpts", "Yes (29-D)", "95.0"], source: "humanego-paper", where: "§4.4, Fig. 9" },
+  ]}
+  note="Evaluated over 40 real-world trials on Water Flowers. Adding ICT on top of visual-only inputs improves success by +62.5 percentage points (32.5% → 95.0%)."
+/>
+
+## Flow-matching policy and dense auxiliary objectives
+
+Minutes of human video contain only a few dozen trajectories ($45$ demonstrations per task for $30\text{ min}$), which makes a policy trained only on hand actions prone to overfitting <Cite id="humanego-paper" where="§1; §3.4; Tab. 1" />. HumanEgo pairs a 6-layer [[flow-matching]] transformer decoder with a learnable region-attention spotlight and three dense auxiliary heads that predict 3D object motion, 2D visual traces, and future latent ICT states <Cite id="humanego-paper" where="§3.4, Eqs. 2–3; App. F.1, Eq. 8" />.
+
+<ModelDiagram
+  model="humanego"
+  caption="One of the 6 transformer decoder blocks in HumanEgo: the 50 action-chunk tokens attend to each other via bidirectional self-attention and read the 308 RGB + ICT context tokens via cross-attention biased by a Gaussian spotlight around the active anchor object."
+/>
+
+Given $\mathbf{x}_t = (1 - t)\mathbf{x}_0 + t\mathbf{x}_1 \in \mathbb{R}^{K \times D_a}$ at $t \sim \mathcal{U}(0, 1)$ with $\mathbf{x}_0 \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$, the decoder predicts $\mathbf{v}_\theta(\mathbf{x}_t, t, s_t)$ toward $\mathbf{x}_1 - \mathbf{x}_0$ <Cite id="humanego-paper" where="§3.4; App. F.1" />. With error $\Delta(\cdot) = \mathbf{v}_\theta(\mathbf{x}_t, t, s_t) - (\mathbf{x}_1 - \mathbf{x}_0)$, the loss weights position ($w_p = 5$), rotation ($w_r = 1$), and grasp ($w_g = 10$) alongside three auxiliary losses <Cite id="humanego-paper" where="§3.4, Eqs. 2–3; App. F.1, Tab. 1" />:
+
+$$
+\mathcal{L}_{\text{FM}} = \mathbb{E}_{t, \mathbf{x}_0, \mathbf{x}_1}\!\Bigl[w_p \|\Delta \mathbf{p}\|^2 + w_r \|\Delta \mathbf{r}\|^2 + w_g \|\Delta g\|^2\Bigr], \qquad \mathcal{L} = \mathcal{L}_{\text{FM}} + \lambda_{\text{OM}}\mathcal{L}_{\text{OM}} + \lambda_{\text{2D}}\mathcal{L}_{\text{2D}} + \lambda_{\text{LC}}\mathcal{L}_{\text{LC}}
+$$
+
+During cross-attention, **region attention** focuses the $300$ visual patch tokens on the active anchor's 2D projection $(u_0, v_0)$ via a Gaussian spotlight with learnable scale $\sigma$ <Cite id="humanego-paper" where="App. F.1, Eq. 8" />:
+
+$$
+w(u, v) = \exp\!\left(-\frac{(u - u_0)^2 + (v - v_0)^2}{2\sigma^2}\right)
+$$
+
+The three auxiliary heads supervise complementary spaces without extra labels <Cite id="humanego-paper" where="§3.4; App. F.1" />:
+1. **Object motion ($\mathcal{L}_{\text{OM}}$):** 9-D future 6-DoF object trajectory over $K = 50$, weighted by $0.5(w_p, w_r)$ <Cite id="humanego-paper" where="§3.4; App. F.1, Tab. 1" />.
+2. **2D trace ($\mathcal{L}_{\text{2D}}$):** $K \times 3 \times 2$ normalized 2D coordinates of anchor keypoints ($\lambda_{\text{2D}} = 20$) <Cite id="humanego-paper" where="§3.4; App. F.1, Tab. 1" />.
+3. **Latent consistency ($\mathcal{L}_{\text{LC}}$):** ICT hand tokens $K$ steps ahead with masked MSE ($\lambda_{\text{LC}} \in [0.1, 1.0]$) <Cite id="humanego-paper" where="§3.4; App. F.1, Tab. 1" /><Cite id="humanego-repo" where="training/FlowMatchingModel.py" />.
+
+<Callout type="note" title="Paper vs. released code on auxiliary heads">
+In `training/FlowMatchingModel.py`, $\mathcal{L}_{\text{OM}}$ (`use_aux_obj_dynamics`) appends the $9\text{-D}$ object pose to each action-chunk token ($D_a = 20 \to 29$ bimanual, $10 \to 19$ single-hand), while `head_2d_trace` replaces the paper's deconvolution stack with a 2-layer Mish MLP (`384 → 256 → K × targets × 2`) on pooled context tokens alongside a `head_done` termination head ($w_{\text{done}} = 0.2$) <Cite id="humanego-paper" where="App. F.1" /><Cite id="humanego-repo" where="training/FlowMatchingModel.py" />. Because auxiliary losses coincide with the baseline once data reaches $\ge 18\text{ min}$ (Fig. 5), the released 30-min configs set `use_aux_*: False` by default <Cite id="humanego-paper" where="§4.2, Fig. 5" /><Cite id="humanego-serve-bread-config" where="use_aux_obj_dynamics, use_aux_visual_foresight, use_aux_temporal_contrastive" />.
+</Callout>
+
+At $15\text{ min}$ of human data on Water Flowers, each auxiliary objective improves over the $50.0\%$ baseline, and all three combined add $+25.0$ percentage points ($75.0\%$) <Cite id="humanego-paper" where="§4.4, Fig. 10" />.
+
+<Spec
+  title="Auxiliary objective ablation at 15 minutes of human data on Water Flowers (Fig. 10)"
+  columns={["Training objective", "Space supervised", "Success (%)", "Gain over baseline"]}
+  rows={[
+    { label: "Flow matching only (no aux)", values: ["3D hand action chunk", "50.0", "—"], source: "humanego-paper", where: "§4.4, Fig. 10" },
+    { label: "+ 2D trace (L_2D)", values: ["2D image coordinates", "55.0", "+5.0 pp"], source: "humanego-paper", where: "§4.4, Fig. 10" },
+    { label: "+ Latent consistency (L_LC)", values: ["Future ICT hand latents", "62.5", "+12.5 pp"], source: "humanego-paper", where: "§4.4, Fig. 10" },
+    { label: "+ Object motion (L_OM)", values: ["3D object SE(3) trajectory", "67.5", "+17.5 pp"], source: "humanego-paper", where: "§4.4, Fig. 10" },
+    { label: "HumanEgo (all 3 auxiliary losses)", values: ["3D + 2D + latent", "75.0", "+25.0 pp"], source: "humanego-paper", where: "§4.4, Fig. 10" },
+  ]}
+  note="Evaluated over 40 real-world trials at half the standard data budget (15 min of human video). On Serve Bread at 8 min of data (Fig. 5), auxiliary losses lift success from 37.5% to 57.5% (+20.0 pp)."
+/>
+
+## Zero-shot robot deployment and results
+
+When moving from human training video to a physical robot, nothing inside the policy checkpoint changes: only the upstream perception modules that build the RGB image and ICT tokens are swapped <Cite id="humanego-paper" where="§3.5; App. G.1" />.
+
+<Stepper title="From human Aria recording to closed-loop 10 Hz robot execution">
+  <Step title="Reference frame alignment (REF)">
+    During human training, the head-mounted Aria camera moves, so the pipeline freezes the camera pose at the first manipulation frame (`cam0`) as the episode reference frame $\mathrm{REF}$; across $45$ demonstrations, natural head variation covers a distribution of viewpoints. At deployment, the static top-down RealSense D405 camera frame serves directly as $\mathrm{REF}$, so any reasonable camera placement falls inside the training distribution <Cite id="humanego-paper" where="§3.5; App. G.1" />.
+  </Step>
+  <Step title="One-shot RGB-D object pose initialization">
+    Instead of a pre-episode head sweep and multi-view triangulation, the robot captures static RGB-D frames at episode start. Grounding DINO and SAM2 segment each prompted object once, depth back-projection computes its 3D centroid $\mathbf{p}_{\text{obj}}$, and Orient-Anything V2 estimates $R_{\text{obj}}$ <Cite id="humanego-paper" where="§3.5; App. G.1" />.
+  </Step>
+  <Step title="Per-cycle observation assembly (10 Hz)">
+    Every $100\text{ ms}$ on a single RTX 4090, the robot frontend segments and inpaints the physical robot arms, renders the virtual gripper and object keypoints, reads arm forward kinematics for $T_{\text{ee}}$ and $g$, and propagates grasped objects via kinematic latching to assemble the $29\text{-D}$ ICT tokens <Cite id="humanego-paper" where="§3.5; App. G.1" />.
+  </Step>
+  <Step title="20-step Euler ODE rollout and smoothed control">
+    Starting from $\mathbf{x}_0 \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$, the policy integrates $\mathbf{x}_{t + \Delta t} \leftarrow \mathbf{x}_t + \mathbf{v}_\theta(\mathbf{x}_t, t, s_t)\Delta t$ over $20$ Euler steps ($\Delta t = 1/20$) to emit a $K = 50$-step [[action-chunking|action chunk]]. The controller subsamples with stride $2$ ($5\text{ Hz}$ effective rate) and a $25$-step look-ahead offset, closes the gripper whenever any horizon step exceeds $0.6$ grasp probability, smooths poses with position EMA ($\alpha = 0.5$), quaternion SLERP, and trajectory-overlap blending ($12$), and clamps steps to a safety cage ($\le 0.08\text{ m}$, $\le 0.02\text{ rad}$) <Cite id="humanego-paper" where="App. G.3, Tab. 1" />.
+  </Step>
+</Stepper>
+
+Across four real-world tasks on dual 6-DoF Trossen WidowX AI arms (40 trials per task), HumanEgo trained on $30\text{ min}$ of human video ($45$ demonstrations) achieves $92.5\%$ average success, outperforming ACT <Cite id="act-paper" /> trained on $30\text{ min}$ of robot teleoperation ($51.2\%$) by $41.3$ percentage points and beating five zero-shot human-video baselines <Cite id="humanego-paper" where="§4.1, Fig. 4" />. Even with $15\text{ min}$ of human video, HumanEgo reaches $75.0\%$ average success <Cite id="humanego-paper" where="§4.1, Fig. 4" />.
+
+<Spec
+  title="Real-world manipulation success rate (%) across 4 tasks (40 trials per task, Fig. 4)"
+  columns={["Method", "Training data", "Serve Bread", "Downstack Cups", "Water Flowers", "Adjust Table", "Overall"]}
+  rows={[
+    { label: "EgoZero (point-based)", values: ["30 min human video", "5.0", "0.0", "2.5", "0.0", "1.9"], source: "humanego-paper", where: "§4.1, Fig. 4" },
+    { label: "Point Policy (point-based)", values: ["30 min human video", "12.5", "2.5", "7.5", "5.0", "6.9"], source: "humanego-paper", where: "§4.1, Fig. 4" },
+    { label: "Track2Act (goal-conditioned)", values: ["30 min human video", "35.0", "12.5", "17.5", "10.0", "18.8"], source: "humanego-paper", where: "§4.1, Fig. 4" },
+    { label: "ZeroMimic (goal-conditioned)", values: ["30 min human video", "47.5", "27.5", "30.0", "0.0", "26.2"], source: "humanego-paper", where: "§4.1, Fig. 4" },
+    { label: "SPOT (object-centric)", values: ["30 min human video", "62.5", "35.0", "45.0", "37.5", "45.0"], source: "humanego-paper", where: "§4.1, Fig. 4" },
+    { label: "ACT (robot teleoperation)", values: ["30 min robot teleop", "52.5", "45.0", "45.0", "62.5", "51.2"], source: "humanego-paper", where: "§4.1, Fig. 4" },
+    { label: "HumanEgo-15 (ours, half data)", values: ["15 min human video", "82.5", "67.5", "75.0", "75.0", "75.0"], source: "humanego-paper", where: "§4.1, Fig. 4" },
+    { label: "HumanEgo-30 (ours, full)", values: ["30 min human video", "95.0", "87.5", "95.0", "92.5", "92.5"], source: "humanego-paper", where: "§4.1, Fig. 4" },
+  ]}
+  note="All five zero-shot human-video baselines are reimplemented in the same codebase and share HumanEgo's perception frontend, grasp latching, and controller."
+/>
+
+Without retraining or fine-tuning, the same checkpoint transfers across novel robot arms (Franka, UR10), camera setups, and visual environments at $85.0\text{–}91.25\%$ success, requiring only the new camera intrinsics and hand–eye extrinsic <Cite id="humanego-paper" where="§3.5; §4.3, Fig. 7" />.
+
+<Spec
+  title="Zero-shot generalization, hand-tracker, and co-training studies (Figs. 7, 14–16)"
+  columns={["Study / Condition", "Setup", "Success (%)", "Key finding"]}
+  rows={[
+    { label: "In-distribution reference", values: ["Trossen WidowX AI (mean of 2 tasks)", "91.25", "95.0% Serve Bread, 87.5% Downstack Cups"], source: "humanego-paper", where: "§4.3, Fig. 7" },
+    { label: "Cross-embodiment: Franka / UR10", values: ["Zero-shot arm swap", "88.75 / 87.5", "Needs only hand–eye extrinsic per arm"], source: "humanego-paper", where: "§4.3, Fig. 7" },
+    { label: "Cross-setup: Camera / Viewpoint / Height", values: ["Zero-shot sensor & table shift", "90.0 / 87.5 / 86.25", "Head-pose diversity covers new viewpoints"], source: "humanego-paper", where: "§4.3, Fig. 7" },
+    { label: "Cross-environment: Light / Bg / Distractor / Obj", values: ["Zero-shot visual shift", "91.25 / 91.25 / 91.25 / 85.0", "ICT + augmentations resist visual nuisances"], source: "humanego-paper", where: "§4.3, Fig. 7" },
+    { label: "Hand tracker: Aria-MPS (stereo + IMU)", values: ["Serve Bread, 30 min", "95.0", "95.2% detection rate, metric stereo depth"], source: "humanego-paper", where: "App. H.1, Figs. 14–15" },
+    { label: "Hand tracker: WiLoR / HaMeR / MediaPipe", values: ["Monocular RGB substitutes", "45.0 / 32.5 / 0.0", "5–11 cm monocular depth offset + jerk"], source: "humanego-paper", where: "App. H.1, Figs. 14–15" },
+    { label: "Co-training: 0% / 25% / 50% / 75% / 100% human", values: ["30 min fixed total budget", "65.0 / 72.5 / 77.5 / 90.0 / 95.0", "Pure human video strictly dominates teleop"], source: "humanego-paper", where: "App. H.2, Fig. 16" },
+  ]}
+  note="Cross-condition numbers (Fig. 7) are the mean over Serve Bread and Downstack Cups (40 trials each). Hand-tracker and co-training studies are evaluated over 40 trials on Serve Bread."
+/>
+
+<Callout type="pitfall" title="Stereo hand tracking and quasi-static grasp assumptions">
+HumanEgo's $95\%$ success on Serve Bread drops to $45\%$ with monocular [[mano]] trackers such as WiLoR <Cite id="wilor-paper" /> and $32.5\%$ with HaMeR because monocular RGB incurs a $5\text{–}11\text{ cm}$ depth scale ambiguity that corrupts the ICT reference frame <Cite id="humanego-paper" where="§5; App. H.1, Figs. 14–15" />. In addition, because object pose is estimated once at episode start and then propagated by kinematic latching, the pipeline assumes a quasi-static scene where grasped objects do not slip or reorient inside the gripper <Cite id="humanego-paper" where="§5; App. B" />.
+</Callout>
+
+## What it reuses
+
+- [[flow-matching]]: conditional linear interpolation between $\mathbf{x}_0 \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$ and ground-truth action chunks $\mathbf{x}_1$, integrated in $20$ Euler steps <Cite id="humanego-paper" where="§3.4, Eq. 2; App. G.3" />.
+- [[action-chunking]]: predicting a $K = 50$-step horizon per forward pass and replanning synchronously at $10\text{ Hz}$ with look-ahead offset and trajectory blending <Cite id="humanego-paper" where="§3.4; App. G.3, Tab. 1" />.
+- [[transformer-block]] and [[mha]]: 6-layer `AXD` decoder with 8-head bidirectional self-attention, cross-attention over $308$ visual and ICT context tokens, and a dense GELU FFN <Cite id="humanego-paper" where="App. F.1, Tab. 1" /><Cite id="humanego-repo" where="training/FlowMatchingModel.py" />.
+- [[mano]]: evaluated in the hand-tracking study via WiLoR <Cite id="wilor-paper" /> and HaMeR, showing that shared parametric bone priors give identical $1.4\text{ cm}$ Procrustes shape residuals while differing in temporal jerk <Cite id="humanego-paper" where="App. H.1, Fig. 14" />.
+- Related vision-and-action systems: [[stablehand]] (which denoises world-space [[mano]] trajectories from egocentric video using per-part quality scores), [[flowhoi]] (which synthesizes coupled bimanual [[mano]] and 6D object trajectories in 3DGS scenes), and [[vla]] / [[vla-cpp]] (which train and serve vision-language-action policies with [[action-chunking]]).

@@ -1,0 +1,8 @@
+title: HumanEgo official code (GitHub)
+short: HumanEgo repo
+authors: Zhi Wang et al.
+year: 2026
+url: https://github.com/TX-Leo/HumanEgo
+type: repo
+accessed: 2026-10-19
+notes: Official preprocessing, flow-matching policy training, real-robot inference, and simulation code for HumanEgo.
