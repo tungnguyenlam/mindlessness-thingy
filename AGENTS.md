@@ -27,7 +27,7 @@ Each rule has an id. When `pnpm run check`, a test, a git hook or an agent hook 
 9. `template-complete`: **No `{/* TODO */}` markers left in a written note.** Templates use them as fill-in prompts; the check fails until each one is replaced.
 10. `diagram-geometry`: **Diagrams must lay out cleanly.** The fast check runs the same layout code as `<ArchDiagram>` and fails on overlapping blocks, edges through blocks, edges drawn on top of each other, labels wider than their box and diagrams too wide for the column. Edges are routed around blocks automatically and blocks without `col`/`row` are placed for you, so prefer leaving positions out. Hand-drawn diagrams use symbols, never numbers (`sourced-numbers` warning), and in concept notes every tensor box shows its shape (`no-shape` warning). Generated model diagrams draw that model's real numbers from its data. See [Style](#style).
 11. `render-clean`: **What renders must be clean at 390, 1280 and 2560 px.** `scripts/test-visual.mjs` (part of `pnpm run check`) loads every page with real fonts and fails on sideways page scroll, diagram text wider than its block, colliding labels, labels rendered too small, KaTeX errors and script errors. Wide content scrolls inside its own figure, never the page. Prose keeps `--measure`; visuals may widen to `--mid` or `--wide` (`src/styles/global.css`) and grow with the root size on big screens.
-12. `model-card`: **A system note with model data shows the whole model and its tokenizer.** `<ModelOverview model="...">` near the top (text → tokenizer → embedding → layers → head → next token, with one tab per part drawn down to projections and tensor shapes), `<ModelSpec>` for the numbers, and a `## Tokenizer` section with `<Tokenizer model="...">`. Tokenizers live in `src/content/tokenizers/` and are shared by every model that uses them; the shared tokenizer note explains how it splits text. The generated diagrams of every model are linted on each check.
+12. `model-card`: **A system note with model data shows the whole model and its tokenizer.** `<ModelOverview model="...">` near the top (text → tokenizer → embedding → layers → head → next token, with one tab per part drawn down to projections and tensor shapes), `<ModelSpec>` for the numbers, and a `## Tokenizer` section with `<Tokenizer model="...">`. A paper that isn't a language model (`kind: pipeline` in its data: stages around one backbone) gets the same overview drawn from its stages and needs no tokenizer; see [docs/workflow.md](docs/workflow.md#papers-that-arent-language-models). Tokenizers live in `src/content/tokenizers/` and are shared by every model that uses them; the shared tokenizer note explains how it splits text. The generated diagrams of every model are linted on each check.
 13. `commit-when-done`: **Finish every task with `pnpm run check` passing, a commit of only your own files, and `pnpm run ci` passing on that commit.** `pnpm run ci` replays the GitHub Actions deploy job locally (clean checkout of `HEAD`, `pnpm install --frozen-lockfile`, `pnpm run check`), so a red build is caught before it is pushed, not after. See the task lifecycle below.
 
 ### When the system corrects you
@@ -190,7 +190,7 @@ Shared symbols (the generated symbol table, `SYMBOLS` in `src/lib/models/overvie
 
 | Symbol | Meaning | Symbol | Meaning |
 | --- | --- | --- | --- |
-| `T` | tokens in the sequence | `d` | hidden size (residual width) |
+| `T` | tokens in the sequence (frames in a pipeline's sample) | `d` | hidden size (residual width) |
 | `V` | vocabulary / embedding rows | `L` | layers |
 | `n_h` | query heads | `n_kv` | key/value heads (`n_g` groups in GQA) |
 | `d_h` | head dimension | `d_v` | value head dimension |
@@ -199,5 +199,6 @@ Shared symbols (the generated symbol table, `SYMBOLS` in `src/lib/models/overvie
 | `d_ff` | dense FFN hidden size | `d_e` | expert hidden size |
 | `N_r`, `K_r`, `N_s` | routed experts, routed per token, shared | `k` | conv kernel size |
 | `n_qk`, `n_v` | DeltaNet Q/K and value heads | `d_qk` | DeltaNet Q/K head dimension |
+| `n_tok` | tokens per step of a pipeline's input (per video frame) | | |
 
 A new symbol goes in this table and in `SYMBOLS` in the same commit.

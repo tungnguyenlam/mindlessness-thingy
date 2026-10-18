@@ -1,0 +1,44 @@
+# StableHand as described in the paper (arXiv v1). The released code is a later "enhanced version"
+# with different upstream models and a SwiGLU FFN; research/stablehand-facts.md lists the gaps.
+title: StableHand
+family: stablehand
+kind: pipeline
+
+params_total: { v: 70.7e6, source: stablehand-paper, where: App. A, note: "DiT 66.8M + quality network 3.6M + auxiliary heads 0.3M; the frozen WiLoR and Depth Anything 3 are not counted" }
+
+input: { v: Egocentric video, source: stablehand-paper, where: "§3" }
+output: { v: World-space MANO motion of both hands, source: stablehand-paper, where: "§3, Setup and notation" }
+seq_unit: { v: frame, source: stablehand-paper, where: "§3" }
+seq_length: { v: 150, source: stablehand-paper, where: "§4.1" }
+tokens_per_step: { v: 4, source: stablehand-paper, where: "§3.3, Denoiser architecture", note: "left wrist, left fingers, right wrist, right fingers" }
+output_dim: { v: 108, source: stablehand-paper, where: "§3", note: "2 hands × (3 translation + 6 wrist rotation + 45 finger angles)" }
+
+layers: { v: 8, source: stablehand-paper, where: App. A }
+layer_pattern: { v: "AXD*8", source: stablehand-paper, where: "§3.3 (self-attention, cross-attention to c_t); App. A (8 blocks, GeGLU FFN)" }
+hidden_size: { v: 512, source: stablehand-paper, where: App. A }
+
+attention: { v: mha, source: stablehand-paper, where: App. A, note: "8 heads; no grouped or latent keys described" }
+heads: { v: 8, source: stablehand-paper, where: App. A }
+causal: { v: false, source: stablehand-paper, where: "§3.3", note: "temporal self-attention over all 4T tokens of the clip" }
+
+ffn: { v: dense, source: stablehand-paper, where: App. A }
+ffn_activation: { v: GeGLU, source: stablehand-paper, where: App. A, note: "the released code uses SwiGLU" }
+ffn_hidden: { v: 2048, source: stablehand-paper, where: "App. A (4× GeGLU)", note: "4 × hidden size 512" }
+
+objective: { v: flow-matching, source: stablehand-paper, where: "§3.3, Eqs. 8–9" }
+sampler: { v: Euler ODE solver, source: stablehand-paper, where: "§3.3" }
+sampling_steps: { v: 20, source: stablehand-paper, where: "§4.1" }
+modulation: { v: adaln, source: stablehand-paper, where: "§3.3" }
+modulation_from: { v: "MLP_τ(τ) + MLP_q(q̃_t), per token", source: stablehand-paper, where: "§3.3" }
+cross_inputs: { v: "scene token, camera pose, per-hand observations", source: stablehand-paper, where: "§3.3, after Eq. 9" }
+
+stages:
+  - { id: video, col: 1, row: 0, label: Egocentric video, sub: T frames, role: activation, source: stablehand-paper, where: "§3" }
+  - { id: wilor, col: 0, row: 1, label: WiLoR, sub: MANO hands per frame, role: weight, frozen: true, link: mano, from: [video], source: stablehand-paper, where: "§3; App. A" }
+  - { id: da3, col: 2, row: 1, label: Depth Anything 3, sub: "camera pose, scene token", role: weight, frozen: true, from: [video], source: stablehand-paper, where: "§3; App. A" }
+  - { id: obs, col: 1, row: 2, label: World-frame observation ȳ, sub: T × 108, role: activation, from: [wilor, { id: da3, label: camera pose }], source: stablehand-paper, where: "§3" }
+  - { id: qn, col: 0, row: 3, label: Quality network, sub: "4 layers, width 256", role: weight, from: [obs], source: stablehand-paper, where: "§3.2; App. A" }
+  - { id: q, col: 0, row: 4, label: Quality q̃, sub: "T × 4, each in [0, 1]", role: activation, from: [qn], source: stablehand-paper, where: "§3.1" }
+  - { id: x0, col: 1, row: 4, label: Mixed start x₀, sub: "q̃·ȳ + (1 − q̃)·ε", role: op, link: flow-matching, from: [q, obs], source: stablehand-paper, where: "Eq. 11" }
+  - { id: dit, col: 1, row: 5, label: DiT denoiser, role: weight, backbone: true, from: [x0, { id: q, label: AdaLN }, { id: da3, label: cross-attn, side: right }], source: stablehand-paper, where: "§3.3; App. A" }
+  - { id: out, col: 1, row: 6, label: Hand motion x, sub: "T × 108, world frame", role: activation, from: [dit], source: stablehand-paper, where: "§3" }

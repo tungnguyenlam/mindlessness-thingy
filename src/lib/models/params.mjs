@@ -57,6 +57,13 @@ export function sublayerWeights(m, code) {
     }
     return { missing: `${attn || 'attention'} projections` };
   }
+  if (code === 'X') {
+    // Queries and output live in the backbone's width; keys and values are projected from the
+    // conditioning inputs, whose widths the data doesn't give.
+    const [nh, dh] = [g('heads'), g('head_dim')];
+    if (!(nh && dh)) return { missing: 'cross-attention sizes' };
+    return { rows: [mat('W_Q', 'queries', D, [nh * dh, 'n_h·d_h']), mat('W_O', 'output', [nh * dh, 'n_h·d_h'], D)], missing: 'cross-attention keys and values' };
+  }
   if (code === 'C') {
     const k = g('conv_window');
     if (!k) return { missing: 'conv kernel' };
@@ -111,13 +118,19 @@ export function paramBreakdown(m) {
   const layers = m.values.layer_pattern ? parsePattern(m.values.layer_pattern.v) : null;
   const parts = [];
   const missing = [];
-  if (V && d) {
+  if (m.kind === 'pipeline') {
+    // Only the backbone is drawn down to its matrices; its input and output projections, the
+    // AdaLN modulation and the other trained stages are sized only in the source.
+    missing.push('input and output projections');
+    if (m.values.modulation) missing.push('AdaLN modulation');
+    if ((m.stages ?? []).some((st) => !st.backbone && !st.frozen && st.role === 'weight')) missing.push('the other trained stages');
+  } else if (V && d) {
     parts.push({ id: 'emb', label: 'Embedding table', layers: 1, total: V * d, active: V * d, rows: [mat('E', 'one row per token id', [V, 'V'], [d, 'd'])] });
     if (m.values.tie_embeddings?.v === true) parts.push({ id: 'head', label: 'Output head', note: 'tied to the embedding', layers: 1, total: 0, active: 0, rows: [] });
     else parts.push({ id: 'head', label: 'Output head', layers: 1, total: d * V, active: d * V, rows: [mat('W_out', 'logits', [d, 'd'], [V, 'V'])] });
   } else missing.push('embedding');
   if (layers) {
-    for (const code of ['A', 'C', 'M', 'G', 'D', 'E']) {
+    for (const code of ['A', 'X', 'C', 'M', 'G', 'D', 'E']) {
       const count = layers.filter((l) => l.includes(code)).length;
       if (!count) continue;
       const w = sublayerWeights(m, code);

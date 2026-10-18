@@ -1,7 +1,7 @@
 import { defineCollection } from 'astro:content';
 import { glob } from 'astro/loaders';
 import { z } from 'astro/zod';
-import { FIELDS } from './lib/models/fields.mjs';
+import { FIELDS, KINDS } from './lib/models/fields.mjs';
 import { TOKENIZER_FIELDS } from './lib/tokenizers/fields.mjs';
 
 const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slugs are kebab-case');
@@ -61,6 +61,31 @@ const sourced = z
     note: z.string().optional(),
   })
   .strict();
+// A pipeline model (kind: pipeline) lists its stages from input to output. Each stage is sourced
+// like a value (its label and sub may carry numbers); `from` names the stages feeding it. Exactly
+// one stage is the `backbone`: its block is drawn from the model's fields and opens the layer view.
+const stageInput = z.union([
+  z.string(),
+  z.object({ id: z.string(), label: z.string().optional(), dashed: z.boolean().optional(), side: z.enum(['left', 'right']).optional() }).strict(),
+]);
+const stage = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    sub: z.string().optional(),
+    role: z.enum(['activation', 'weight', 'cache', 'route', 'op']),
+    /** An off-the-shelf model used as is (not trained here). */
+    frozen: z.boolean().optional(),
+    backbone: z.boolean().optional(),
+    link: slug.optional(),
+    /** Grid position, as in <ArchDiagram>; leave both out to have the stage placed for you. */
+    col: z.number().int().min(0).optional(),
+    row: z.number().int().min(0).optional(),
+    from: z.array(stageInput).optional(),
+    source: slug,
+    where: z.string().min(1),
+  })
+  .strict();
 const models = defineCollection({
   loader: glob({ base: './src/content/models', pattern: '*.yaml' }),
   schema: z
@@ -69,6 +94,8 @@ const models = defineCollection({
       note: slug.optional(),
       family: z.string(),
       extends: slug.optional(),
+      kind: z.enum(KINDS as [string, ...string[]]).optional(),
+      stages: z.array(stage).optional(),
       ...Object.fromEntries(FIELDS.map((f) => [f.key, sourced.optional()])),
     })
     .strict(),

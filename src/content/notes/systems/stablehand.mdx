@@ -9,7 +9,7 @@ contrasts_with: []
 related: [rope, adaln]
 sources: [stablehand-paper, stablehand-repo, stablehand-enhanced-docs, stablehand-dit-hot3d-config, wilor-paper, depth-anything-3-paper, hot3d-paper, arctic-paper]
 status: draft
-updated: 2026-10-16
+updated: 2026-10-18
 ---
 
 StableHand isn't a language model. It reads first-person (egocentric) video and outputs a 3D trajectory for both hands in world coordinates. Per-frame hand estimators fail exactly when the data is most useful: when a hand leaves the view or is hidden behind the object it is holding. StableHand fills those gaps from a learned prior of two-handed motion, so that large collections of human video can supervise robot learning <Cite id="stablehand-repo" where="README, Highlight" />.
@@ -18,49 +18,18 @@ The core trick is to decide, per frame and per body part, how far to trust the o
 
 ## The pipeline
 
-<ArchDiagram
-  title="StableHand from video to hand motion"
-  caption="Two frozen off-the-shelf models produce noisy observations. A quality network scores them. The DiT keeps trusted parts close to the observation and regenerates the rest. Click a block to open its note."
-  blocks={[
-    { id: 'vid', label: 'Egocentric video', sub: '150-frame clips', role: 'activation', col: 1, row: 0 },
-    { id: 'wilor', label: 'WiLoR (frozen)', sub: 'per-frame MANO hands', role: 'weight', col: 0, row: 1, link: 'mano' },
-    { id: 'da3', label: 'Depth Anything 3 (frozen)', sub: 'camera pose + scene token', role: 'weight', col: 2, row: 1 },
-    { id: 'obs', label: 'World-frame observation ȳ', sub: 'T × 108', role: 'activation', col: 1, row: 2 },
-    { id: 'qn', label: 'Quality network', sub: '4 scores per frame', role: 'weight', col: 0, row: 3 },
-    { id: 'q', label: 'Quality q̃', sub: 'in [0, 1]', role: 'activation', col: 0, row: 4 },
-    { id: 'init', label: 'Mixed start x₀', sub: 'q̃·ȳ + (1 − q̃)·ε', role: 'op', col: 1, row: 4 },
-    { id: 'dit', label: 'DiT denoiser', sub: '8 blocks · 20 Euler steps', role: 'weight', col: 1, row: 5, link: 'dit' },
-    { id: 'out', label: 'Hand motion x', sub: 'T × 108, world frame', role: 'activation', col: 1, row: 6 },
-  ]}
-  edges={[
-    { from: 'vid', to: 'wilor' },
-    { from: 'vid', to: 'da3' },
-    { from: 'wilor', to: 'obs' },
-    { from: 'da3', to: 'obs', label: 'camera pose' },
-    { from: 'obs', to: 'qn' },
-    { from: 'qn', to: 'q' },
-    { from: 'q', to: 'init' },
-    { from: 'obs', to: 'init' },
-    { from: 'init', to: 'dit' },
-    { from: 'q', to: 'dit', label: 'AdaLN' },
-    { from: 'da3', to: 'dit', side: 'right', label: 'cross-attn' },
-    { from: 'dit', to: 'out' },
-  ]}
-/>
+<ModelOverview model="stablehand" caption="Generated from StableHand's model data, the paper version. The released code differs; see the last section." />
 
-Each hand's state per frame is 54 numbers: a 3D world translation, a 6D wrist rotation, and 45 [[mano]] finger joint angles. Two hands make 108 per frame <Cite id="stablehand-paper" where="§3" />. WiLoR <Cite id="wilor-paper" /> provides a noisy per-frame estimate of the same 54 numbers in camera coordinates, plus a visual feature. Depth Anything 3 <Cite id="depth-anything-3-paper" /> provides the camera pose that lifts those estimates into the world frame. Both stay frozen <Cite id="stablehand-paper" where="§3, App. A" />.
+Two frozen off-the-shelf models produce noisy observations. A quality network scores them, and the DiT keeps trusted parts close to the observation while it regenerates the rest. Each hand's state per frame is 54 numbers: a 3D world translation, a 6D wrist rotation, and 45 [[mano]] finger joint angles. Two hands make 108 per frame <Cite id="stablehand-paper" where="§3" />.
+
+WiLoR <Cite id="wilor-paper" /> provides a noisy per-frame estimate of the same 54 numbers in camera coordinates, plus a visual feature. Depth Anything 3 <Cite id="depth-anything-3-paper" /> provides the camera pose that lifts those estimates into the world frame. Both stay frozen <Cite id="stablehand-paper" where="§3, App. A" />.
+
+<ModelSpec model="stablehand" />
 
 <Spec
-  title="StableHand (paper version) at a glance"
+  title="Outside the backbone"
   rows={[
-    { label: 'Output per frame', value: '2 hands × 54 = 108', source: 'stablehand-paper', where: '§3' },
-    { label: 'Clip length', value: '150 frames', source: 'stablehand-paper', where: '§4.1' },
-    { label: 'Quality channels per frame', value: '4 (wrist, fingers × left, right)', source: 'stablehand-paper', where: '§3.1' },
-    { label: 'Tokens per frame', value: 4, source: 'stablehand-paper', where: '§3.3' },
-    { label: 'DiT blocks / width / heads', value: '8 / 512 / 8', source: 'stablehand-paper', where: 'App. A' },
-    { label: 'Quality network', value: '4 layers, width 256, 4 heads', source: 'stablehand-paper', where: 'App. A' },
-    { label: 'Parameters', value: '70.7M (DiT 66.8M, QN 3.6M)', source: 'stablehand-paper', where: 'App. A' },
-    { label: 'Sampler', value: '20 Euler steps', source: 'stablehand-paper', where: '§4.1' },
+    { label: 'Quality network', value: '4 layers, width 256, 4 heads, 3.6M parameters', source: 'stablehand-paper', where: 'App. A' },
     { label: 'Training', value: '1 H100, 6–8 h per benchmark', source: 'stablehand-paper', where: 'App. A' },
     { label: 'Time per clip (all stages)', value: '27.29 s, of which DiT 0.23 s', source: 'stablehand-paper', where: 'App. D, Tabs. 8–9' },
   ]}
@@ -69,6 +38,19 @@ Each hand's state per frame is 54 numbers: a 3D world translation, a 6D wrist ro
 The last row shows that the generative part is cheap. Almost all the time goes to the two frozen upstream models.
 
 ## Scoring each observation
+
+<Calc
+  title="From error to trust score"
+  inputs={[
+    { id: 'e', label: 'Observation error e (mm)', min: 0, max: 120, step: 1, value: 20 },
+    { id: 'p80', label: '80th-percentile error of the corpus (mm)', min: 5, max: 120, step: 1, value: 60 },
+  ]}
+  outputs={[
+    { label: 'Bandwidth σ = p80 / ln 10 (mm)', expr: 'p80 / Math.log(10)', format: 'number', role: 'op' },
+    { label: 'Quality q = exp(−e / σ)', expr: 'Math.exp(-e * Math.log(10) / p80)', format: 'percent', role: 'activation' },
+  ]}
+  note="At the 80th-percentile error the score is exactly 0.1, so the worst fifth of frames scores below that. Set the two sliders equal to see it."
+/>
 
 A single trust score per frame would be too coarse. Wrist error is dominated by global translation drift on the scale of tens of millimetres, while finger error lives at the millimetre scale <Cite id="stablehand-paper" where="§3.1" />. So each frame gets four scores, for the wrist and fingers of each hand.
 
@@ -104,6 +86,8 @@ Sampling uses the same idea. Instead of starting every coordinate from pure nois
 
 ## The denoiser
 
+<ModelDiagram model="stablehand" caption="One of the 8 DiT blocks, generated from the model data. The norms are AdaLN, so the flow time and the quality scores set their scale and shift." />
+
 The [[dit]] gets four tokens per frame (left wrist, left fingers, right wrist, right fingers) and runs temporal self-attention with [[rope]] over all $4T$ tokens. Cross-attention brings in the scene token, camera pose and per-hand observations. The quality scores enter through [[adaln]]: each token's modulation comes from $\text{MLP}_\tau(\tau) + \text{MLP}_q(\tilde q_t)$, so wrist and finger tokens are updated at different strengths <Cite id="stablehand-paper" where="§3.3" />. There is no classifier-free guidance.
 
 <Spec
@@ -120,6 +104,16 @@ The [[dit]] gets four tokens per frame (left wrist, left fingers, right wrist, r
 
 ## Results
 
+<Spec
+  title="World-space joint error, W-MPJPE in mm (lower is better)"
+  rows={[
+    { label: 'HOT3D: StableHand', value: 57.83, source: 'stablehand-paper', where: 'Tab. 1' },
+    { label: 'HOT3D: HaWoR', value: 71.89, source: 'stablehand-paper', where: 'Tab. 1' },
+    { label: 'ARCTIC: StableHand', value: 124.59, source: 'stablehand-paper', where: 'Tab. 2' },
+    { label: 'ARCTIC: HMP-SLAM', value: 166.21, source: 'stablehand-paper', where: 'Tab. 2' },
+  ]}
+/>
+
 On HOT3D <Cite id="hot3d-paper" />, world-space joint error drops to 57.83 mm, from 71.89 mm for HaWoR, the strongest baseline with public code <Cite id="stablehand-paper" where="Tab. 1" />. On ARCTIC <Cite id="arctic-paper" />, it is 124.59 mm against 166.21 mm for HMP-SLAM <Cite id="stablehand-paper" where="Tab. 2" />.
 
 <Callout type="pitfall">
@@ -127,6 +121,20 @@ The regenerated frames are plausible motion, not measurements. Over long stretch
 </Callout>
 
 ## The released code (and your fork)
+
+<Spec
+  title="Paper model and released enhanced version"
+  rows={[
+    { label: 'Camera and scene model, paper', value: 'Depth Anything 3', source: 'stablehand-paper', where: '§3' },
+    { label: 'Camera and scene model, release', value: 'VGGT-Omega', source: 'stablehand-enhanced-docs', where: 'docs/enhanced_version.md' },
+    { label: 'FFN, paper', value: 'GeGLU', source: 'stablehand-paper', where: 'App. A' },
+    { label: 'FFN, release', value: 'SwiGLU', source: 'stablehand-repo', where: 'model/hand_dit.py, class SwiGLU' },
+    { label: 'HOT3D W-MPJPE (mm), paper', value: 57.83, source: 'stablehand-paper', where: 'Tab. 1' },
+    { label: 'HOT3D W-MPJPE (mm), release', value: 45.19, source: 'stablehand-enhanced-docs', where: 'docs/enhanced_version.md, results' },
+    { label: 'ARCTIC W-MPJPE (mm), paper', value: 124.59, source: 'stablehand-paper', where: 'Tab. 2' },
+    { label: 'ARCTIC W-MPJPE (mm), release', value: 92.52, source: 'stablehand-enhanced-docs', where: 'docs/enhanced_version.md, results' },
+  ]}
+/>
 
 The fork at `tungnguyenlam/stablehand` has no changes of its own. It is identical to upstream at commit `0471a45e32` <Cite id="stablehand-repo" />. That code is the September 2026 "enhanced version", not the paper model <Cite id="stablehand-enhanced-docs" />:
 

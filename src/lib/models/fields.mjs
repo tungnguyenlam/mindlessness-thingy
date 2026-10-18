@@ -8,12 +8,20 @@
 //   pattern   → layer pattern, see parsePattern() in ./data.mjs
 export const GROUPS = [
   { id: 'size', label: 'Size' },
-  { id: 'io', label: 'Tokens in, tokens out' },
+  { id: 'io', label: 'Input and output' },
   { id: 'shape', label: 'Shape' },
   { id: 'mixer', label: 'Token mixing' },
   { id: 'ffn', label: 'Feed-forward' },
+  { id: 'sampling', label: 'Sampling and conditioning' },
   { id: 'train', label: 'Training and context' },
 ];
+
+// What kind of system a model file describes (its top-level `kind`, default lm):
+//   lm        text in, next token out: tokenizer → embedding → layer stack → output head
+//   pipeline  a chain of stages (frozen estimators, small trained networks, one backbone) from
+//             some input to some output, drawn from its `stages:` list; the backbone's numbers
+//             use the ordinary fields below, so its block and weights are drawn like any layer.
+export const KINDS = ['lm', 'pipeline'];
 
 export const FIELDS = [
   { key: 'params_total', label: 'Total parameters', group: 'size', kind: 'params' },
@@ -22,6 +30,12 @@ export const FIELDS = [
   { key: 'tokenizer', label: 'Tokenizer', group: 'io', kind: 'tokenizer', concept: 'byte-level-bpe' },
   { key: 'vocab_size', label: 'Vocabulary (embedding rows)', group: 'io', kind: 'count' },
   { key: 'tie_embeddings', label: 'Output head tied to embedding', group: 'io', kind: 'bool' },
+  { key: 'input', label: 'Input', group: 'io', kind: 'text' },
+  { key: 'output', label: 'Output', group: 'io', kind: 'text' },
+  { key: 'seq_unit', label: 'One sequence step', group: 'io', kind: 'text' },
+  { key: 'seq_length', label: 'Steps per sample', group: 'io', kind: 'count' },
+  { key: 'tokens_per_step', label: 'Tokens per step', group: 'io', kind: 'count' },
+  { key: 'output_dim', label: 'Output values per step', group: 'io', kind: 'count' },
 
   { key: 'layers', label: 'Layers', group: 'shape', kind: 'count' },
   { key: 'layer_pattern', label: 'Layer pattern', group: 'shape', kind: 'pattern' },
@@ -30,6 +44,7 @@ export const FIELDS = [
 
   { key: 'attention', label: 'Attention type', group: 'mixer', kind: 'slug' },
   { key: 'attention_layers', label: 'Attention layers', group: 'mixer', kind: 'count' },
+  { key: 'causal', label: 'Causal (sees only earlier tokens)', group: 'mixer', kind: 'bool', concept: 'kv-cache' },
   { key: 'heads', label: 'Query heads', group: 'mixer', kind: 'count', concept: 'mha' },
   { key: 'kv_heads', label: 'Key/value heads', group: 'mixer', kind: 'count', concept: 'gqa' },
   { key: 'head_dim', label: 'Head dimension', group: 'mixer', kind: 'count' },
@@ -67,6 +82,13 @@ export const FIELDS = [
   { key: 'expert_groups_active', label: 'Groups a token may use', group: 'ffn', kind: 'count', concept: 'deepseek-moe' },
   { key: 'mtp_depth', label: 'MTP depth', group: 'ffn', kind: 'count', concept: 'mtp' },
 
+  { key: 'objective', label: 'Generative objective', group: 'sampling', kind: 'slug' },
+  { key: 'sampler', label: 'Sampler', group: 'sampling', kind: 'text' },
+  { key: 'sampling_steps', label: 'Sampling steps', group: 'sampling', kind: 'count' },
+  { key: 'modulation', label: 'Conditioning in each block', group: 'sampling', kind: 'slug' },
+  { key: 'modulation_from', label: 'Modulation driven by', group: 'sampling', kind: 'text', concept: 'adaln' },
+  { key: 'cross_inputs', label: 'Cross-attention reads', group: 'sampling', kind: 'text', concept: 'dit' },
+
   { key: 'context_length', label: 'Context length', group: 'train', kind: 'tokens' },
   { key: 'training_tokens', label: 'Training tokens', group: 'train', kind: 'tokens' },
   { key: 'knowledge_cutoff', label: 'Knowledge cutoff', group: 'train', kind: 'text' },
@@ -82,6 +104,8 @@ export const SUBLAYERS = {
   C: { label: 'Gated short conv', role: 'op', concept: 'gated-short-conv' },
   M: { label: 'Mamba-2', role: 'activation', concept: 'mamba-2' },
   G: { label: 'Gated DeltaNet', role: 'activation', concept: 'gated-deltanet' },
+  // Cross-attention to conditioning inputs, after the self-attention of the same layer (DiT blocks).
+  X: { label: 'Cross-attention', role: 'op', concept: 'dit' },
   D: { label: 'Dense FFN', role: 'weight', concept: null },
   E: { label: 'MoE FFN', role: 'route', concept: 'moe' },
 };

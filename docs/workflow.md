@@ -40,6 +40,16 @@ flowchart TD
 7. **Fast check** after each edit: `pnpm run check:graph --files <your files>`.
 8. Finish with `.agents/skills/finish-task/SKILL.md`.
 
+## Papers that aren't language models
+
+Not every paper is text in, next token out. A video-to-motion model, a diffusion pipeline or a robot policy is a chain of stages around one trained backbone. Describe it with the same data, as `kind: pipeline` (StableHand is the worked example: `src/content/models/stablehand.yaml`).
+
+1. **Sort the paper's parts** in the fact sheet before writing anything: what it reuses (link to the concept note, or stub one), what is new and reusable (its own concept note, rule `one-idea`), and what only this system does (its system note).
+2. **Model data** with `kind: pipeline` and a `stages:` list from input to output. Each stage has `id`, `label`, `role` (the diagram roles), `from:` (the stages feeding it, optionally `{ id, label, side }`), `source` and `where`; `frozen: true` marks an off-the-shelf model used as is, `link:` a note, and `col`/`row` place it when automatic placement tangles the edges. Exactly one stage has `backbone: true`.
+3. **Backbone numbers** use the ordinary fields (`layers`, `hidden_size`, `attention`, `heads`, `ffn_hidden`, `ffn_activation`) and a `layer_pattern` listing each block's sublayers in order: `AXD*8` is self-attention, cross-attention, FFN, eight times. Set `causal: false` when attention sees the whole sample (no cache), and fill the input and output fields (`input`, `output`, `seq_unit`, `seq_length`, `tokens_per_step`, `output_dim`) and the sampling fields (`objective`, `sampler`, `sampling_steps`, `modulation`, `modulation_from`, `cross_inputs`) that apply.
+4. **Note.** `<ModelOverview>` draws the stages, one backbone block and each sublayer from the data; `<ModelSpec>` shows the numbers; `<ModelDiagram>` draws one block where a section needs it. No tokenizer section (rule `model-card` asks for one only for `kind: lm`). Numbers that are not model fields (training budget, benchmark tables) stay in `<Spec>`.
+5. **Missing pieces.** If the backbone has a sublayer the generator can't draw yet, add it to `SUBLAYERS` in `src/lib/models/fields.mjs` and a view in `src/lib/models/overview.mjs` rather than hand-drawing the model.
+
 ## Tokenizers
 
 A tokenizer is shared by every model that uses it, so it is described once:

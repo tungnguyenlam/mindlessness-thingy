@@ -3,6 +3,10 @@
 // every part of every model goes through lintDiagram on each check, not only at build.
 //
 //   overviewParts(model, ctx) → [{ id, tab, props }]   props are <ArchDiagram> props
+//
+// Two kinds of model (`kind` in the data, see KINDS in ./fields.mjs): a language model is drawn from
+// text to next token; a pipeline from its `stages:` list, with the backbone stage opening a block
+// drawn sublayer by sublayer in order.
 //   layerDiagram(model, ctx)  → props for one layer (what <ModelDiagram> draws)
 //   symbolRows(model)         → the symbols the diagrams use, with the field that gives each value
 //
@@ -13,7 +17,7 @@
 // picture maps each number back to its symbol (as the concept notes write it) and its source. Only
 // T, the sequence length, stays a symbol. A size the data lacks falls back to its symbol.
 // Hand-drawn concept diagrams do the opposite: symbols only (rule diagram-geometry).
-import { parsePattern, DERIVED, formatDerived } from './data.mjs';
+import { parsePattern, DERIVED, formatDerived, isCausal } from './data.mjs';
 
 const ATTN_SHORT = { mla: 'MLA', gqa: 'GQA', mha: 'MHA', mqa: 'MQA' };
 const ATTN_LABEL = { mla: 'Latent attention (MLA)', gqa: 'Grouped-query attn', mha: 'Multi-head attn', mqa: 'Multi-query attn' };
@@ -33,7 +37,10 @@ function access(m) {
     if (typeof a === 'number' && typeof b === 'number') return n(op === '+' ? a + b : a * b);
     return `${z(ka, sa)}${op === '+' ? ' + ' : '·'}${z(kb, sb)}`;
   };
-  return { v, z, zz, layers, count, present };
+  // Tokens in the sequence: T, or k·T when each step (a video frame) becomes k tokens.
+  const k = v('tokens_per_step');
+  const T = typeof k === 'number' && k > 1 ? `${k}T` : 'T';
+  return { v, z, zz, layers, count, present, T };
 }
 
 const join = (...parts) => parts.filter(Boolean).join(' · ');
@@ -70,6 +77,7 @@ const normName = (m) => (/rmsnorm/i.test(String(m.values.norm?.v ?? 'RMSNorm')) 
 export function layerDiagram(m, ctx, { title, zoom = false } = {}) {
   const { v, z, layers, count, present } = access(m);
   if (!layers) throw new Error(`model "${m.id}" needs a layer_pattern`);
+  if (m.kind === 'pipeline') return blockDiagram(m, ctx, { title, zoom });
   const mixers = present('ACMG');
   const ffns = present('DE');
   const times = (c, list) => (list.length > 1 ? `× ${count(c)}` : null);
@@ -115,6 +123,87 @@ export function layerDiagram(m, ctx, { title, zoom = false } = {}) {
   });
   const groups = [{ label: `${n(layers.length)} layers`, blocks: blocks.filter((b) => b.row >= R.n1).map((b) => b.id) }];
   return { title: title ?? `A ${m.title} layer`, blocks, edges, groups };
+}
+
+const SUB_TAB = { A: 'mixer-A', X: 'mixer-X', D: 'ffn-D', E: 'ffn-E' };
+
+/**
+ * One block of a pipeline's backbone (a DiT block), sublayer by sublayer in the order the layer
+ * pattern lists them: norm (AdaLN when the data names a modulation) → sublayer → add, each with
+ * its residual on the left. Every layer must have the same sublayers.
+ */
+function blockDiagram(m, ctx, { title, zoom = false } = {}) {
+  const { v, z, layers, T } = access(m);
+  const codes = layers[0];
+  if (layers.some((l) => l.join('') !== codes.join(''))) throw new Error(`pipeline "${m.id}": every backbone layer needs the same sublayers (layer_pattern like AXD*8)`);
+  const adaln = v('modulation') === 'adaln';
+  const d = z('hidden_size', 'd');
+  const blocks = [{ id: 'in', label: 'Hidden states', sub: `${T} × ${d}`, role: 'activation', col: 0, row: 0 }];
+  const edges = [];
+  let prev = 'in';
+  let row = 1;
+  for (const c of codes) {
+    const norm = { id: `n-${c}`, label: adaln ? 'AdaLN' : normName(m), sub: adaln ? 'scale, shift from m_t' : undefined, role: 'op', col: 0, row: row++, link: adaln ? linkIf(ctx, 'adaln') : undefined };
+    const info = {
+      A: { label: isCausal(m) ? 'Causal self-attention' : 'Self-attention', sub: `${z('heads', 'n_h')} heads`, link: linkIf(ctx, String(v('attention') ?? '')) },
+      X: { label: 'Cross-attention', sub: 'reads the conditions', link: linkIf(ctx, 'dit') },
+      D: { label: 'FFN', sub: join(v('ffn_activation') ? String(v('ffn_activation')) : null, `width ${z('ffn_hidden', 'd_ff')}`), link: undefined },
+      E: { label: 'MoE FFN', sub: `${z('active_experts', 'K_r')} of ${z('routed_experts', 'N_r')}`, link: linkIf(ctx, 'moe') },
+    }[c];
+    if (!info) throw new Error(`pipeline "${m.id}": sublayer "${c}" has no block view yet (use A, X, D or E)`);
+    const open = zoom && SUB_TAB[c] ? SUB_TAB[c] : undefined;
+    const sub = { id: `s-${c}`, label: info.label, sub: info.sub, role: c === 'D' ? 'weight' : c === 'E' ? 'route' : 'op', col: 0, row: row++, ...(open ? { open } : { link: info.link }) };
+    const add = { id: `add-${c}`, label: 'Add', role: 'op', col: 0, row: row++ };
+    blocks.push(norm, sub, add);
+    edges.push({ from: prev, to: norm.id }, { from: norm.id, to: sub.id }, { from: sub.id, to: add.id }, { from: prev, to: add.id, side: 'left' });
+    prev = add.id;
+  }
+  const groups = [{ label: `${n(layers.length)} blocks`, blocks: blocks.filter((b) => b.id !== 'in').map((b) => b.id) }];
+  return { title: title ?? `A ${m.title} backbone block`, blocks, edges, groups };
+}
+
+/** Cross-attention: the backbone's tokens query a set of conditioning inputs (DiT conditioning). */
+function crossDetail(m, ctx) {
+  const { z, T } = access(m);
+  const [d, nh, dh] = [z('hidden_size', 'd'), z('heads', 'n_h'), z('head_dim', 'd_h')];
+  const blocks = [
+    { id: 'h', label: 'Normed hidden h', sub: `${T} × ${d}`, role: 'activation', col: 0, row: 0 },
+    { id: 'c', label: 'Conditions c', sub: 'per-step inputs', role: 'activation', col: 2, row: 0 },
+    { id: 'q', label: 'Queries', sub: `${T} × ${nh} × ${dh}`, role: 'activation', col: 0, row: 1 },
+    { id: 'kv', label: 'Keys and values', sub: `from c, ${nh} × ${dh} each`, role: 'activation', col: 2, row: 1 },
+    { id: 'attn', label: 'Cross-attention', sub: `softmax(q·kᵀ / √${dh}) · v`, role: 'op', col: 1, row: 2, link: linkIf(ctx, 'dit') },
+    { id: 'out', label: 'Cross-attention output', sub: `${T} × ${d}`, role: 'activation', col: 1, row: 3 },
+  ];
+  const edges = [
+    { from: 'h', to: 'q', label: 'W_Q' },
+    { from: 'c', to: 'kv', label: 'W_K, W_V' },
+    { from: 'q', to: 'attn' },
+    { from: 'kv', to: 'attn' },
+    { from: 'attn', to: 'out', label: 'W_O' },
+  ];
+  return { title: `${m.title}: inside cross-attention`, blocks, edges };
+}
+
+/** A pipeline from its stages: frozen estimators, trained helpers and the backbone, input to output. */
+function pipelineModel(m, ctx) {
+  const { v, z } = access(m);
+  const stages = m.stages ?? [];
+  if (!stages.length) throw new Error(`pipeline "${m.id}" needs a stages: list`);
+  const steps = v('sampling_steps');
+  const blocks = stages.map((st) => {
+    const b = { id: st.id, label: st.frozen && !/frozen/i.test(st.label) ? `${st.label} (frozen)` : st.label, sub: st.sub, role: st.role, col: st.col, row: st.row };
+    if (st.backbone) return { ...b, sub: st.sub ?? join(`${z('layers', 'L')} blocks`, steps ? `${n(steps)} steps` : null), open: 'layer' };
+    return { ...b, link: linkIf(ctx, st.link) };
+  });
+  const ids = new Set(stages.map((st) => st.id));
+  const edges = stages.flatMap((st) =>
+    (st.from ?? []).map((f) => {
+      const e = typeof f === 'string' ? { id: f } : f;
+      if (!ids.has(e.id)) throw new Error(`pipeline "${m.id}": stage "${st.id}" reads unknown stage "${e.id}"`);
+      return { from: e.id, to: st.id, label: e.label, dashed: e.dashed, side: e.side };
+    }),
+  );
+  return { title: `${m.title}, end to end`, blocks, edges };
 }
 
 /** Consecutive runs of identical layers: "AD*3 AE*58" → [{codes:'AD', from:1, to:3}, ...]. */
@@ -229,7 +318,8 @@ function mlaDetail(m, ctx) {
 
 /** Grouped-query (or multi-head) attention with optional QK-Norm and the KV cache. */
 function gqaDetail(m, ctx) {
-  const { v, z } = access(m);
+  const { v, z, T } = access(m);
+  if (!isCausal(m)) return selfAttnDetail(m, ctx);
   const attn = String(v('attention') ?? '');
   const [d, nh, dh] = [z('hidden_size', 'd'), z('heads', 'n_h'), z('head_dim', 'd_h')];
   const kvh = attn === 'mha' ? nh : attn === 'mqa' ? '1' : z('kv_heads', 'n_kv');
@@ -260,6 +350,36 @@ function gqaDetail(m, ctx) {
     { from: 'attn', to: 'out', label: 'W_O' },
   ];
   return { title: `${m.title}: inside attention`, blocks, edges };
+}
+
+/** Attention over the whole sample at once (no mask, so nothing to cache between steps). */
+function selfAttnDetail(m, ctx) {
+  const { v, z, T } = access(m);
+  const attn = String(v('attention') ?? '');
+  const [d, nh, dh] = [z('hidden_size', 'd'), z('heads', 'n_h'), z('head_dim', 'd_h')];
+  const kvh = attn === 'mha' ? nh : attn === 'mqa' ? '1' : z('kv_heads', 'n_kv');
+  const blocks = [
+    { id: 'h', label: 'Normed hidden h', sub: `${T} × ${d}`, role: 'activation', col: 1, row: 0 },
+    { id: 'q', label: 'Queries', sub: `${T} × ${nh} × ${dh}`, role: 'activation', col: 0, row: 1 },
+    { id: 'k', label: 'Keys', sub: `${T} × ${kvh} × ${dh}`, role: 'activation', col: 1, row: 1 },
+    { id: 'v', label: 'Values', sub: `${T} × ${kvh} × ${dh}`, role: 'activation', col: 2, row: 1 },
+    { id: 'qn', label: 'RoPE', sub: 'per query head', role: 'op', col: 0, row: 2, link: linkIf(ctx, 'rope') },
+    { id: 'kn', label: 'RoPE', sub: 'per key head', role: 'op', col: 1, row: 2, link: linkIf(ctx, 'rope') },
+    { id: 'attn', label: 'Self-attention, no mask', sub: `every token reads all ${T}`, role: 'op', col: 0, row: 3, span: 3, link: linkIf(ctx, attn) },
+    { id: 'out', label: 'Attention output', sub: `${T} × ${d}`, role: 'activation', col: 0, row: 4, span: 3 },
+  ];
+  const edges = [
+    { from: 'h', to: 'q', label: 'W_Q' },
+    { from: 'h', to: 'k', label: 'W_K' },
+    { from: 'h', to: 'v', label: 'W_V' },
+    { from: 'q', to: 'qn' },
+    { from: 'k', to: 'kn' },
+    { from: 'qn', to: 'attn' },
+    { from: 'kn', to: 'attn' },
+    { from: 'v', to: 'attn' },
+    { from: 'attn', to: 'out', label: 'W_O' },
+  ];
+  return { title: `${m.title}: inside self-attention`, blocks, edges };
 }
 
 /** Gated DeltaNet linear attention: QKV + depthwise conv, decay/step gates, recurrent state S_t = α_t S + β_t(v − S k)kᵀ, gated RMSNorm. */
@@ -325,15 +445,16 @@ function convDetail(m, ctx) {
 
 /** Dense gated FFN (SwiGLU when the data says so). */
 function denseDetail(m, ctx, { title } = {}) {
-  const { v, z } = access(m);
+  const { v, z, T } = access(m);
   const [d, width] = [z('hidden_size', 'd'), z('ffn_hidden', 'd_ff')];
-  const swiglu = /swiglu/i.test(String(v('ffn_activation') ?? ''));
+  const act = String(v('ffn_activation') ?? '');
+  const gate = /swiglu/i.test(act) ? 'SiLU' : /geglu/i.test(act) ? 'GELU' : 'act';
   const blocks = [
-    { id: 'u', label: 'Normed hidden u', sub: `T × ${d}`, role: 'activation', col: 1, row: 0 },
-    { id: 'g', label: 'Gate projection', sub: `T × ${width}`, role: 'weight', col: 0, row: 1 },
-    { id: 'up', label: 'Up projection', sub: `T × ${width}`, role: 'weight', col: 2, row: 1 },
-    { id: 'act', label: swiglu ? 'SiLU(gate) ⊙ up' : 'act(gate) ⊙ up', sub: `T × ${width}`, role: 'op', col: 1, row: 2 },
-    { id: 'down', label: 'Down projection', sub: `T × ${d}`, role: 'weight', col: 1, row: 3 },
+    { id: 'u', label: 'Normed hidden u', sub: `${T} × ${d}`, role: 'activation', col: 1, row: 0 },
+    { id: 'g', label: 'Gate projection', sub: `${T} × ${width}`, role: 'weight', col: 0, row: 1 },
+    { id: 'up', label: 'Up projection', sub: `${T} × ${width}`, role: 'weight', col: 2, row: 1 },
+    { id: 'act', label: `${gate}(gate) ⊙ up`, sub: `${T} × ${width}`, role: 'op', col: 1, row: 2 },
+    { id: 'down', label: 'Down projection', sub: `${T} × ${d}`, role: 'weight', col: 1, row: 3 },
   ];
   const edges = [
     { from: 'u', to: 'g' },
@@ -405,6 +526,14 @@ function mtpDetail(m, ctx) {
 /** Every generated view of a model, in reading order. */
 export function overviewParts(m, ctx) {
   const { v, present, layers } = access(m);
+  if (m.kind === 'pipeline') {
+    const parts = [{ id: 'model', tab: 'Whole system', props: pipelineModel(m, ctx) }];
+    if (!layers) return parts;
+    parts.push({ id: 'layer', tab: 'One block', props: layerDiagram(m, ctx, { zoom: true }) });
+    const TAB = { A: ['Self-attention', () => gqaDetail(m, ctx)], X: ['Cross-attention', () => crossDetail(m, ctx)], D: ['FFN', () => denseDetail(m, ctx)], E: ['MoE FFN', () => moeDetail(m, ctx)] };
+    for (const c of layers[0]) if (TAB[c]) parts.push({ id: SUB_TAB[c], tab: TAB[c][0], props: TAB[c][1]() });
+    return parts;
+  }
   const parts = [{ id: 'model', tab: 'Whole model', props: wholeModel(m, ctx) }];
   if (layers) parts.push({ id: 'layer', tab: 'One layer', props: layerDiagram(m, ctx, { zoom: true }) });
   const attn = String(v('attention') ?? '');
@@ -425,6 +554,7 @@ export function overviewParts(m, ctx) {
 // Symbols used in the diagrams, and the model field (or derived value) that gives each one.
 const SYMBOLS = [
   ['T', 'tokens in the sequence', null],
+  ['n_tok', 'tokens per step', 'tokens_per_step'],
   ['V', 'vocabulary, embedding rows', 'vocab_size'],
   ['d', 'hidden size', 'hidden_size'],
   ['L', 'layers', 'layers'],
@@ -453,5 +583,12 @@ const SYMBOLS = [
 ];
 
 export function symbolRows(m) {
+  if (m.kind === 'pipeline') {
+    // T counts steps of the input (video frames), and each step may become several tokens.
+    const unit = String(m.values.seq_unit?.v ?? 'step');
+    const own = { T: [`${unit}s in a sample`, m.values.seq_length ? 'seq_length' : null], n_tok: [`tokens per ${unit}`, 'tokens_per_step'] };
+    const rows = SYMBOLS.filter(([sym]) => sym !== 'V').map(([sym, meaning, key]) => (own[sym] ? [sym, ...own[sym]] : [sym, meaning, key]));
+    return rows.filter(([, , key]) => key == null || m.values[key] != null || m.derived?.[key] != null).map(([sym, meaning, key]) => ({ sym, meaning, key }));
+  }
   return SYMBOLS.filter(([, , key]) => key == null || m.values[key] != null || m.derived?.[key] != null).map(([sym, meaning, key]) => ({ sym, meaning, key }));
 }

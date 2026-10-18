@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadModels, loadTokenizers, root } from '../../src/lib/content-index.mjs';
-import { FIELD, FIELDS } from '../../src/lib/models/fields.mjs';
+import { FIELD, FIELDS, KINDS } from '../../src/lib/models/fields.mjs';
 import { DERIVED, parsePattern, resolveModels } from '../../src/lib/models/data.mjs';
 import { overviewParts } from '../../src/lib/models/overview.mjs';
 import { paramBreakdown, fmtParams } from '../../src/lib/models/params.mjs';
@@ -19,7 +19,7 @@ const TOKENIZER_META = new Set(['title', 'note', 'family', 'file', 'pretokenizer
 
 // Values of slug fields that name a plain architecture rather than a note.
 const PLAIN = new Set(['dense']);
-const META = new Set(['title', 'note', 'family', 'extends']);
+const META = new Set(['title', 'note', 'family', 'extends', 'kind', 'stages']);
 
 const sourcedOk = (v) => v && typeof v === 'object' && v.v != null && v.source && v.where;
 
@@ -50,6 +50,29 @@ function tokenizers(ctx, { error }) {
     if (!generated[t.id]) error('sourced-numbers', t.file, `no generated samples for "${t.id}"`, `add it to TOKENIZERS in scripts/tokenizer-samples.py and run python3 scripts/tokenizer-samples.py`, { code: 'no-samples' });
   }
   return { ids: new Set(list.map((t) => t.id)), byId: new Map(list.map((t) => [t.id, t.data])), notes: new Set(list.map((t) => t.data.note).filter(Boolean)), generated };
+}
+
+// A pipeline's stages: sourced, linked to notes that exist, wired to stages that exist, one backbone.
+function stagesCheck(ctx, m, error) {
+  const stages = m.data.stages ?? [];
+  const fix = 'see "Papers that aren\'t language models" in docs/workflow.md';
+  if (!stages.length) return error('frontmatter', m.file, 'kind: pipeline needs a stages: list', fix);
+  const ids = new Set();
+  for (const st of stages) {
+    if (!st.id || !st.label || !st.role) error('frontmatter', m.file, `stage ${st.id ?? '?'} needs id, label and role`, fix);
+    if (ids.has(st.id)) error('frontmatter', m.file, `stage id "${st.id}" is used twice`, 'give each stage its own id');
+    ids.add(st.id);
+    if (!st.source || !st.where) error('sourced-numbers', m.file, `stage "${st.id}" needs source and where`, 'name where the paper describes this stage', { code: 'unsourced' });
+    else if (!ctx.sourceIds.has(st.source)) error('sourced-numbers', m.file, `stage "${st.id}" cites unknown source "${st.source}"`, 'add src/content/sources/<id>.yaml or fix the id', { code: 'unknown-source' });
+    if (st.link && !ctx.bySlug.has(st.link)) error('no-dangling', m.file, `stage "${st.id}" links to unknown note "${st.link}"`, `create a stub: pnpm run new concept ${st.link} "Title"`);
+  }
+  for (const st of stages)
+    for (const f of st.from ?? []) {
+      const id = typeof f === 'string' ? f : f?.id;
+      if (!ids.has(id)) error('no-dangling', m.file, `stage "${st.id}" reads unknown stage "${id}"`, 'from: lists ids of earlier stages');
+    }
+  const backbones = stages.filter((st) => st.backbone).length;
+  if (backbones !== 1) error('frontmatter', m.file, `a pipeline needs exactly one backbone stage (has ${backbones})`, 'mark the stage drawn from the model fields with backbone: true');
 }
 
 export default function models(ctx, { error, warn }) {
@@ -84,6 +107,9 @@ export default function models(ctx, { error, warn }) {
       }
     }
     if (!d.title || !d.family) error('frontmatter', m.file, 'model needs title and family');
+    if (d.kind && !KINDS.includes(d.kind)) error('frontmatter', m.file, `kind "${d.kind}" is not one of ${KINDS.join(', ')}`, 'lm for text-to-next-token models, pipeline for a chain of stages');
+    if (d.kind === 'pipeline') stagesCheck(ctx, m, error);
+    else if (d.stages) error('frontmatter', m.file, 'stages are only drawn for kind: pipeline', 'add kind: pipeline, or drop the stages');
     if (d.extends && !ids.has(d.extends)) error('no-dangling', m.file, `extends unknown model "${d.extends}"`, 'fix the id; parents live in src/content/models/', { code: 'unknown-parent' });
     const note = d.note ?? m.id;
     if (!bySlug.has(note)) error('no-dangling', m.file, `no system note "${note}" for this model`, `create it: pnpm run new system ${note} "${d.title ?? note}"`, { code: 'no-note' });
@@ -164,9 +190,11 @@ export default function models(ctx, { error, warn }) {
       continue;
     }
     if (!/<ModelSpec\b/.test(n.text)) error('one-idea', n.file, `model data exists (${model}) but the note doesn't show it`, `use <ModelSpec model="${model}" /> instead of retyping the numbers`, { code: 'no-modelspec' });
-    if (!/<ModelOverview\b/.test(n.text)) error('model-card', n.file, `model data exists (${model}) but the note has no whole-model view`, `add <ModelOverview model="${model}" /> near the top: text to next token, every part down to its projections`, { code: 'no-overview' });
-    if (resolved.get(model)?.values.tokenizer && !/<Tokenizer\b/.test(n.text)) error('model-card', n.file, `${model} names a tokenizer but the note doesn't show it`, `add a "## Tokenizer" section with <Tokenizer model="${model}" />`, { code: 'no-tokenizer' });
-    else if (!resolved.get(model)?.values.tokenizer) warn('model-card', n.file, `${model} has no tokenizer in its data`, 'add tokenizer: { v, source, where } and src/content/tokenizers/<id>.yaml (docs/workflow.md#tokenizers)', { code: 'no-tokenizer-data' });
+    if (!/<ModelOverview\b/.test(n.text)) error('model-card', n.file, `model data exists (${model}) but the note has no whole-model view`, `add <ModelOverview model="${model}" /> near the top: input to output, every part down to its projections`, { code: 'no-overview' });
+    // A pipeline has no tokenizer: its input is drawn as stages.
+    const lm = resolved.get(model)?.kind !== 'pipeline';
+    if (lm && resolved.get(model)?.values.tokenizer && !/<Tokenizer\b/.test(n.text)) error('model-card', n.file, `${model} names a tokenizer but the note doesn't show it`, `add a "## Tokenizer" section with <Tokenizer model="${model}" />`, { code: 'no-tokenizer' });
+    else if (lm && !resolved.get(model)?.values.tokenizer) warn('model-card', n.file, `${model} has no tokenizer in its data`, 'add tokenizer: { v, source, where } and src/content/tokenizers/<id>.yaml (docs/workflow.md#tokenizers)', { code: 'no-tokenizer-data' });
     const labels = new Set(FIELDS.map((f) => f.label.toLowerCase()));
     for (const use of findComponents(n.text, ['Spec'])) {
       for (const r of use.props.rows ?? []) {

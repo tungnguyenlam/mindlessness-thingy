@@ -130,6 +130,9 @@ export function layout({ blocks, edges = [], groups = [] }) {
   );
 
   const routes = routeEdges(edges.filter((e) => boxes.has(e.from) && boxes.has(e.to)), boxes);
+  // Right-hand side edges and their labels sit beyond the last column: widen the canvas to keep them.
+  const reach = Math.max(0, ...routes.flatMap((r) => [...r.pts.map((p) => p[0] + 4), r.edge.label ? r.lx + textWidth(r.edge.label, 'edge') + 8 : 0]));
+  const fullWidth = Math.ceil(Math.max(width, reach));
 
   // A group either names its blocks (works with automatic placement) or gives grid corners.
   const groupBoxes = groups.map((g) => {
@@ -148,7 +151,7 @@ export function layout({ blocks, edges = [], groups = [] }) {
     return { ...g, x, y, w: x2 - x, h: y2 - y };
   });
 
-  return { CW, cols, rows, width, height, boxes, routes, groupBoxes, placed };
+  return { CW, cols, rows, width: fullWidth, height, boxes, routes, groupBoxes, placed };
 }
 
 // ---------------------------------------------------------------------------------------------

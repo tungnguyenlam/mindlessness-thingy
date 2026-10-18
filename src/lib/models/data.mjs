@@ -19,7 +19,9 @@ export function resolveModels(raw) {
     const values = {};
     if (parent) for (const [k, v] of Object.entries(parent.values)) values[k] = { ...v, inherited: true };
     for (const f of FIELDS) if (m[f.key] != null) values[f.key] = { ...m[f.key], from: id, inherited: false };
-    const r = { id, title: m.title, note: m.note ?? id, family: m.family, extends: m.extends ?? null, values };
+    const kind = m.kind ?? parent?.kind ?? 'lm';
+    const stages = m.stages ?? parent?.stages ?? null;
+    const r = { id, title: m.title, note: m.note ?? id, family: m.family, extends: m.extends ?? null, kind, stages, values };
     r.derived = derive(r);
     out.set(id, r);
     return r;
@@ -64,6 +66,9 @@ export const DERIVED = [
 
 const num = (m, k) => (typeof m.values[k]?.v === 'number' ? m.values[k].v : null);
 
+/** Whether attention only looks back (and so keeps a cache while generating). Language models do. */
+export const isCausal = (m) => m.values.causal?.v ?? m.kind !== 'pipeline';
+
 /** Numbers computed from sourced values. Each lists its inputs (whose sources it inherits) and formula. */
 export function derive(m) {
   const d = {};
@@ -84,7 +89,9 @@ export function derive(m) {
   let elems = null;
   let formula = null;
   let inputs = null;
-  if (m.values.sparse_topk) {
+  if (!isCausal(m)) {
+    // Attention over a whole sample at once (a DiT denoising a clip) keeps nothing between steps.
+  } else if (m.values.sparse_topk) {
     // The DSA indexer caches its own keys too; the MLA-only formula would undercount.
   } else if (attn === 'mla' && L && num(m, 'kv_lora_rank') && num(m, 'rope_head_dim')) {
     elems = (num(m, 'kv_lora_rank') + num(m, 'rope_head_dim')) * L;

@@ -1,6 +1,7 @@
 ---
 // A model's whole architecture, generated from its data: text → tokenizer → embedding → layer
-// stack → final norm → output head → next token, then one tab per part (a layer, each mixer, each
+// stack → final norm → output head → next token (or, for kind: pipeline, its stages from input to
+// output with the backbone opening one block), then one tab per part (a layer, each mixer, each
 // FFN kind, MTP) drawn down to the projections and tensor shapes. Sizes are drawn as this model's
 // numbers, read from its data (only T, the sequence length, stays a symbol); the table under them
 // maps each number to the symbol the concept notes use, with its source, so nothing is retyped.
@@ -31,6 +32,8 @@ for (const p of parts) {
 }
 
 const attn = String(m.values.attention?.v ?? '');
+const pipeline = m.kind === 'pipeline';
+const unit = String(m.values.seq_unit?.v ?? 'step');
 // A size in a caption: the model's number, or the symbol when the data doesn't have it.
 const z = (key: string, sym: string) => {
   const x = m.values[key]?.v ?? m.derived[key]?.v;
@@ -51,6 +54,16 @@ const CAPTIONS: Record<string, string> = {
   'ffn-E': `The router scores all ${z('routed_experts', 'N_r')} routed experts and keeps ${z('active_experts', 'K_r')}; their outputs are mixed by the gate weights g.${m.values.shared_experts ? ' Shared experts run for every token.' : ''}`,
   mtp: 'Used in training: predicts one token further ahead, reusing the main model’s embedding table and output head.',
 };
+if (pipeline) {
+  const steps = m.values.sampling_steps ? ` and run ${z('sampling_steps', 'N')} times while sampling` : '';
+  const k = m.values.tokens_per_step ? `${z('tokens_per_step', 'n_tok')} tokens per ${unit}` : `one token per ${unit}`;
+  Object.assign(CAPTIONS, {
+    model: `From input to output. Stages marked frozen are off-the-shelf models used as they are; the backbone is drawn from the model data${steps}.`,
+    layer: `One backbone block, sublayers in order. Each reads a normalized copy of the residual stream and adds its result back (the arrows on the left).${m.values.modulation ? ' The norms are adaptive: their scale and shift come from the conditioning vector m_t.' : ''} The sequence holds ${k}.`,
+    'mixer-A': `Every token attends to every other token of the sample, earlier or later, so there is no mask and nothing is cached between sampling steps.`,
+    'mixer-X': `The backbone’s tokens query the conditioning inputs${m.values.cross_inputs ? ` (${String(m.values.cross_inputs.v)})` : ''}. Keys and values come from those inputs, so the sequence keeps its length.`,
+  });
+}
 
 const value = (key: string | null) => {
   if (!key) return { text: 'varies' };
@@ -69,8 +82,8 @@ const symbols = symbolRows(m).map((r: any) => ({ ...r, ...value(r.key) }));
 // A derivation, so it is shown beside the reported totals, never instead of them.
 const pb = paramBreakdown(m);
 const n = (x: number) => x.toLocaleString('en-US');
-const CODE_LABEL: Record<string, string> = { A: parts.find((p) => p.id === 'mixer-A')?.tab ?? 'Attention', C: 'Gated conv', M: 'Mamba-2', G: 'Gated DeltaNet', D: 'Dense FFN', E: 'MoE FFN' };
-const times = (p: any, x: number) => (p.layers > 1 ? `${p.layers} layers × ${fmtParams(x)}` : undefined);
+const CODE_LABEL: Record<string, string> = { A: parts.find((p) => p.id === 'mixer-A')?.tab ?? 'Attention', X: 'Cross-attention', C: 'Gated conv', M: 'Mamba-2', G: 'Gated DeltaNet', D: pipeline ? 'FFN' : 'Dense FFN', E: 'MoE FFN' };
+const times = (p: any, x: number) => (p.layers > 1 ? `${p.layers} ${pipeline ? 'blocks' : 'layers'} × ${fmtParams(x)}` : undefined);
 const bars: { label: string; sub?: string; total: number; active: number; title: string }[] = [];
 for (const p of pb.parts as any[]) {
   if (p.code === 'E') {
@@ -99,7 +112,7 @@ const pctText = (x: number) => `${x > 0 ? '+' : '−'}${Math.abs(x * 100).toFixe
 if (bars.length) parts.push({ id: 'params', tab: 'Parameters', props: null } as any);
 
 // The matrices behind one tab: mixer-A → A, ffn-E → E; the layer tab sums each sublayer kind.
-const TAB_CODE: Record<string, string> = { 'mixer-A': 'A', 'mixer-C': 'C', 'mixer-G': 'G', 'ffn-D': 'D', 'ffn-E': 'E' };
+const TAB_CODE: Record<string, string> = { 'mixer-A': 'A', 'mixer-X': 'X', 'mixer-C': 'C', 'mixer-G': 'G', 'ffn-D': 'D', 'ffn-E': 'E' };
 const weightTable = (tab: string) => {
   const code = TAB_CODE[tab];
   if (!code) return null;
@@ -129,7 +142,7 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
       const wt = weightTable(p.id);
       return (
       <div class="panel" role="tabpanel" data-panel={p.id} hidden={i !== 0} data-test-reveal>
-        {p.id === 'model' && <p class="hint">Blocks with a <span class="plus" aria-hidden="true">+</span> zoom in: the layer stack opens one layer, and inside it each mixer and FFN opens its projections and weights.</p>}
+        {p.id === 'model' && <p class="hint">Blocks with a <span class="plus" aria-hidden="true">+</span> zoom in: {pipeline ? 'the backbone opens one block, and inside it each sublayer opens its projections and weights.' : 'the layer stack opens one layer, and inside it each mixer and FFN opens its projections and weights.'}</p>}
         {p.props && <ArchDiagram {...p.props} caption={CAPTIONS[p.id]} />}
         {wt && (
           <div class="wscroll" data-keep-scroll>
@@ -147,7 +160,7 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
                 ))}
               </tbody>
               <tfoot>
-                <tr><td colspan={wt.copies ? 3 : 2}>One layer{wt.layers > 1 ? `, × ${wt.layers} layers` : ''}</td><td class="num mono">{fmtParams(wt.perLayer)}{wt.layers > 1 && <> → {fmtParams(wt.total)}</>}</td></tr>
+                <tr><td colspan={wt.copies ? 3 : 2}>{pipeline ? 'One block' : 'One layer'}{wt.layers > 1 ? `, × ${wt.layers} ${pipeline ? 'blocks' : 'layers'}` : ''}</td><td class="num mono">{fmtParams(wt.perLayer)}{wt.layers > 1 && <> → {fmtParams(wt.total)}</>}</td></tr>
                 {wt.active != null && <tr><td colspan={wt.copies ? 3 : 2}>Run for each token, one layer</td><td class="num mono">{fmtParams(wt.active)}</td></tr>}
               </tfoot>
             </table>
@@ -156,9 +169,9 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
         )}
         {p.id === 'layer' && layerRows.length > 0 && (
           <div class="wscroll" data-keep-scroll>
-            <p class="tcap">Parameters per layer of each kind; the + on each block opens its weights.</p>
+            <p class="tcap">Parameters per {pipeline ? 'block' : 'layer'} of each kind; the + on each block opens its weights.</p>
             <table class="weights">
-              <thead><tr><th>Sublayer</th><th class="num">One layer</th><th class="num">Layers</th><th class="num">All of them</th></tr></thead>
+              <thead><tr><th>Sublayer</th><th class="num">{pipeline ? 'One block' : 'One layer'}</th><th class="num">{pipeline ? 'Blocks' : 'Layers'}</th><th class="num">All of them</th></tr></thead>
               <tbody>
                 {layerRows.map((r: any) => (
                   <tr><td>{CODE_LABEL[r.code]}</td><td class="num mono">{fmtParams(r.perLayer)}</td><td class="num mono">{r.layers}</td><td class="num mono">{fmtParams(r.total)}</td></tr>
@@ -211,7 +224,7 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
       );
     })
   }
-  <p class="symcap">Where the numbers come from: each size in {m.title}’s diagrams, the symbol the concept notes use for it, and its source (hover or follow the value). T is the number of tokens in the sequence.</p>
+  <p class="symcap">Where the numbers come from: each size in {m.title}’s diagrams, the symbol the concept notes use for it, and its source (hover or follow the value). {pipeline ? `T is the number of ${unit}s in a sample.` : 'T is the number of tokens in the sequence.'}</p>
   <dl class="symbols">
     {
       symbols.map((s: any) => (
