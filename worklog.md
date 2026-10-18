@@ -96,3 +96,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: model data gains kind: lm|pipeline and a sourced stages: list; new fields for input/output (input, output, seq_unit, seq_length, tokens_per_step, output_dim), causal, and sampling/conditioning (objective, sampler, sampling_steps, modulation, modulation_from, cross_inputs); X (cross-attention) sublayer; ModelOverview draws a pipeline's stages, one backbone block in sublayer order (AdaLN norms), non-causal self-attention (no cache) and cross-attention, with weights; model-card asks for a tokenizer only for lm; StableHand note now uses ModelOverview/ModelSpec/ModelDiagram plus an error-to-quality Calc; diagram width now includes right-side edges and their labels (they were clipped)
 - files: src/lib/models/{fields,data,overview,params}.mjs src/content.config.ts src/components/viz/ModelOverview.astro src/lib/diagram/geometry.mjs scripts/checks/models.mjs src/content/models/stablehand.yaml src/content/notes/systems/stablehand.mdx docs/workflow.md AGENTS.md
 - open: StableHand param sum is a lower bound (AdaLN, cross-attn K/V, input/output projections and the QN not sized in data); no reading path for vision/generative notes yet
+
+## 2026-10-18 · docs(readme): add contribution rules for pull requests
+- did: README Contributing section: when to open an issue first, setup, content and code rules, commit format, PR checklist (check, ci, screenshots) and what the description must say
+- files: README.md
+- open: PRs get no CI run (deploy.yml only runs on push to main); no PR template yet
