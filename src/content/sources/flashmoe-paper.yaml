@@ -1,0 +1,6 @@
+title: "FlashMoE: Reducing SSD I/O Bottlenecks via ML-Based Cache Replacement for Mixture-of-Experts Inference on Edge Devices"
+short: FlashMoE paper
+authors: Byeongju Kim, Jungwan Lee, Donghyeon Han, Hoi-Jun Yoo, Sangyeob Kim
+year: 2026
+url: https://arxiv.org/html/2601.17063v1
+type: paper

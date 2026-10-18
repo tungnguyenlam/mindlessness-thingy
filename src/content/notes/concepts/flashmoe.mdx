@@ -1,0 +1,161 @@
+---
+title: "FlashMoE"
+kind: concept
+summary: "Offloads inactive MoE experts to individual SSD files and trains a tiny per-layer feed-forward network on recency and frequency to approximate Belady's optimal cache eviction on edge devices."
+domains: [llm, moe, inference, efficiency]
+prerequisites: [transformer-block]
+builds_on: [moe]
+contrasts_with: []
+related: [kv-cache, deepseek-moe, aux-loss-free-balancing]
+sources: [flashmoe-paper, belady-1966-paper, fiddler-paper, daop-paper, olmoe-paper, qwen3-report]
+status: draft
+updated: 2026-10-18
+---
+
+A [[moe]] layer cuts compute per token by running only $K_r$ of its $N_r$ routed experts, but all $N_r$ expert weight matrices still have to live somewhere. Prior offloading frameworks such as Fiddler <Cite id="fiddler-paper" /> and DAOP <Cite id="daop-paper" /> park inactive experts in system DRAM, which fails on edge desktops where 16 to 64 GB of RAM cannot hold models like Qwen3-30B-A3B (30.3B parameters total, 3.3B active per token <Cite id="qwen3-report" />) <Cite id="flashmoe-paper" where="§1, §2.2" />. FlashMoE moves inactive experts one tier lower to NVMe SSD and pairs per-expert file splitting with a small learned eviction policy that cuts SSD reads <Cite id="flashmoe-paper" where="Abstract, §3" />.
+
+## Splitting the model across RAM and SSD
+
+<ArchDiagram
+  title="One MoE layer with SSD offloading and learned eviction"
+  caption="Non-expert weights and a fixed cache of C_E experts per layer stay in VRAM; all N_r experts live as individual files on SSD. On a cache miss, the ML cache network scores cached experts from recency and frequency and evicts the one predicted to be needed furthest in the future."
+  blocks={[
+    { id: 'x', label: 'Hidden state', sub: 'T × d', role: 'activation' },
+    { id: 'router', label: 'Top-k router', sub: 'g: T × N_r', role: 'route', link: 'moe' },
+    { id: 'stats', label: 'Recency & frequency', sub: 'r_t, f_t: N_r', role: 'activation' },
+    { id: 'ml', label: 'ML cache FFN', sub: 'N_r → N_r', role: 'weight' },
+    { id: 'ssd', label: 'SSD expert files', sub: 'N_r × (d → d_e)', role: 'weight' },
+    { id: 'cache', label: 'VRAM expert cache', sub: 'C_E × (d → d_e)', role: 'cache' },
+    { id: 'out', label: 'Weighted sum', sub: 'T × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'router' },
+    { from: 'x', to: 'cache' },
+    { from: 'router', to: 'stats', label: 'routed ids' },
+    { from: 'stats', to: 'ml' },
+    { from: 'ml', to: 'cache', label: 'evict max', dashed: true },
+    { from: 'router', to: 'ssd', label: 'on miss', dashed: true },
+    { from: 'ssd', to: 'cache', dashed: true },
+    { from: 'cache', to: 'out', label: 'top-K_r' },
+  ]}
+/>
+
+In a [[transformer-block]] with MoE feed-forward layers, the non-expert modules — attention projections, normalizations and routing gates — run on every token and account for only 5 to 7% of the model's parameters <Cite id="flashmoe-paper" where="§2.1" />. FlashMoE separates those non-expert weights from the experts at the file level. Each expert is saved as its own `.pt` file indexed by layer and expert id, bundled with its module class so `torch.load` can read it directly without re-initializing the full model <Cite id="flashmoe-paper" where="§3.1" />.
+
+At startup, only the non-expert file is loaded into memory, with expert MLPs zeroed out in the overridden forward pass <Cite id="flashmoe-paper" where="§3.1" />. During prefill, FlashMoE collects the union of experts routed across the whole prompt batch in a layer, loads each required `.pt` file from SSD once, runs the expert across all its assigned tokens, and scatters the results back by token index <Cite id="flashmoe-paper" where="§3.1, Fig. 3(b)" />. Because distinct routed experts grow sublinearly with prompt length — from 47% of experts at 32 tokens to 67% at 256 tokens — skipping unrouted experts keeps prefill fast <Cite id="flashmoe-paper" where="§4.2" />.
+
+<Spec
+  title="System breakdown and I/O latencies"
+  rows={[
+    { label: 'Non-expert parameter share', value: '5–7% (< 2 GB vs 55 GB)', source: 'flashmoe-paper', where: '§2.1, Fig. 3(a)' },
+    { label: 'Initial load speedup vs llama.cpp', value: '4× faster', source: 'flashmoe-paper', where: '§4.2' },
+    { label: 'Initial load speedup vs Fiddler / DAOP', value: '6.8× faster', source: 'flashmoe-paper', where: '§4.2' },
+    { label: 'Load + prefill speedup', value: '2.5× (llama.cpp), 4.1× (Fiddler)', source: 'flashmoe-paper', where: '§4.2, Fig. 7(a, d)' },
+    { label: 'Prefill routed experts (32 → 256 tok)', value: '47% → 58% → 64% → 67%', source: 'flashmoe-paper', where: '§4.2' },
+    { label: 'Decode time spent loading experts', value: '> 70%', source: 'flashmoe-paper', where: '§3.1, Fig. 5' },
+    { label: 'SSD expert load vs ML policy FFN', value: '~3 ms vs 158 µs', source: 'flashmoe-paper', where: '§3.1, Fig. 5' },
+  ]}
+/>
+
+## Why LRU and LFU fail on expert routing
+
+<Calc
+  title="Per-layer VRAM expert cache capacity and normalized features"
+  inputs={[
+    { id: 'vram', label: 'Available VRAM (GB)', min: 4, max: 24, step: 0.2, value: 14.4 },
+    { id: 'nonexp', label: 'Non-expert memory (GB)', min: 0.5, max: 6, step: 0.1, value: 1.8 },
+    { id: 'expmem', label: 'Total expert weights on SSD (GB)', min: 6, max: 80, step: 1, value: 55 },
+    { id: 'E', label: 'Experts per layer N_r', min: 16, max: 256, step: 16, value: 128 },
+    { id: 'r', label: 'Steps since last access r_t', min: 1, max: 50, step: 1, value: 4 },
+    { id: 'f', label: 'Expert routing count f_t', min: 1, max: 100, step: 1, value: 25 },
+    { id: 'fmax', label: 'Max routing count in layer max(f_t)', min: 1, max: 100, step: 1, value: 50 },
+  ]}
+  outputs={[
+    { label: 'Cached experts per layer C_E (Eq. 1)', expr: 'Math.max(0, Math.floor((vram - nonexp) * E / expmem))', format: 'number', role: 'cache' },
+    { label: 'Fraction of layer experts cached', expr: 'Math.max(0, Math.min(1, (vram - nonexp) / expmem))', format: 'percent', role: 'cache' },
+    { label: 'Normalized recency 1 / r_t', expr: '1 / r', format: 'number', role: 'activation' },
+    { label: 'Normalized frequency f_t / max(f_t)', expr: 'Math.min(1, f / Math.max(f, fmax))', format: 'percent', role: 'route' },
+  ]}
+  note="Equation 1 divides the VRAM left after non-expert weights by the memory of one expert slot across all layers (size_expert / total_experts). The bottom two rows compute the normalized inputs fed to the per-layer ML cache FFN."
+/>
+
+During decoding, FlashMoE pins a fixed cache budget of $C_E$ experts per layer in VRAM according to Equation 1 <Cite id="flashmoe-paper" where="§3.1, Eq. 1" />:
+
+$$
+C_E = \left(\text{VRAM}_{\text{size}} - \text{size}_{\text{non-expert}}\right) \times \frac{N_r}{\text{size}_{\text{expert}}}
+$$
+
+Here $\text{size}_{\text{non-expert}}$ is the memory taken by non-expert modules, $\text{size}_{\text{expert}}$ is the memory required to store all experts across the model, and $N_r$ ($\text{total\_experts}$) is the number of experts per layer <Cite id="flashmoe-paper" where="§3.1, Eq. 1" />. Because each SSD miss costs roughly 3 ms and expert loading takes over 70% of decoding time, the eviction policy determines decoding throughput <Cite id="flashmoe-paper" where="§3.1, Fig. 5" />.
+
+Belady's optimal replacement policy (MIN) evicts whichever cached item will not be requested for the longest time in the future <Cite id="belady-1966-paper" />. Comparing Least Recently Used (LRU) against Belady's oracle on expert traces exposes two failure modes <Cite id="flashmoe-paper" where="§2.3, Fig. 2" />:
+
+- **Eviction delay:** an expert that was routed once and will not be needed again stays in the cache for 4 to 5 extra decoding steps while its recency ages out <Cite id="flashmoe-paper" where="§2.3, Fig. 2" />.
+- **Evicting hot experts:** a frequently routed expert that pauses for a few tokens is evicted right before it is needed again. Within 5 steps of eviction, 34.2% of LRU's evicted experts are re-fetched, compared to 0.1% under Belady's oracle <Cite id="flashmoe-paper" where="§2.3" />.
+
+Overall, Belady reaches an 86% hit rate where LRU reaches about 73%, generating nearly $1.9\times$ as many SSD I/O operations <Cite id="flashmoe-paper" where="§2.3" />. Least Frequently Used (LFU) is no silver bullet either: in head-to-head eviction decisions on Qwen3-30B-A3B, LRU beats LFU 56% of the time and loses 44% of the time, because routing combines short-range bursts with long-range staples <Cite id="flashmoe-paper" where="§2.3" />.
+
+## Approximating Belady with a tiny FFN
+
+<Stepper title="How FlashMoE trains and runs its per-layer ML cache policy">
+  <Step title="1. Extract routing traces and Belady oracle targets">
+    Run inference on 512 prompts from TriviaQA (up to 512 tokens each) and record which experts each layer routes at every step <Cite id="flashmoe-paper" where="§3.2, Fig. 4" />. From the complete future trace, compute Belady's oracle next-use distance for each expert and normalize the target distances by their maximum <Cite id="flashmoe-paper" where="§3.2, Fig. 4" />.
+  </Step>
+  <Step title="2. Update and normalize recency and frequency">
+    At decoding step $t$, each expert updates its step gap since last use $r_t$ and its cumulative routing count $f_t$ <Cite id="flashmoe-paper" where="§3.2" />. Invert recency as $r_{t,\text{norm}} = 1 / r_t$ and scale frequency by the layer's running maximum as $f_{t,\text{norm}} = f_t / \max(f_t)$, placing both signals in $[0, 1]$ <Cite id="flashmoe-paper" where="§3.2, Alg. 1" />.
+  </Step>
+  <Step title="3. Predict next-use distance and evict the furthest">
+    Concatenate $[r_{t,\text{norm}} \parallel f_{t,\text{norm}}]$ and pass it through the layer's 3-layer, 128-wide SiLU feed-forward network (`ml_cache`) to predict a next-use distance score for each expert <Cite id="flashmoe-paper" where="§3.2, Alg. 1, Tab. 1" />. When a routed expert misses in a full cache, evict the cached expert with the largest predicted distance (`MaxDist`) before loading the new `.pt` file from SSD <Cite id="flashmoe-paper" where="§3.2, Alg. 1" />.
+  </Step>
+  <Step title="4. Overlap policy evaluation with SSD reads">
+    Evaluating the 113 KB cache FFN takes 158 µs on average, whereas reading one expert from the PCIe 5.0 SSD takes roughly 3 ms <Cite id="flashmoe-paper" where="§3.1, §3.2, Fig. 5" />. FlashMoE runs the cache policy asynchronously alongside expert loading so the FFN latency is hidden behind storage I/O <Cite id="flashmoe-paper" where="§3.1, Fig. 5" />.
+  </Step>
+</Stepper>
+
+At each decoding step $t$, FlashMoE maintains a recency counter $r_t$ (initialized to $\infty$ before an expert is first seen) and a frequency counter $f_t$ for every expert in the layer <Cite id="flashmoe-paper" where="§3.2" />:
+
+$$
+(r_t, f_t) = \begin{cases} (1,\; f_{t-1} + 1) & \text{if the expert is routed at step } t \\ (r_{t-1} + 1,\; f_{t-1}) & \text{otherwise} \end{cases}
+$$
+
+To feed the policy network, both counters are mapped to $[0, 1]$ so that larger values always mean higher routing likelihood, then concatenated <Cite id="flashmoe-paper" where="§3.2, Alg. 1" />:
+
+$$
+r_{t,\text{norm}} = \frac{1}{r_t}, \qquad f_{t,\text{norm}} = \frac{f_t}{\max(f_t)}, \qquad \text{score}_t = \left[r_{t,\text{norm}} \;\|\; f_{t,\text{norm}}\right]
+$$
+
+The per-layer policy network $\text{ml\_cache}(\text{score}_t)$ is a 3-layer MLP with hidden width 128 and SiLU activations, trained with mean-squared error against Belady's oracle next-use distances <Cite id="flashmoe-paper" where="§3.2, Tab. 1" />. On a cache miss when the layer's VRAM slots are full, `CacheReplacement` evicts the cached expert with the highest predicted distance score <Cite id="flashmoe-paper" where="§3.2, Alg. 1" />.
+
+<Spec
+  title="Per-layer ML cache FFN and training recipe"
+  rows={[
+    { label: 'Policy network', value: '3 layers, width 128, SiLU', source: 'flashmoe-paper', where: 'Tab. 1' },
+    { label: 'Weight footprint per layer', value: '~113 KB', source: 'flashmoe-paper', where: '§3.2' },
+    { label: 'Loss and optimizer', value: 'MSELoss, AdamW (lr 1e-3, wd 1e-2)', source: 'flashmoe-paper', where: 'Tab. 1' },
+    { label: 'Training schedule', value: 'Up to 200 epochs, early stopping', source: 'flashmoe-paper', where: '§4.1' },
+    { label: 'Calibration corpus', value: '512 TriviaQA prompts (≤ 512 tok)', source: 'flashmoe-paper', where: '§3.2' },
+    { label: 'Trace + training time (1× A100)', value: '< 20 min traces, ~2 h total', source: 'flashmoe-paper', where: '§3.2' },
+  ]}
+/>
+
+## What it costs and what it achieves
+
+<Spec
+  title="Edge desktop benchmark results"
+  rows={[
+    { label: 'GPU and NVMe SSD', value: 'RTX 5070 Ti 16 GB; P51 7.4 GB/s', source: 'flashmoe-paper', where: 'Tab. 2' },
+    { label: 'CPU and unlocked RAM', value: 'Ryzen 9600X; ~1 GB free DDR5', source: 'flashmoe-paper', where: '§4.1, Tab. 2' },
+    { label: 'OLMoE-1B-7B cache budgets', value: '12–24 / 64 experts (3.4–5.7 GB)', source: 'flashmoe-paper', where: 'Fig. 6(a), Fig. 7(c)' },
+    { label: 'Qwen3-30B-A3B cache budgets', value: '12–24 / 128 experts (8.8–14.4 GB)', source: 'flashmoe-paper', where: 'Fig. 6(b), Fig. 7(f)' },
+    { label: 'OLMoE hit-rate gain vs LRU / LFU', value: '+21% (LRU), +51% (LFU)', source: 'flashmoe-paper', where: '§4.3, Fig. 6(a)' },
+    { label: 'OLMoE I/O reduction vs LRU / LFU', value: '22% (LRU), 35% (LFU)', source: 'flashmoe-paper', where: '§4.3' },
+    { label: 'OLMoE hit-rate gain vs ARC / LeCaR', value: 'Up to +28% (ARC), +21% (LeCaR)', source: 'flashmoe-paper', where: '§4.3, Fig. 6(a)' },
+    { label: 'Decode speed gain (ML vs LRU)', value: '+22% (OLMoE), +7% (Qwen3)', source: 'flashmoe-paper', where: '§4.4, Fig. 7(b, e)' },
+    { label: 'End-to-end speedup vs baselines', value: 'Up to 2.6×', source: 'flashmoe-paper', where: 'Abstract, Fig. 7(c, f)' },
+  ]}
+/>
+
+On a desktop with an RTX 5070 Ti (16 GB VRAM), a PCIe 5.0 NVMe SSD (7.4 GB/s read) and system RAM locked down to roughly 1 GB of free memory, FlashMoE runs both OLMoE-1B-7B <Cite id="olmoe-paper" /> and Qwen3-30B-A3B <Cite id="qwen3-report" /> across cache budgets of 12 to 24 experts per layer <Cite id="flashmoe-paper" where="§4.1, Tab. 2, Figs. 6–7" />. Where DAOP enumerates combinations of expert placements — tractable for 8-expert models like Mixtral-8x7B, but combinatorially expensive at 64 or 128 experts per layer — scoring each expert with a tiny FFN scales linearly with $N_r$ <Cite id="flashmoe-paper" where="§4.4" />.
+
+<Callout type="pitfall">
+The ML cache policy is trained per model from offline routing traces (~2 hours on an A100 for OLMoE-1B-7B), and both training and evaluation in the paper come from TriviaQA splits <Cite id="flashmoe-paper" where="§3.2, §4.1" />. How well a policy trained on question-answering traces transfers to code or long-context reasoning — or to systems where experts already fit in fast DRAM and the 158 µs FFN can no longer hide behind 3 ms SSD reads — is not measured in the paper.
+</Callout>

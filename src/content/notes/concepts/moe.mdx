@@ -73,4 +73,6 @@ Per-token cost is set by $k$ alone, so a layer can hold hundreds of times the pa
 Sparse routing saves compute, not memory. The layer keeps all $n$ expert weights whether or not a token uses them, and moving those weights between devices is the bottleneck the paper had to design around <Cite id="sparsely-gated-moe-paper" where="§3.2" />.
 </Callout>
 
-Two more costs come with the scheme. Each expert sees only a $k/n$ share of every batch, which thins its training signal as $n$ grows <Cite id="sparsely-gated-moe-paper" where="§3.1" />, and the router tends to settle on a few favourite experts, which the paper patches with extra balancing losses <Cite id="sparsely-gated-moe-paper" where="§4" />. [[aux-loss-free-balancing]] removes the need for those losses. [[deepseek-moe]] changes how the experts themselves are cut up, and keeps one of them running for every token.
+Two more costs come with the scheme. Each expert sees only a $k/n$ share of every batch, which thins its training signal as $n$ grows <Cite id="sparsely-gated-moe-paper" where="§3.1" />, and the router tends to settle on a few favourite experts, which the paper patches with extra balancing losses <Cite id="sparsely-gated-moe-paper" where="§4" />.
+
+[[aux-loss-free-balancing]] removes the need for those losses. [[deepseek-moe]] changes how the experts themselves are cut up, and keeps one of them running for every token. On edge devices where inactive experts do not fit in RAM, [[flashmoe]] offloads them to SSD and caches hot experts in VRAM.

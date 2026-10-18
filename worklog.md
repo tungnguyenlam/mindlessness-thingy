@@ -116,3 +116,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: owner asked: finishing a task now ends with git push origin main and a watched deploy run, only after pnpm run check and pnpm run ci pass; rebase and rerun ci if main moved, never force; AGENTS.md rule 13 and lifecycle, finish-task skill, session-start hook, rule title, workflow diagram, README
 - files: AGENTS.md .agents/skills/finish-task/SKILL.md scripts/agent-hooks/session-start.mjs scripts/rules.mjs docs/workflow.md README.md
 - open: the stop hook does not check for unpushed commits
+
+## 2026-10-18 · content(flashmoe): add FlashMoE offloading and ML cache note
+- did: wrote concept note for FlashMoE (arXiv:2601.17063v1) with SSD expert-offloading diagram, VRAM cache budget and feature-normalization calculator, 4-step Belady FFN policy stepper, sourced spec tables, fact sheet, and 6 source files; linked from moe
+- files: src/content/notes/concepts/{flashmoe,moe}.mdx src/content/sources/{flashmoe-paper,belady-1966-paper,fiddler-paper,daop-paper,olmoe-paper,qwen3-report}.yaml research/flashmoe-facts.md
+- open: none
