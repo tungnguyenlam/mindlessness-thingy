@@ -1,0 +1,34 @@
+---
+title: "From transformers to generated hand motion"
+kind: path
+summary: "From the transformer block to StableHand: how a flow-matching DiT, conditioned through AdaLN, turns noisy per-frame hand estimates from video into smooth two-handed motion."
+domains: [generative, vision, hands]
+prerequisites: []
+builds_on: []
+contrasts_with: []
+related: []
+sources: []
+steps:
+  - transformer-block
+  - mha
+  - rope
+  - flow-matching
+  - adaln
+  - dit
+  - mano
+  - stablehand
+status: draft
+updated: 2026-10-18
+---
+
+The other paths end at a language model that predicts the next token. This one ends at a model that predicts a whole clip of motion at once. It reuses the same [[transformer-block]], but trains it to undo noise instead of to continue text.
+
+<Timeline path="generative-hand-motion" caption="The one model on this path so far and the ideas it adds. Its stages and numbers come from its model data (hover for the source)." />
+
+The first three steps are shared with the language-model paths: the block, [[mha]] and [[rope]]. Here attention isn't causal, so every frame can see the whole clip and there is no cache to keep.
+
+The next three are the generative part. [[flow-matching]] says what the network learns: the velocity that carries noise to data. [[adaln]] says how a condition such as the flow time enters every block, through the scale and shift after each norm. [[dit]] puts the two together into a denoiser.
+
+[[mano]] is the output format: a few pose and shape numbers per hand that a fixed model turns into a mesh. [[stablehand]] combines all of it and adds one new idea, a learned trust score per wrist and finger that decides how much of each observation the flow keeps.
+
+If you have read a language-model path, start at [[flow-matching]].

@@ -101,3 +101,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: README Contributing section: when to open an issue first, setup, content and code rules, commit format, PR checklist (check, ci, screenshots) and what the description must say
 - files: README.md
 - open: PRs get no CI run (deploy.yml only runs on push to main); no PR template yet
+
+## 2026-10-18 · content(generative-hand-motion): add vision/generative reading path
+- did: new path note from the transformer block through flow matching, AdaLN, DiT and MANO to StableHand, with a Timeline; first path that ends at a non-LM pipeline
+- files: src/content/notes/paths/generative-hand-motion.mdx
+- open: only one system on it so far
