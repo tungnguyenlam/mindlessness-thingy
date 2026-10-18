@@ -3,7 +3,10 @@ import { getEntry } from 'astro:content';
 
 interface Row {
   label: string;
-  value: string | number;
+  /** One value. Use `values` instead when the table has `columns`. */
+  value?: string | number;
+  /** One value per column after the first, in order. */
+  values?: (string | number)[];
   /** Source id from src/content/sources/. Required: no unsourced numbers. */
   source: string;
   /** Where in the source, e.g. "§2.1", "Table 1", "config.json: kv_lora_rank". */
@@ -12,42 +15,71 @@ interface Row {
 interface Props {
   title: string;
   rows: Row[];
+  /**
+   * Column headings, the row-label column first: ['Steps T', 'Success', 'Latency (ms)'].
+   * Without it the table has one Field and one Value column. Never pack several
+   * numbers into one value string; give each its own column.
+   */
+  columns?: string[];
+  /** One or two sentences under the table: what to look at, symbols, footnote marks. */
+  note?: string;
 }
 
-const { title, rows } = Astro.props;
+const { title, rows, columns, note } = Astro.props;
+const heads = columns ?? ['Field', 'Value'];
 const resolved = await Promise.all(
   rows.map(async (r) => {
     if (!r.source) throw new Error(`<Spec title="${title}">: row "${r.label}" has no source`);
+    const cells = columns ? r.values : [r.value];
+    if (!cells || cells.length !== heads.length - 1 || cells.some((c) => c === undefined))
+      throw new Error(`<Spec title="${title}">: row "${r.label}" needs ${heads.length - 1} value(s) to match its columns`);
     const src = await getEntry('sources', r.source);
     if (!src) throw new Error(`<Spec title="${title}">: row "${r.label}" cites unknown source "${r.source}"`);
-    return { ...r, src };
+    return { ...r, cells, src };
   }),
 );
+// A multi-column table whose rows all cite the same place names it once, under the table.
+const first = resolved[0];
+const shared = columns && resolved.every((r) => r.source === first.source && r.where === first.where) ? first : null;
 ---
 
-<figure class="spec ui">
+<figure class:list={['spec', 'ui', { multi: columns }]}>
   <table>
     <caption>{title}</caption>
     <thead>
-      <tr><th scope="col">Field</th><th scope="col">Value</th><th scope="col">Source</th></tr>
+      <tr>{heads.map((h) => <th scope="col">{h}</th>)}{!shared && <th scope="col">Source</th>}</tr>
     </thead>
     <tbody>
       {
         resolved.map((r) => (
           <tr>
             <th scope="row">{r.label}</th>
-            <td class="value">{r.value}</td>
-            <td class="src">
+            {r.cells.map((c) => <td class="value">{c}</td>)}
+            {!shared && <td class="src">
               <a href={r.src.data.url} title={r.src.data.title} rel="noopener">
                 {r.src.data.short}
               </a>
               {r.where && <span class="where">{r.where}</span>}
-            </td>
+            </td>}
           </tr>
         ))
       }
     </tbody>
   </table>
+  {
+    (note || shared) && (
+      <figcaption class="note">
+        {note}
+        {shared && (
+          <span class="src">
+            {note && ' '}Source:{' '}
+            <a href={shared.src.data.url} title={shared.src.data.title} rel="noopener">{shared.src.data.short}</a>
+            {shared.where && `, ${shared.where}`}.
+          </span>
+        )}
+      </figcaption>
+    )
+  }
 </figure>
 
 <style>
@@ -86,8 +118,25 @@ const resolved = await Promise.all(
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+  .multi thead th {
+    vertical-align: bottom;
+  }
+  .multi tbody th {
+    white-space: nowrap;
+  }
+  .multi .value {
+    text-align: right;
+  }
+  .multi thead th:not(:first-child, :last-child) {
+    text-align: right;
+  }
   .src {
     color: var(--ink-soft);
+  }
+  .note {
+    margin: 0.6rem 0 0;
+    color: var(--ink-soft);
+    font-size: var(--step--1);
   }
   .where {
     margin-left: 0.4rem;
