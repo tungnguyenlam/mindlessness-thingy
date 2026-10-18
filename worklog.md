@@ -121,3 +121,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: wrote concept note for FlashMoE (arXiv:2601.17063v1) with SSD expert-offloading diagram, VRAM cache budget and feature-normalization calculator, 4-step Belady FFN policy stepper, sourced spec tables, fact sheet, and 6 source files; linked from moe
 - files: src/content/notes/concepts/{flashmoe,moe}.mdx src/content/sources/{flashmoe-paper,belady-1966-paper,fiddler-paper,daop-paper,olmoe-paper,qwen3-report}.yaml research/flashmoe-facts.md
 - open: none
+
+## 2026-10-18 · content(vla-cpp): write vla.cpp runtime note
+- did: wrote the system note for the vla.cpp runtime (arXiv:2606.08094): adapters/backends architecture, iterative vs regression heads, observation reuse, BitVLA ternary kernels, LIBERO and device latency tables, quantization costs, UR10e and horizon sweeps; 2 sources, fact sheet, stubs vla, action-chunking, observation-reuse
+- files: src/content/notes/systems/vla-cpp.mdx src/content/notes/concepts/{vla,action-chunking,observation-reuse}.mdx src/content/sources/vla-cpp-{paper,repo}.yaml research/vla-cpp-facts.md
+- open: repo README is ahead of the paper (extra policies, Hexagon backend); GR00T-N1.6 success gap left unexplained by the paper

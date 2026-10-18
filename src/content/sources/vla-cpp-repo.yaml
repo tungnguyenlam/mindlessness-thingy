@@ -1,0 +1,8 @@
+title: "vla.cpp repository"
+short: vla.cpp repo
+authors: VinRobotics
+year: 2026
+url: https://github.com/VinRobotics/vla.cpp
+type: repo
+accessed: 2026-10-18
+notes: "Apache-2.0. Built on llama.cpp. The README support matrix is ahead of the paper: more policies (Octo-Small, TurboVLA, ACT) and a Hexagon backend join the eleven models and five backends the paper evaluates."
