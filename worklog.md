@@ -136,3 +136,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: Added FlowHOI (arXiv:2602.13444, NeurIPS 2026) fact sheet, 6 primary sources, pipeline model YAML, system note with ModelOverview/ModelSpec/ModelDiagram/Compare/Calc/Stepper/ArchDiagrams, and linked it into generative-hand-motion and stablehand.
 - files: research/flowhoi-facts.md, src/content/models/flowhoi.yaml, src/content/notes/systems/flowhoi.mdx, src/content/notes/paths/generative-hand-motion.mdx, src/content/notes/systems/stablehand.mdx, src/content/sources/{flowhoi-paper,flowhoi-repo,flowhoi-hot3d-config,flowhoi-grasp-config,grab-paper,diffh2o-paper}.yaml
 - open: Total parameter count is not reported in the FlowHOI paper or released configs; paper vs. code differences (gated fusion vs. App. A cross-attention, num_frames 224 cropped to 200, max_scene_points 10000 vs. 25000) are documented in the note and fact sheet.
+
+## 2026-10-19 · content(contrastive-world-models): add concept note and rssm stub
+- did: wrote Contrastive World Models (arXiv:2609.22175v1) concept note with RSSM vs InfoMax diagram, 4-step patch InfoNCE stepper, 3-objective comparison diagram, patch-scoring calculator, DMC regime spec table, fact sheet, rssm stub, and 7 sources
+- files: research/contrastive-world-models-facts.md src/content/notes/concepts/{contrastive-world-models,rssm}.mdx src/content/sources/{contrastive-world-models-paper,planet-paper,dreamer-paper,cpc-paper,deep-infomax-paper,byol-paper,dbc-paper}.yaml
+- open: preprint does not report exact numerical values for horizon h, patch grid M x N, loss weights lambda_1/lambda_2, EMA decay tau, or wall-clock step latencies

@@ -1,0 +1,193 @@
+---
+title: "Contrastive world models"
+kind: concept
+summary: "Replaces the pixel decoder in a Dreamer world model with a Deep InfoMax objective that maximizes mutual information between state-action sequences and future local image patches."
+domains: [rl, world-models, representation-learning]
+prerequisites: [rssm]
+builds_on: [rssm]
+contrasts_with: []
+related: [vla, action-chunking, flowhoi]
+sources: [contrastive-world-models-paper, planet-paper, dreamer-paper, cpc-paper, deep-infomax-paper, byol-paper, dbc-paper]
+status: draft
+updated: 2026-10-19
+---
+
+World models such as Dreamer <Cite id="dreamer-paper" /> train a [[rssm|recurrent state-space model (RSSM)]] <Cite id="planet-paper" /> by decoding every latent state back into camera pixels, so an actor-critic policy can learn inside imagined trajectories <Cite id="contrastive-world-models-paper" where="Abstract, §1" />. When the scene contains moving distractors or natural video backgrounds, reconstructing every background pixel dominates the loss and crowds out the small state changes needed for control <Cite id="contrastive-world-models-paper" where="Abstract, §1" />. Contrastive World Models remove the pixel decoder and instead maximize mutual information between state-action sequences and spatial patch features of future observations <Cite id="contrastive-world-models-paper" where="Abstract, §2.2" />.
+
+## Dropping the pixel decoder from the world model
+
+<ArchDiagram
+  title="Contrastive World Model vs pixel reconstruction on an RSSM backbone"
+  caption="Follow the left column from observation o_t to posterior state s_t and next prior state ŝ': standard RSSM decodes s_t back into pixels, whereas a Contrastive World Model drops the decoder and scores [s_t, a_{t:t+h}] against spatial patches e_{m,n}(o_{t+h}) of a future frame."
+  blocks={[
+    { id: 'ot', label: 'Observation o_t', sub: 'H × W × C', role: 'activation', col: 0, row: 0 },
+    { id: 'oth', label: 'Future frame o_{t+h}', sub: 'H × W × C', role: 'activation', col: 2, row: 0 },
+    { id: 'enc', label: 'Encoder e', sub: 'H × W × C → d_z', role: 'weight', col: 0, row: 1 },
+    { id: 'patches', label: 'Patch map e_{m,n}', sub: 'M × N × d_z', role: 'activation', col: 2, row: 1 },
+    { id: 'zt', label: 'Encoding z_t', sub: 'd_z', role: 'activation', col: 0, row: 2 },
+    { id: 'prior', label: 'Prior state ŝ_t', sub: 'd_s', role: 'cache', col: 1, row: 2, link: 'rssm' },
+    { id: 'post', label: 'Posterior update g', sub: '(z_t, ŝ_t) → d_s', role: 'weight', col: 0, row: 3, link: 'rssm' },
+    { id: 'act', label: 'Actions a_{t:t+h}', sub: 'h × d_a', role: 'activation', col: 1, row: 3, link: 'action-chunking' },
+    { id: 'st', label: 'Posterior state s_t', sub: 'd_s', role: 'activation', col: 0, row: 4 },
+    { id: 'score', label: 'Bilinear score W_θ', sub: '(d_s + h·d_a) × d_z', role: 'weight', col: 2, row: 4 },
+    { id: 'trans', label: 'Transition model f', sub: '(s_t, a_t) → d_s', role: 'weight', col: 0, row: 5, link: 'rssm' },
+    { id: 'rew', label: 'Reward head R', sub: 'd_s → r_t', role: 'weight', col: 1, row: 5 },
+  ]}
+  edges={[
+    { from: 'ot', to: 'enc' },
+    { from: 'oth', to: 'patches', label: 'e' },
+    { from: 'enc', to: 'zt' },
+    { from: 'zt', to: 'post' },
+    { from: 'prior', to: 'post' },
+    { from: 'post', to: 'st' },
+    { from: 'st', to: 'trans' },
+    { from: 'st', to: 'rew' },
+    { from: 'st', to: 'score' },
+    { from: 'act', to: 'score' },
+    { from: 'patches', to: 'score', label: 'InfoMax' },
+  ]}
+/>
+
+A partially observable Markov decision process (POMDP) steps through discrete time $t$ with image observations $o_t$, latent states $s_t$, continuous actions $a_t$, and scalar rewards $r_t$ <Cite id="contrastive-world-models-paper" where="§2" />. In an [[rssm]], encoder $e$ compresses $o_t$ into $z_t$, update function $g$ merges $z_t$ with prior state $\hat{s}_t$ to form posterior state $s_t$, and transition model $f$ maps $(s_t, a_t)$ to a Gaussian prior $\hat{s}_{t+1}$ <Cite id="contrastive-world-models-paper" where="§2.1, Fig. 2" />. Reward head $R$ predicts $r_t$ from $s_t$ as a unit-variance Gaussian <Cite id="contrastive-world-models-paper" where="§2.1" />.
+
+Maximizing the marginal log-likelihood $\ln p(o_{1:T}, r_{1:T} \mid a_{1:T})$ directly is intractable because it integrates over all latent trajectories $s_{1:T}$ <Cite id="contrastive-world-models-paper" where="§2.1" />. Introducing the variational posterior $q(s_{1:T} \mid o_{1:T}, a_{1:T}) = \prod_t q(s_t \mid s_{t-1}, a_{t-1}, o_t)$ and applying Jensen's inequality gives the evidence lower bound (ELBO) <Cite id="contrastive-world-models-paper" where="§2.1" />:
+
+$$
+\ln p(o_{1:T}, r_{1:T} \mid a_{1:T}) \ge \mathbb{E}_q \left[ \sum_t \Big( \ln p(o_t \mid s_t) + \ln p(r_t \mid s_t) - \mathrm{KL}\big( q(s_t \mid s_{t-1}, a_{t-1}, o_t) \parallel p(s_t \mid s_{t-1}, a_{t-1}) \big) \Big) \right]
+$$
+
+Dreamer <Cite id="dreamer-paper" /> models $\ln p(o_t \mid s_t)$ with a pixel decoder $O(o_t \mid s_t)$ and maximizes $J_{\text{REC}} = \mathbb{E}_q\left(\sum_t (J_O^t + J_R^t + J_D^t)\right)$, where $J_O^t = \ln O(o_t \mid s_t)$, $J_R^t = \ln R(r_t \mid s_t)$, and $J_D^t = -\mathrm{KL}\big(q(s_{t+1} \mid s_t, a_t, o_{t+1}) \parallel f(\hat{s}_{t+1} \mid s_t, a_t)\big)$ <Cite id="contrastive-world-models-paper" where="§2.1" />. Subtracting the marginal $\ln p(o_t)$, which does not depend on $s_t$, leaves the encoder optimum unchanged and turns the observation term via Bayes' rule into mutual information $I(o_t; s_t)$ <Cite id="contrastive-world-models-paper" where="§2.2, Eq. 1" />:
+
+$$
+\mathbb{E}\left[\ln p(o_t \mid s_t)\right] \doteq \mathbb{E}\left[\ln p(o_t \mid s_t) - \ln p(o_t)\right] = \mathbb{E}\left[\ln \frac{p(o_t, s_t)}{p(o_t)\, p(s_t)}\right]
+$$
+
+Replacing pixel reconstruction with a mutual information lower bound trains the same encoder $e$, posterior $g$, and transition $f$ without decoding pixels <Cite id="contrastive-world-models-paper" where="§2.2, Fig. 1" />.
+
+## Patch-level Deep InfoMax across time
+
+<Stepper title="How a Contrastive World Model computes its per-step loss">
+  <Step title="1. Encode images into local patch grids and posterior states">
+    Pass observation $o_t$ through the convolutional encoder $e$ to extract both its spatial feature map of $M \times N$ local patch vectors $e_{m,n}(o_t)$ and its pooled embedding $z_t$ <Cite id="contrastive-world-models-paper" where="§2.1, §2.2, Fig. 2" />. Update the [[rssm]] belief from the prior $\hat{s}_t$ and $z_t$ via $s_t = g(z_t, \hat{s}_t)$ <Cite id="contrastive-world-models-paper" where="§2.1" />.
+  </Step>
+  <Step title="2. Concatenate the posterior state with the intervening action sequence">
+    To make the representation predictive across time, pair the current posterior state $s_t$ with the sequence of actions $a_{t:t+h}$ leading up to future timestep $t + h$, forming the context vector $c_t = [s_t, a_{t:t+h}]$ <Cite id="contrastive-world-models-paper" where="§2.2, Fig. 2" />.
+  </Step>
+  <Step title="3. Score every future spatial patch against batch negatives">
+    For each spatial location $(m, n)$ in the $M \times N$ grid of future observation $o_{t+h}$, evaluate the log-bilinear score $f_\theta(e_{m,n}(o_b), c_t) = \exp\left([s_t, a_{t:t+h}]^\top W_\theta\, e_{m,n}(o_b)\right)$ across the positive future frame $o_{t+h}$ and all negative observations $o_b$ ($b \in B$) in the sampled batch <Cite id="contrastive-world-models-paper" where="§2.2, Eq. 2" />.
+  </Step>
+  <Step title="4. Average the patch InfoNCE bound and add dynamics and reward losses">
+    Average the InfoNCE log-ratio across all $M \times N$ patches to form $J_I^t$, then optimize the joint objective $J_{\text{DIM}} = \mathbb{E}\left(\frac{1}{T}\sum_t (J_I^t + \lambda_1 J_D^t + \lambda_2 J_R^t)\right)$ together with the actor-critic planner <Cite id="contrastive-world-models-paper" where="§2.2, §3.1" />.
+  </Step>
+</Stepper>
+
+Maximizing $I(o_t; s_t)$ at a single step does not force $s_t$ to capture how actions change the world <Cite id="contrastive-world-models-paper" where="§2.2" />. Contrastive World Models therefore maximize $\max_\theta I([s_t, a_{t:t+h}]; o_{t+h})$ between the state-action sequence $[s_t, a_{t:t+h}]$ and future observation $o_{t+h}$ <Cite id="contrastive-world-models-paper" where="§2.2" />. Following Contrastive Predictive Coding (CPC) <Cite id="cpc-paper" />, this mutual information is lower-bounded by InfoNCE with a log-bilinear score $f_\theta(x_{t+h}, c_t) = \exp(c_t^\top W_\theta x_{t+h}) \propto p(x_{t+h} \mid c_t) / p(x_{t+h})$ <Cite id="contrastive-world-models-paper" where="§2.2" />.
+
+An earlier contrastive variant in Dreamer <Cite id="dreamer-paper" /> contrasted one global vector per frame and underperformed pixel reconstruction on most tasks <Cite id="contrastive-world-models-paper" where="§1" />. Following Deep InfoMax <Cite id="deep-infomax-paper" />, Contrastive World Models instead score $[s_t, a_{t:t+h}]$ against every local spatial patch $e_{m,n}(o_{t+h})$ ($m \in \{1, \dots, M\}$, $n \in \{1, \dots, N\}$) of the future encoder feature map <Cite id="contrastive-world-models-paper" where="§2.2, Eq. 2" />:
+
+$$
+J_I^t = \frac{1}{M}\frac{1}{N} \sum_{m=1}^M \sum_{n=1}^N \ln \frac{\exp\!\left([s_t, a_{t:t+h}]^\top W_\theta\, e_{m,n}(o_{t+h})\right)}{\sum_{b \in B} \exp\!\left([s_t, a_{t:t+h}]^\top W_\theta\, e_{m,n}(o_b)\right)}
+$$
+
+Here $T$ and $B$ denote sequence length and batch size, and the denominator sums over negative frames $o_b$ ($b \in B$) at patch $(m, n)$ <Cite id="contrastive-world-models-paper" where="§2.2, Eq. 2" />. Combining $J_I^t$ with the transition and reward terms weighted by $\lambda_1$ and $\lambda_2$ gives the training objective <Cite id="contrastive-world-models-paper" where="§2.2" />:
+
+$$
+J_{\text{DIM}} = \mathbb{E}\left( \frac{1}{T} \sum_{t=1}^T \left( J_I^t + \lambda_1 J_D^t + \lambda_2 J_R^t \right) \right)
+$$
+
+<Callout type="intuition">
+A single global embedding can be satisfied by tracking one bright moving ball in the background. Requiring $[s_t, a_{t:t+h}]$ to simultaneously predict all $M \times N$ local patches $e_{m,n}(o_{t+h})$ favors features that change coherently with the agent's actions $a_{t:t+h}$ across image regions <Cite id="contrastive-world-models-paper" where="§2.2, §3.2" />.
+</Callout>
+
+## Three ways to train the same RSSM
+
+<ArchDiagram
+  title="Three representation heads sharing the same RSSM dynamics"
+  caption="All three world models run the same RSSM transition f, reward head R, and actor-critic policy, differing only in how the posterior state s_t is grounded in visual observations."
+  groups={[
+    { label: 'Dreamer (pixel reconstruction)', blocks: ['dec', 'rec_loss'] },
+    { label: 'Momentum Prediction (BYOL)', blocks: ['proj', 'ema', 'cos_loss'] },
+    { label: 'Contrastive World Model (InfoMax)', blocks: ['ctx', 'patch_enc', 'nce_loss'] },
+  ]}
+  blocks={[
+    { id: 'st', label: 'Posterior state s_t', sub: 'd_s', role: 'activation', col: 1, row: 0, link: 'rssm' },
+    { id: 'oth', label: 'Future frame o_{t+h}', sub: 'H × W × C', role: 'activation', col: 2, row: 0 },
+    { id: 'dec', label: 'Pixel decoder O', sub: 'd_s → H × W × C', role: 'weight', col: 0, row: 1 },
+    { id: 'proj', label: 'Online projector φ_θ', sub: 'd_s → d_z', role: 'weight', col: 1, row: 1 },
+    { id: 'ema', label: 'EMA target e_ξ', sub: 'H × W × C → d_z', role: 'cache', col: 2, row: 1 },
+    { id: 'rec_loss', label: 'Pixel log-likelihood', sub: 'J_O^t = ln O(o_t | s_t)', role: 'op', col: 0, row: 2 },
+    { id: 'cos_loss', label: 'Cosine similarity', sub: 'J_{MP}^t (stop-grad)', role: 'op', col: 1, row: 2 },
+    { id: 'ctx', label: 'State-action c_t', sub: 'd_s + h·d_a', role: 'activation', col: 1, row: 3 },
+    { id: 'patch_enc', label: 'Local patches e_{m,n}', sub: 'M × N × d_z', role: 'activation', col: 2, row: 3 },
+    { id: 'nce_loss', label: 'Patch InfoNCE J_I^t', sub: 'B negatives × M·N', role: 'op', col: 2, row: 4 },
+  ]}
+  edges={[
+    { from: 'st', to: 'dec' },
+    { from: 'dec', to: 'rec_loss' },
+    { from: 'st', to: 'proj' },
+    { from: 'oth', to: 'ema', dashed: true },
+    { from: 'proj', to: 'cos_loss' },
+    { from: 'ema', to: 'cos_loss', dashed: true, label: 'sg' },
+    { from: 'st', to: 'ctx', side: 'left' },
+    { from: 'oth', to: 'patch_enc', side: 'right' },
+    { from: 'ctx', to: 'nce_loss', label: 'W_θ' },
+    { from: 'patch_enc', to: 'nce_loss' },
+  ]}
+/>
+
+To test whether gains come from simply dropping the pixel decoder or specifically from patch-level contrast, the paper compares three representation objectives on the same [[rssm]] backbone and actor-critic planner <Cite id="contrastive-world-models-paper" where="§3.1" />. The second baseline, **Momentum Prediction**, adapts Bootstrap Your Own Latent (BYOL) <Cite id="byol-paper" /> by maintaining a target encoder $e_\xi$ whose weights $\xi$ track the online encoder weights $\theta$ via an exponential moving average <Cite id="contrastive-world-models-paper" where="§3.1" />:
+
+$$
+\xi \leftarrow \tau \xi + (1 - \tau)\theta, \qquad J_{\text{MP}}^t = \cos\!\Big(\phi_\theta(s_t),\; \mathrm{sg}\big(e_\xi(o_{t+h})\big)\Big)
+$$
+
+Here $\phi_\theta$ is an online projection head on $s_t$, $\mathrm{sg}(\cdot)$ stops gradients through the momentum branch, and $\cos(\cdot, \cdot)$ is cosine similarity <Cite id="contrastive-world-models-paper" where="§3.1" />. Like Joint Embedding Predictive Architectures (JEPA), Momentum Prediction uses no negative samples and relies on predictor-target asymmetry to avoid collapse <Cite id="contrastive-world-models-paper" where="§1, §3.1" />. It maximizes $J_{\text{MP}} = \mathbb{E}\left(\frac{1}{T}\sum_t (J_{\text{MP}}^t + \lambda_1 J_D^t + \lambda_2 J_R^t)\right)$ <Cite id="contrastive-world-models-paper" where="§3.1" />.
+
+## Robustness under visual distractors and training cost
+
+<Calc
+  title="Contrastive patch-scoring budget vs pixel decoding per sequence batch"
+  inputs={[
+    { id: 'B', label: 'Batch candidates B', min: 8, max: 128, step: 8, value: 32 },
+    { id: 'T', label: 'Trajectory steps T', min: 10, max: 100, step: 5, value: 50 },
+    { id: 'M', label: 'Feature grid height M', min: 2, max: 16, step: 1, value: 4 },
+    { id: 'N', label: 'Feature grid width N', min: 2, max: 16, step: 1, value: 4 },
+    { id: 'H', label: 'Image width/height H = W (px)', min: 32, max: 128, step: 16, value: 64 },
+  ]}
+  outputs={[
+    { label: 'Spatial patches per frame (M × N)', expr: 'M * N', format: 'number', role: 'activation' },
+    { label: 'Positive patch scores per batch (B · T · M · N)', expr: 'B * T * M * N', format: 'number', role: 'activation' },
+    { label: 'Total bilinear logit evaluations (B² · T · M · N)', expr: 'B * B * T * M * N', format: 'number', role: 'op' },
+    { label: 'Decoded RGB values in Dreamer (3 · B · T · H²)', expr: '3 * B * T * H * H', format: 'number', role: 'cache' },
+  ]}
+  bars={true}
+  note="Equation 2 evaluates a log-bilinear score across B batch candidates at each of the M × N encoder patches without running deconvolutional upsampling layers over H × W × 3 RGB pixels."
+/>
+
+All three agents train for $1 \times 10^6$ environment steps (averaged over $3$ seeds) on three DeepMind Control Suite tasks (`finger-spin`, `cheetah-run`, and `walker-walk`) across three visual settings <Cite id="contrastive-world-models-paper" where="§3, §3.1, Fig. 3" />:
+
+1. **Default setting:** the stationary DeepMind Control background <Cite id="contrastive-world-models-paper" where="§3, Fig. 3" />.
+2. **Simple distractor setting:** colored balls moving and bouncing off the frame edges behind the robot <Cite id="contrastive-world-models-paper" where="§3, Fig. 3" /><Cite id="dbc-paper" />.
+3. **Natural video setting:** full-color RGB Kinetics videos playing in the background, which is harder than the grayscale videos used in Deep Bisimulation for Control (DBC) <Cite id="dbc-paper" /><Cite id="contrastive-world-models-paper" where="§3, Fig. 3" />.
+
+<Spec
+  title="Comparison across visual complexity regimes on DeepMind Control Suite"
+  columns={["Regime / Property", "Dreamer (Reconstruction)", "Momentum Prediction", "Contrastive World Model (InfoMax)"]}
+  rows={[
+    { label: "Observation objective", values: ["ln O(o_t | s_t)", "cos(φ_θ(s_t), sg(e_ξ(o_{t+h})))", "Patch InfoNCE J_I^t (Eq. 2)"], source: "contrastive-world-models-paper", where: "§2.1, §2.2, §3.1" },
+    { label: "Auxiliary visual network", values: ["Pixel decoder O", "EMA target encoder e_ξ + φ_θ", "Bilinear matrix W_θ (no decoder)"], source: "contrastive-world-models-paper", where: "Abstract, §2.2, §3.1" },
+    { label: "Default DMC (clean)", values: ["High asymptotic return (~600–950)", "Competitive (~500–800)", "Matches Dreamer (~650–950)"], source: "contrastive-world-models-paper", where: "§3.2, Fig. 4" },
+    { label: "Simple distractors (balls)", values: ["Drops on cheetah-run (~110)", "Collapses on all 3 tasks (< 60)", "Leads on cheetah (~400) & walker (~700)"], source: "contrastive-world-models-paper", where: "§3.2, Fig. 5" },
+    { label: "Natural video (RGB Kinetics)", values: ["Fails to progress (~30–120)", "Plateaus near random (~20–60)", "380–500 return across all 3 tasks"], source: "contrastive-world-models-paper", where: "§3.2, Fig. 6" },
+    { label: "Wall-clock training speed", values: ["Baseline (trains pixel decoder)", "No pixel decoder", "Substantially faster than Dreamer"], source: "contrastive-world-models-paper", where: "§3.2" },
+  ]}
+  note="Return ranges are read from the 1 × 10^6-step learning curves in Figures 4–6 (3 seeds on finger-spin, cheetah-run, walker-walk); the preprint plots full curves rather than a numerical summary table."
+/>
+
+In the clean setting, all three methods reach comparable asymptotic returns <Cite id="contrastive-world-models-paper" where="§3.2, Fig. 4" />. Once bouncing balls appear, Momentum Prediction collapses near initial random performance on all three tasks, while Dreamer plateaus near $110$ on `cheetah-run` versus roughly $400$ for InfoMax <Cite id="contrastive-world-models-paper" where="§3.2, Fig. 5" />. Under full-color Kinetics backgrounds, high-entropy video dominates Dreamer's pixel loss and both baselines stall, whereas InfoMax reaches roughly $390$ on `finger-spin`, $330\text{--}400$ on `cheetah-run`, and $450\text{--}500$ on `walker-walk` <Cite id="contrastive-world-models-paper" where="§3.2, Fig. 6" />.
+
+Removing the pixel decoder $O$ also cuts per-step wall-clock training time across all three settings while keeping equal parameter counts in encoder $e$ and dynamics model $(g, f)$ <Cite id="contrastive-world-models-paper" where="§3.2" />. Because $J_I^t$ needs only state-action sequences and future frames without action-conditioned pixel generation, the same objective applies to pretraining on unlabeled video or scaling toward [[vla]] and transformer world models <Cite id="contrastive-world-models-paper" where="§4" />.
+
+<Callout type="pitfall">
+Dropping the pixel decoder is not sufficient on its own to survive visual distractors. Momentum Prediction also removes the decoder, yet it collapses as soon as bouncing balls appear because its global cosine target can be satisfied by encoding predictable distractor motion <Cite id="contrastive-world-models-paper" where="§3.2, Fig. 5" />. The preprint does not report exact values for horizon $h$, patch grid $M \times N$, loss weights $\lambda_1, \lambda_2$, or wall-clock step times, so those hyperparameters remain unverified <Cite id="contrastive-world-models-paper" where="§2.2, §3" />.
+</Callout>

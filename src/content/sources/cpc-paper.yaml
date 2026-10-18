@@ -1,0 +1,6 @@
+title: "Representation Learning with Contrastive Predictive Coding"
+short: "van den Oord et al. 2018 (CPC / InfoNCE)"
+authors: "Aaron van den Oord, Yazhe Li, Oriol Vinyals"
+year: 2018
+url: "https://arxiv.org/abs/1807.03748"
+type: paper
