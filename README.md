@@ -11,7 +11,7 @@ pnpm run check     # graph checks, full build, then the keep-place and render br
 pnpm run ci        # the GitHub Actions build, replayed on a clean checkout of HEAD
 ```
 
-Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`. In the repo settings, set Pages to deploy from GitHub Actions.
+Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`. In the repo settings, set Pages to deploy from GitHub Actions. Every pull request against `main` runs the same build without deploying (`.github/workflows/check.yml`).
 
 ## What reading it should feel like
 
@@ -81,7 +81,7 @@ Contributions come in as pull requests against `main`. The rules are the same fo
 
 ### Opening the pull request
 
-Before you open it:
+Opening it fills in `.github/pull_request_template.md`, which has the checklist below. Before you open it:
 
 - [ ] `pnpm run check` passes.
 - [ ] `pnpm run ci` passes on your last commit. It replays the deploy build from a clean checkout, so it catches files you forgot to commit.
@@ -91,7 +91,7 @@ In the description, write:
 
 - **What and why**, in a few sentences.
 - **Sources** you read, and anything you couldn't verify.
-- **Check results**: the last lines of `pnpm run ci`.
+- **Check results**: the last lines of `pnpm run ci`. The Check workflow then runs the same build on the PR; it must be green before merge.
 - **Agent-written?** Say so, and which agent. Agent PRs are welcome; they follow the same rules.
 
 The owner reviews every PR and may ask for changes. After merging, the owner decides when a note moves past `draft`.

@@ -106,3 +106,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: new path note from the transformer block through flow matching, AdaLN, DiT and MANO to StableHand, with a Timeline; first path that ends at a non-LM pipeline
 - files: src/content/notes/paths/generative-hand-motion.mdx
 - open: only one system on it so far
+
+## 2026-10-18 · build(ci): run the check on pull requests; add a PR template
+- did: check.yml runs the deploy build job (frozen install, pnpm run check) on every PR to main without deploying; pull_request_template.md with the README checklist; README and guardrails mention both
+- files: .github/workflows/check.yml .github/pull_request_template.md README.md docs/guardrails.md
+- open: branch protection requiring the Check job is a repo setting, not set

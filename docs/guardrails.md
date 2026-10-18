@@ -36,6 +36,7 @@ Every message the system sends back names a rule id from `scripts/rules.mjs`, an
 | Agent hooks | `.agents/hooks.json` and `.claude/settings.json` (via `scripts/agent-hooks/claude.mjs`), `scripts/agent-hooks/` | session start, every turn, every command, stop | Orient, notify, refuse, gate. |
 | Git hooks | `.githooks/` (installed by `pnpm install`) | every commit | Scoped checks on staged files, then `scripts/check-commit.mjs` checks the commit tree itself in a temp checkout (catches links to uncommitted notes that pass locally and fail in CI); commit message format. |
 | CI | `.github/workflows/deploy.yml` | push to main | `pnpm run check` before deploy. |
+| PR check | `.github/workflows/check.yml` | pull request to main | the same `pnpm run check`, no deploy. |
 
 ### Agent hooks in detail
 
