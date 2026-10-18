@@ -150,34 +150,40 @@ import { url } from '../lib/url';
       }
 
       const draw = () => {
+        if (!userMoved) fit();
         links.forEach((l, i) => {
           const s = l.source as N;
           const t = l.target as N;
-          lineEls[i].setAttribute('x1', String(s.x));
+          lineEls[i].setAttribute('x1', String(s.x! * sx));
           lineEls[i].setAttribute('y1', String(s.y));
-          lineEls[i].setAttribute('x2', String(t.x));
+          lineEls[i].setAttribute('x2', String(t.x! * sx));
           lineEls[i].setAttribute('y2', String(t.y));
         });
-        nodes.forEach((n, i) => nodeEls[i].setAttribute('transform', `translate(${n.x},${n.y})`));
-        if (!userMoved) fit();
+        nodes.forEach((n, i) => nodeEls[i].setAttribute('transform', `translate(${n.x! * sx},${n.y})`));
       };
 
       // Keep the whole map in view until the reader pans or zooms.
       let userMoved = false;
+      // Horizontal stretch of node positions (not of glyphs): on a wide canvas the map spreads out
+      // sideways to fill it, which also pulls crowded labels apart. 1 on phones and laptops.
+      let sx = 1;
       const fit = () => {
         const xs = nodes.map((n) => n.x!);
         const ys = nodes.map((n) => n.y!);
-        const labelRoom = 130;
-        const x0 = Math.min(...xs) - 20;
-        const x1 = Math.max(...xs) + labelRoom;
+        const labelRoom = 160;
+        const xMin = Math.min(...xs);
+        const xMax = Math.max(...xs);
         const y0 = Math.min(...ys) - 20;
         const y1 = Math.max(...ys) + 20;
         const legendRoom = 40;
         // Grow the canvas with the graph so labels stay readable, up to a cap.
-        const wantK = Math.min(1.25, w() / (x1 - x0));
+        const wantK = Math.min(1.25, w() / (xMax - xMin + 20 + labelRoom));
         const height = Math.max(380, Math.min(MAX_H, (y1 - y0) * wantK + legendRoom + 24));
         if (Math.abs(height - svg.clientHeight) > 2) svg.style.height = `${height}px`;
         k = Math.min(wantK, (h() - legendRoom) / (y1 - y0));
+        sx = Math.max(1, Math.min(2.2, (w() / k - 20 - labelRoom) / Math.max(1, xMax - xMin)));
+        const x0 = xMin * sx - 20;
+        const x1 = xMax * sx + labelRoom;
         tx = (w() - (x1 - x0) * k) / 2 - x0 * k;
         ty = (h() - legendRoom - (y1 - y0) * k) / 2 - y0 * k;
         apply();
@@ -214,13 +220,14 @@ import { url } from '../lib/url';
       const apply = () => world.setAttribute('transform', `translate(${tx},${ty}) scale(${k})`);
       draw();
       this.view = {
-        get: () => (userMoved ? { k, tx, ty } : null),
+        get: () => (userMoved ? { k, tx, ty, sx } : null),
         set: (s) => {
-          const v = s as { k?: number; tx?: number; ty?: number } | null;
+          const v = s as { k?: number; tx?: number; ty?: number; sx?: number } | null;
           if (!v || typeof v.k !== 'number') return;
-          ({ k, tx = 0, ty = 0 } = v as { k: number; tx: number; ty: number });
+          ({ k, tx = 0, ty = 0, sx = 1 } = v as { k: number; tx: number; ty: number; sx: number });
           userMoved = true;
           apply();
+          draw();
         },
       };
       if (this.pending) this.view.set(this.pending);
@@ -262,7 +269,7 @@ import { url } from '../lib/url';
         drag.moved = true;
         if (drag.node) {
           const [x, y] = toWorld(e);
-          drag.node.fx = x;
+          drag.node.fx = x / sx;
           drag.node.fy = y;
           sim.alphaTarget(0.2).restart();
         } else {

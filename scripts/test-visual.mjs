@@ -17,7 +17,8 @@ import { loadNotes } from '../src/lib/content-index.mjs';
 import { withPage } from './lib/browser.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const WIDTHS = [1280, 390];
+// Laptop first (the page is opened at it), then a phone and a wide monitor, where type and diagrams grow.
+const WIDTHS = [1280, 390, 2560];
 const notes = loadNotes();
 const only = process.argv.slice(2).filter((a) => a.startsWith('/'));
 const pages = only.length

@@ -64,13 +64,16 @@ for (const b of blocks) {
 }
 // Below this width the SVG scrolls sideways instead of shrinking text past readability (mobile).
 const minWidth = Math.round(width * 0.72);
+// Natural size in rem (the root is 17px up to laptop widths), so on big screens the diagram grows
+// with the type around it instead of staying a small island in a wide column.
+const remWidth = `${+(width / 17).toFixed(3)}rem`;
 
 const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 ---
 
-<figure class="arch ui">
+<figure class="arch ui" style={`--w:${remWidth}`}>
   <div class="scroll" data-keep-scroll>
-    <svg viewBox={`0 0 ${width} ${height}`} width={width} style={`min-width:${minWidth}px`} role="img" aria-labelledby={`${markerId}-t`}>
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} style={`width:${remWidth};min-width:${minWidth}px`} role="img" aria-labelledby={`${markerId}-t`}>
       <title id={`${markerId}-t`}>{title}</title>
       <defs>
         <marker id={markerId} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -159,7 +162,8 @@ const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 <style>
   .arch {
     margin: 2rem 0;
-    width: min(100%, calc(var(--measure) + 14rem));
+    /* At least the usual column, wider when the diagram is: the panel hugs big diagrams. */
+    width: min(100%, max(var(--mid), var(--w) + 2px));
   }
   .scroll {
     overflow-x: auto;

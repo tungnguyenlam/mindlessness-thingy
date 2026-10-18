@@ -61,8 +61,11 @@ const typeLabel = {
 
 <style>
   .sources-page {
-    max-width: var(--measure);
+    max-width: 160rem;
     margin: 0 auto;
+  }
+  .lede {
+    max-width: var(--measure);
   }
   h1 {
     font-size: var(--step-3);
@@ -72,10 +75,14 @@ const typeLabel = {
   .lede {
     color: var(--ink-soft);
   }
+  /* One column on a phone or laptop, more when there's room; each entry keeps a readable width. */
   ul {
     list-style: none;
     padding: 0;
     margin: 2rem 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 28rem), 1fr));
+    column-gap: clamp(1.5rem, 3vw, 3rem);
   }
   li {
     padding: 1rem 0;

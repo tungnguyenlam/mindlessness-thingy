@@ -303,8 +303,10 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
     border-color: var(--ink);
     color: var(--paper-raised);
   }
+  /* Every tab's canvas spans the whole panel, so switching tabs doesn't change the width. */
   .panel :global(figure.arch) {
     margin-top: 0.6rem;
+    width: 100%;
   }
   .symcap {
     margin: 0.4rem 0 0.4rem;

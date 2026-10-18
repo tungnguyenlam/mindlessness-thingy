@@ -46,7 +46,13 @@
   --step-3: 1.728rem;
   --step-4: 2.488rem;
 
-  --measure: 68ch;
+  /* Column widths. Prose keeps a reading measure at any screen size; visuals widen to --wide when
+     the screen has room, and tables, calculators and steppers to --mid. */
+  /* About 68 characters of body text. In rem, not ch, so headings, prose and figures that share it
+     line up whatever their font and size. */
+  --measure: 39rem;
+  --mid: calc(var(--measure) + 14rem);
+  --wide: calc(var(--measure) + 34rem);
   --radius-block: 3px;
   --radius-panel: 6px;
 }
@@ -58,7 +64,9 @@
 }
 
 html {
-  font-size: 106.25%;
+  /* 17px up to about 1600px wide, then growing to 20px at 2560px, so big monitors get bigger type
+     and bigger diagrams instead of wider margins. Phones and laptops are unchanged. */
+  font-size: clamp(106.25%, 0.75rem + 0.3125vw, 125%);
   -webkit-text-size-adjust: 100%;
 }
 

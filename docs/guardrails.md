@@ -31,7 +31,7 @@ Every message the system sends back names a rule id from `scripts/rules.mjs`, an
 | Templates | `templates/notes/` | new note | `pnpm run new <kind> <slug> "Title" --draft`; `{/* TODO */}` prompts fail the check until replaced. |
 | Checks | `scripts/check.mjs` + `scripts/checks/*.mjs` | `pnpm run check`, hooks | Static rules over notes, sources, components and docs. |
 | Behaviour test | `scripts/test-place.mjs` | `pnpm run check` | Drives Chrome through a link round trip in bfcache and reload modes. |
-| Render test | `scripts/test-visual.mjs` | `pnpm run check` | Loads every page at 1280 and 390 px and inspects the real rendering (overflow, clipped or colliding text, KaTeX and script errors). |
+| Render test | `scripts/test-visual.mjs` | `pnpm run check` | Loads every page at 1280, 390 and 2560 px and inspects the real rendering (overflow, clipped or colliding text, KaTeX and script errors). |
 | Baseline | `scripts/baseline.json` | every check | Grandfathers problems that predate a rule (by file and code) as warnings, so a new rule can be strict without editing other people's files. Only shrinks. |
 | Agent hooks | `.agents/hooks.json` and `.claude/settings.json` (via `scripts/agent-hooks/claude.mjs`), `scripts/agent-hooks/` | session start, every turn, every command, stop | Orient, notify, refuse, gate. |
 | Git hooks | `.githooks/` (installed by `pnpm install`) | every commit | Scoped checks on staged files, then `scripts/check-commit.mjs` checks the commit tree itself in a temp checkout (catches links to uncommitted notes that pass locally and fail in CI); commit message format. |

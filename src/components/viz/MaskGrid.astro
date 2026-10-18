@@ -57,7 +57,7 @@ const config = JSON.stringify({ n, masks: masks.map((m) => m.label) });
     )
   }
   <div class="body">
-    <svg viewBox={`0 0 ${size} ${size}`} width={size} role="img" aria-label={title}>
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} style={`width:${+(size / 17).toFixed(3)}rem`} role="img" aria-label={title}>
       <text class="axis" x={L + (n * C) / 2} y="10" text-anchor="middle">key token j →</text>
       <text class="axis" x="10" y={L + (n * C) / 2} text-anchor="middle" transform={`rotate(-90 10 ${L + (n * C) / 2})`}>query token t →</text>
       {

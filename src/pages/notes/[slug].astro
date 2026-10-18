@@ -196,12 +196,12 @@ const linkTypeText: Record<string, string> = {
 </Base>
 
 <style>
+  /* Side columns grow a little with the screen; the middle takes everything else. Inside it, prose
+     keeps a reading measure and visuals widen to --wide, all centred on one axis. */
   .note-layout {
     display: grid;
-    grid-template-columns: 13rem minmax(0, 1fr) 17rem;
+    grid-template-columns: clamp(13rem, 13vw, 17rem) minmax(0, 1fr) clamp(16rem, 16vw, 22rem);
     gap: clamp(1.5rem, 3vw, 3.5rem);
-    max-width: 92rem;
-    margin: 0 auto;
   }
   .left {
     position: sticky;
@@ -215,12 +215,21 @@ const linkTypeText: Record<string, string> = {
   }
   article {
     min-width: 0;
-    max-width: calc(var(--measure) + 14rem);
   }
   .note-head,
-  .prose > :global(:not(figure, x-calc, x-stepper, .arch, .spec)),
   .path-steps,
   .sources,
+  .path-nav,
+  .note-layout .prose > :global(*) {
+    max-width: var(--measure);
+    margin-inline: auto;
+  }
+  .note-layout .prose > :global(:is(x-calc, x-stepper, .spec, .mspec, .tokcard)) {
+    max-width: var(--mid);
+  }
+  .note-layout .prose > :global(:is(.arch, .overview, .lstrip, .timeline, .tokflow, .tokcmp, .maskgrid, .shapeflow, .mtable, .figure, table)) {
+    max-width: var(--wide);
+  }
   .path-nav {
     max-width: var(--measure);
   }
@@ -250,7 +259,7 @@ const linkTypeText: Record<string, string> = {
   h1 {
     font-family: var(--font-ui);
     font-weight: 600;
-    font-size: var(--step-4);
+    font-size: clamp(var(--step-3), 7vw, var(--step-4));
     line-height: 1.08;
     letter-spacing: -0.015em;
     margin: 0 0 0.6rem;
