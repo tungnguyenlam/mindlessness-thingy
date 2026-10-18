@@ -1,11 +1,11 @@
 ---
 name: finish-task
-description: The last step of every task in this repo. Run the checks, look at what you built, commit only your own files with a conventional message, and report. Use whenever you have finished writing a note, changing the site, or editing docs, before you tell the owner you are done.
+description: The last step of every task in this repo. Run the checks, look at what you built, commit only your own files with a conventional message, push once CI passes, and report. Use whenever you have finished writing a note, changing the site, or editing docs, before you tell the owner you are done.
 ---
 
 # Finish a task
 
-A task isn't done until it's committed (rule `commit-when-done`). Do these in order, and don't call it done until the commit would pass CI. The stop hook will remind you if you skip one.
+A task isn't done until it's committed and pushed (rule `commit-when-done`). Do these in order, and never push a commit that hasn't passed the checks. The stop hook will remind you if you skip one.
 
 ## 1. Check
 
@@ -78,7 +78,7 @@ If git says "Author identity unknown", don't change global config. Reuse the rep
 git -c user.name="$(git log -1 --format=%an)" -c user.email="$(git log -1 --format=%ae)" commit -m "..."
 ```
 
-Don't push unless the owner asked you to.
+Don't push yet: first prove the commit builds (next step).
 
 ## 6. Verify CI
 
@@ -86,19 +86,24 @@ Don't push unless the owner asked you to.
 pnpm run ci
 ```
 
-This replays the GitHub Actions deploy job on your commit: a clean checkout of `HEAD` (uncommitted files don't exist there), `pnpm install --frozen-lockfile`, then `pnpm run check`. It takes a minute or two. If it fails while your working tree passes, the commit is missing a file it needs or `package.json` and `pnpm-lock.yaml` disagree: fix it, commit again, rerun. Don't report the task done until it passes.
+This replays the GitHub Actions deploy job on your commit: a clean checkout of `HEAD` (uncommitted files don't exist there), `pnpm install --frozen-lockfile`, then `pnpm run check`. It takes a minute or two. If it fails while your working tree passes, the commit is missing a file it needs or `package.json` and `pnpm-lock.yaml` disagree: fix it, commit again, rerun. Don't push or report the task done until it passes.
 
-If the owner asked you to push, also watch the real run until it finishes:
+## 7. Push
+
+Only once `pnpm run check` and `pnpm run ci` both pass:
 
 ```sh
+git push origin main
 gh run watch "$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status
 ```
 
-## 7. Report
+The push deploys the site, so watch the run until it finishes. If the push is rejected because `main` moved, run `git pull --rebase origin main`, rerun `pnpm run ci`, and push again. Never force-push. If the deploy run fails, find the cause in `gh run view --log-failed`, fix it with a new commit, and repeat steps 6 and 7.
+
+## 8. Report
 
 Tell the owner, briefly:
 
-- what you changed and the commit hash(es), and that `pnpm run ci` passed;
+- what you changed and the commit hash(es), that `pnpm run ci` passed, and that the push and deploy run succeeded;
 - stubs you created;
 - numbers you couldn't verify, or sources that disagreed;
 - anything you noticed but left alone (other people's failing files, ideas for follow-ups).

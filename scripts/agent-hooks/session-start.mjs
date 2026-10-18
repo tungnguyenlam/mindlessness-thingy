@@ -22,6 +22,6 @@ await hook('session-start', async (input) => {
       `Already changed before this session (${dirty.size} file(s), not yours: don't stage, stash or revert them): ${list([...dirty.keys()])}`,
     );
   }
-  lines.push('Finish every task with: pnpm run check, look at visuals with pnpm run shot, then commit only your files (skill finish-task).');
+  lines.push('Finish every task with: pnpm run check, look at visuals with pnpm run shot, then commit only your files, run pnpm run ci and push once it passes (skill finish-task).');
   return { injectSteps: [{ systemMessage: { systemMessage: lines.join('\n\n') } }] };
 });

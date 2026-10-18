@@ -25,7 +25,10 @@ flowchart TD
   F --> G["pnpm run shot · open the PNG"]
   G --> H["Append to worklog.md"]
   H --> I["git add &lt;paths&gt; · git commit"]
-  I --> J["Report to owner"]
+  I --> K["pnpm run ci<br/>clean checkout of HEAD"]
+  K -- fails --> E
+  K --> L["git push origin main · gh run watch"]
+  L --> J["Report to owner"]
 ```
 
 ## Writing a model (system) note

@@ -63,7 +63,7 @@ export const RULES = {
     doc: 'AGENTS.md#rules',
   },
   'commit-when-done': {
-    title: 'Finish every task with a passing check and a commit of only your files',
+    title: 'Finish every task with a passing check, a commit of only your files, and a push once CI passes',
     doc: 'AGENTS.md#task-lifecycle',
   },
 };

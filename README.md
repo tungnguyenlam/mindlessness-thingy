@@ -30,7 +30,7 @@ Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`. In
 
 ## Adding content with an agent
 
-Ask an agent something like "write the DeepSeek-V3 note" or "fill in the RoPE stub". The agent follows `AGENTS.md` and the skills in `.agents/skills/` (`write-article`, `site-feature`, and `finish-task`, which ends every task with a commit). If it drifts, checks and agent hooks tell it which rule it broke; `docs/guardrails.md` explains how that works and how to add rules.
+Ask an agent something like "write the DeepSeek-V3 note" or "fill in the RoPE stub". The agent follows `AGENTS.md` and the skills in `.agents/skills/` (`write-article`, `site-feature`, and `finish-task`, which ends every task with a commit and, once every check passes, a push to `main` that deploys the site). If it drifts, checks and agent hooks tell it which rule it broke; `docs/guardrails.md` explains how that works and how to add rules.
 
 To start a note by hand:
 

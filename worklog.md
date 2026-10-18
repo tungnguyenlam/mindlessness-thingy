@@ -111,3 +111,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: check.yml runs the deploy build job (frozen install, pnpm run check) on every PR to main without deploying; pull_request_template.md with the README checklist; README and guardrails mention both
 - files: .github/workflows/check.yml .github/pull_request_template.md README.md docs/guardrails.md
 - open: branch protection requiring the Check job is a repo setting, not set
+
+## 2026-10-18 · docs(workflow): push to main after every task once CI passes
+- did: owner asked: finishing a task now ends with git push origin main and a watched deploy run, only after pnpm run check and pnpm run ci pass; rebase and rerun ci if main moved, never force; AGENTS.md rule 13 and lifecycle, finish-task skill, session-start hook, rule title, workflow diagram, README
+- files: AGENTS.md .agents/skills/finish-task/SKILL.md scripts/agent-hooks/session-start.mjs scripts/rules.mjs docs/workflow.md README.md
+- open: the stop hook does not check for unpushed commits
