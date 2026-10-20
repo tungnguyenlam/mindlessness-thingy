@@ -1,7 +1,7 @@
 ---
 // "Follow a token": the token-level tab of <ModelOverview>. The other tabs draw the architecture
-// (layers, projections, weights); this one follows one real token of a sample text through it, one
-// stage at a time: text → ids, id → embedding row, which earlier tokens each sublayer reads, the
+// (layers, projections, weights); this one follows one real token of a sample text through it, with
+// every stage stacked in order: text → ids, id → embedding row, which earlier tokens each sublayer reads, the
 // arithmetic inside one attention head, what the token leaves in the cache, the FFN or the experts
 // it is routed to, and the output head. Everything structural (tokens, ids, sizes, which positions
 // are read, cache bytes, parameter counts) comes from the model and tokenizer data. What would need
@@ -173,8 +173,8 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
 
 <x-tokentrace class="trace" data-restorable>
   <script type="application/json" set:html={config} />
-  <p class="tk-hint">Pick a token, then step through what happens to it. Sizes are {m.title}’s, from its data; values that would need the real weights are marked <span class="tk-ex">example</span>.</p>
-  <div class="tk-bar">
+  <p class="tk-hint">Pick a token and scroll down: every stage below follows it, in order. Sizes are {m.title}’s, from its data; values that would need the real weights are marked <span class="tk-ex">example</span>.</p>
+  <div class="tk-pin">
     {
       sets.length > 1 && (
         <div class="tk-tabs" role="tablist" aria-label="Sample text">
@@ -186,32 +186,26 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
         </div>
       )
     }
+    <div class="tk-scroll" data-keep-scroll>
+      <div class="tk-row" data-out="tokens" role="group" aria-label="Tokens of the sample"></div>
+    </div>
   </div>
-  <div class="tk-scroll" data-keep-scroll>
-    <div class="tk-row" data-out="tokens" role="group" aria-label="Tokens of the sample"></div>
-  </div>
-  <ol class="tk-stages" role="tablist" aria-label="Stages">
-    {
-      STAGES.map((s, i) => (
-        <li>
-          <button type="button" role="tab" data-stage={i} aria-selected={i === 0 ? 'true' : 'false'}>
-            <span class="tk-n">{i + 1}</span>
-            {s}
-          </button>
-        </li>
-      ))
-    }
-  </ol>
-  <div class="tk-stage" data-out="stage" aria-live="polite"></div>
-  <div class="tk-nav">
-    <button type="button" data-step="-1">← Back</button>
-    <span data-out="pos"></span>
-    <button type="button" data-step="1">Next →</button>
-  </div>
+  {
+    STAGES.map((s, i) => (
+      <section class="tk-sec" data-sec={s}>
+        <h4 class="tk-h">
+          <span class="tk-n">{i + 1}</span>
+          {s}
+        </h4>
+        <div class="tk-body" aria-live="polite" />
+      </section>
+    ))
+  }
 </x-tokentrace>
 
 <script>
-  // Restorable (src/scripts/trail.ts): sample, chosen token and stage come back on return.
+  // Restorable (src/scripts/trail.ts): sample and chosen token come back on return. All stages are
+  // shown at once, stacked; the sample tabs and tokens stay pinned at the top while scrolling.
   import { Track, figure, legend, tokColor, pure, norm, row, sequence, CELL, type Mix, type Part } from './tensorpics';
   interface Tok { text: string; id: number; special: boolean }
   type Link = { href: string; slug: string } | null;
@@ -242,9 +236,9 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
   const EX = '<span class="tk-ex">example</span>';
 
   class XTokenTrace extends HTMLElement {
-    st = { set: 0, t: -1, stage: 0 };
+    st = { set: 0, t: -1 };
     snapshot() {
-      return this.st.set || this.st.stage || this.st.t !== this.def ? { ...this.st } : null;
+      return this.st.set || this.st.t !== this.def ? { ...this.st } : null;
     }
     restore(state: unknown) {
       const s = state as Partial<XTokenTrace['st']>;
@@ -255,7 +249,7 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
     connectedCallback() {
       const cfg = JSON.parse(this.querySelector('script[type="application/json"]')!.textContent!);
       const q = <T extends Element>(sel: string) => this.querySelector<T>(sel)!;
-      const stages = [...this.querySelectorAll<HTMLElement>('[data-stage]')].map((b) => b.textContent!.replace(/^\s*\d+/, '').trim());
+      const secs = [...this.querySelectorAll<HTMLElement>('[data-sec]')];
       this.def = Math.min(4, cfg.sets[0].tokens.length - 1);
       if (this.st.t < 0) this.st.t = this.def;
 
@@ -589,30 +583,30 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
         const set = Math.max(0, Math.min(cfg.sets.length - 1, s.set | 0));
         const toks: Tok[] = cfg.sets[set].tokens;
         const t = Math.max(0, Math.min(toks.length - 1, s.t | 0));
-        const stage = Math.max(0, Math.min(stages.length - 1, s.stage | 0));
-        this.st = { set, t, stage };
+        this.st = { set, t };
         this.querySelectorAll('[data-set]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.set === String(set))));
-        this.querySelectorAll('[data-stage]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.stage === String(stage))));
         q<HTMLElement>('[data-out="tokens"]').innerHTML = toks
           .map((x, j) => `<button type="button" class="tk-tok${x.special ? ' special' : ''}${j === t ? ' cur' : ''}" data-j="${j}" aria-pressed="${j === t}" style="--tc:${tokColor(j, x.special)}"><span class="tt">${show(x)}</span><span class="ti">${fmt(x.id)}</span></button>`)
           .join('');
-        q<HTMLElement>('[data-out="stage"]').innerHTML = render[stages[stage]](toks, t);
-        q<HTMLElement>('[data-out="pos"]').textContent = `${stage + 1} / ${stages.length}`;
-        q<HTMLButtonElement>('[data-step="-1"]').disabled = stage === 0;
-        q<HTMLButtonElement>('[data-step="1"]').disabled = stage === stages.length - 1;
+        for (const sec of secs) sec.querySelector<HTMLElement>('.tk-body')!.innerHTML = render[sec.dataset.sec!](toks, t);
       };
 
+      // Switching token or sample redraws every stage, and stages above the reader can change height.
+      // Keep the stage the reader is looking at where it is on screen.
+      const steady = (fn: () => void) => {
+        const pin = q<HTMLElement>('.tk-pin').getBoundingClientRect().bottom;
+        const anchor = secs.find((x) => x.getBoundingClientRect().bottom > pin + 8);
+        const before = anchor?.getBoundingClientRect().top ?? 0;
+        fn();
+        if (anchor) window.scrollBy(0, anchor.getBoundingClientRect().top - before);
+      };
       this.addEventListener('click', (e) => {
         const el = e.target as HTMLElement;
         if (el.closest('a')) return;
         const tk = el.closest<HTMLElement>('.tk-tok[data-j]');
         const set = el.closest<HTMLElement>('[data-set]');
-        const stage = el.closest<HTMLElement>('[data-stage]');
-        const step = el.closest<HTMLElement>('[data-step]');
-        if (tk) this.apply({ ...this.st, t: Number(tk.dataset.j) });
-        else if (set) this.apply({ ...this.st, set: Number(set.dataset.set) });
-        else if (stage) this.apply({ ...this.st, stage: Number(stage.dataset.stage) });
-        else if (step) this.apply({ ...this.st, stage: this.st.stage + Number(step.dataset.step) });
+        if (tk) steady(() => this.apply({ ...this.st, t: Number(tk.dataset.j) }));
+        else if (set) steady(() => this.apply({ ...this.st, set: Number(set.dataset.set) }));
       });
       this.apply(this.st);
     }
@@ -649,9 +643,7 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
     gap: 0.4rem;
     margin-bottom: 0.5rem;
   }
-  .trace .tk-tabs button,
-  .trace .tk-stages button,
-  .trace .tk-nav button {
+  .trace .tk-tabs button {
     font: inherit;
     font-size: var(--step--1);
     padding: 0.2rem 0.7rem;
@@ -661,8 +653,7 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
     color: var(--ink-soft);
     cursor: pointer;
   }
-  .trace .tk-tabs button[aria-selected='true'],
-  .trace .tk-stages button[aria-selected='true'] {
+  .trace .tk-tabs button[aria-selected='true'] {
     background: var(--ink);
     border-color: var(--ink);
     color: var(--paper-raised);
@@ -706,39 +697,33 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
     outline: 2px solid var(--ink);
     outline-offset: 1px;
   }
-  .trace .tk-stages {
-    list-style: none;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    margin: 0.8rem 0 0.2rem;
-    padding: 0.7rem 0 0;
-    border-top: 1px solid var(--rule-soft);
-  }
-  .trace .tk-stages li {
-    margin: 0;
+  /* Sample tabs and tokens stay in view while the stages scroll past. */
+  .trace .tk-pin {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: 0 -1rem;
+    padding: 0.5rem 1rem 0.5rem;
+    background: var(--paper-raised);
+    border-bottom: 1px solid var(--rule-soft);
   }
   .trace .tk-n {
     font-family: var(--font-mono);
-    margin-right: 0.3rem;
+    margin-right: 0.45rem;
     opacity: 0.7;
   }
-  .trace .tk-stage {
-    min-height: 12rem;
-    padding: 0.6rem 0 0;
+  .trace .tk-sec {
+    padding: 1rem 0 0.4rem;
   }
-  .trace .tk-nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 0.6rem;
-    font-size: var(--step--1);
-    color: var(--ink-soft);
-    font-family: var(--font-mono);
+  .trace .tk-sec + .tk-sec {
+    border-top: 1px solid var(--rule-soft);
   }
-  .trace .tk-nav button:disabled {
-    opacity: 0.4;
-    cursor: default;
+  .trace .tk-h {
+    margin: 0 0 0.3rem;
+    font-family: var(--font-ui);
+    font-size: var(--step-0);
+    font-weight: 600;
+    color: var(--ink);
   }
   .trace .tk-read {
     margin: 0.6rem 0 0;

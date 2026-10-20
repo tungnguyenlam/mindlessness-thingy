@@ -166,3 +166,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: owner wanted a geometric token-level picture: new tensorpics.ts vocabulary (token = horizontal bar sized by its width, weight = gridded rectangle as tall as its input and as wide as its output with the input ghosted down its left edge, colour = which token, stripes = mix, side-by-side parts = concat, hatched = RoPE, dashed teal = cached); Embedding redrawn as one-hot x table; One head replaced by Q,K,V / Heads / Scores / Mix values / Join heads (MLA two-track latent paths, GQA grouping, K^T and V as token-coloured matrices, recoloured token after the residual, whole sequence before/after); token chips carry their colour
 - files: src/components/overview/{TokenTrace.astro,tensorpics.ts}
 - open: lengths use a per-model square-root scale (head stages zoomed), so concatenated parts split a bar proportionally rather than adding lengths; attention weights and the 50/50 residual blend are illustrations (labelled example); FFN/Experts, Cache and Output stages not yet redrawn in this style
+
+## 2026-10-21 · feat(overview): show all token-tab stages at once, tokens pinned
+- did: owner did not want to switch stage tabs: the Follow a token tab now stacks all stages as numbered sections; sample tabs and tokens are sticky at the top; switching token keeps the stage being read at the same screen height; snapshot is now {set, t}
+- files: src/components/overview/TokenTrace.astro
+- open: no keep-place test case for the sticky bar or the scroll anchoring (checked by hand with a scratch browser script)
