@@ -79,6 +79,8 @@ $k$ is 3 in every released LFM2 dense size <Cite id="lfm2-report" where="Table 1
 
 Because the kernel is short, decode only needs the recent window on each channel, not every past key and value. That is why a stack of these blocks can carry a 32K prompt on a CPU without the cache dominating memory. The remaining long-range work is left to a few [[gqa]] layers; that layout is [[hybrid-conv-attention]].
 
+To watch the block act on real tokens, with the window cache while decoding, see the interactive view in [[lfm2-5-350m]].
+
 ## What it costs
 
 The convolution is linear in sequence length and cheap per step: depthwise, kernel 3, no score matrix. What you give up is global mixing. A token cannot see an item thousands of steps away through this block alone. That is the reason LFM2 still keeps a minority of softmax attention layers <Cite id="lfm2-report" where="§2.1" />.

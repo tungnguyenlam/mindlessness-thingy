@@ -29,6 +29,17 @@ LFM2.5-350M is the 350M LFM2 hybrid trained further. The block recipe is still [
 The LFM2 report lists feed-forward width 4608 for LFM2-350M <Cite id="lfm2-report" where="Table 1" />. The released LFM2.5-350M config has `intermediate_size: 6656`, but it also sets `block_auto_adjust_ff_dim`, so the model builds width int(2 · 6656 / 3) rounded up to a multiple of 256, which is 4608 <Cite id="lfm2-modeling" where="Lfm2MLP" />. The two agree, and only 4608 makes the matrices add up to the card's 350M. The same config sets `max_position_embeddings` to 128000; the card's supported context is 32,768.
 </Callout>
 
+## The convolution on real tokens
+
+<ConvTokens
+  model="lfm2-5-350m"
+  caption="Tokens come from the model's own tokenizer, with the begin-of-sequence token the tokenizer adds in front. Choose a token, then switch to Decode to see what the window cache keeps."
+/>
+
+Ten of the sixteen layers do their mixing in this picture. Only one row of it moves information between tokens: the convolution reads the current token and the two before it, because the kernel is 3 <Cite id="lfm2-5-350m-config" where="conv_L_cache" />. Every other stage, including both gates and both linear maps, treats each token alone. That is why the layer needs no growing cache. [[gated-short-conv]] explains the operator itself.
+
+Information still travels far, but not through the convolution. Each conv layer pushes a token's content two positions further, and the longest run of conv layers between attention layers here is two, so the layers in between mix over about five tokens. The attention layers then read the whole [[kv-cache]].
+
 ## What is new
 
 ### More pretraining, then RL

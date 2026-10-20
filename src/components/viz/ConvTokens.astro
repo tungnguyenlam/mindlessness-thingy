@@ -1,0 +1,579 @@
+---
+// A gated short convolution in token space: real tokens from the model's tokenizer, one column per
+// token, one row per stage of the block. Pick a token and see which other tokens its output reads
+// (only the convolution row crosses tokens), then one channel's own kernel, prefill against decode
+// (what the window cache holds), and how far stacked conv layers reach. Sizes come from model data.
+//   <ConvTokens model="lfm2-5-350m" />
+//   <ConvTokens model="lfm2-5-350m" samples={['english', 'code']} />
+import { requireModel } from '../../lib/models/load';
+import { parsePattern } from '../../lib/models/data.mjs';
+import { samplesFor, SAMPLES, visible } from '../../lib/tokenizers/samples';
+
+interface Props {
+  model: string;
+  /** Sample ids from scripts/tokenizer-samples.py; one tab each. */
+  samples?: string[];
+  caption?: string;
+}
+const { model: modelId, samples: sampleIds = ['english', 'code'], caption } = Astro.props;
+const m = await requireModel(modelId, '<ConvTokens>');
+const num = (key: string) => {
+  const v = m.values[key]?.v;
+  if (typeof v !== 'number') throw new Error(`<ConvTokens model="${modelId}">: the model needs a numeric ${key}`);
+  return v;
+};
+const k = num('conv_window');
+const d = num('hidden_size');
+const tokId = m.values.tokenizer?.v as string | undefined;
+if (!tokId) throw new Error(`<ConvTokens model="${modelId}">: the model has no tokenizer field`);
+const gen = samplesFor(tokId, '<ConvTokens>');
+const MAXTOK = 9;
+// A real input starts with the begin-of-sequence token (the tokenizer adds it), then the text.
+const sets = sampleIds.map((id) => {
+  const s = SAMPLES.find((x) => x.id === id);
+  if (!s) throw new Error(`<ConvTokens>: unknown sample "${id}" (one of ${SAMPLES.map((x) => x.id).join(', ')})`);
+  const chips = gen.samples[id].chips.slice(0, MAXTOK);
+  return { id, label: s.label, tokens: [{ text: '<|startoftext|>', id: 1, special: true }, ...chips.map((c) => ({ text: c.text, id: c.ids[0], special: false }))] };
+});
+const layers = m.values.layer_pattern ? parsePattern(m.values.layer_pattern.v) : [];
+const runs: number[] = [];
+let run = 0;
+for (const l of layers) {
+  if (l[0] === 'C') run++;
+  else if (run) (runs.push(run), (run = 0));
+}
+if (run) runs.push(run);
+const convLayers = layers.filter((l) => l[0] === 'C').length;
+const attnLayers = layers.filter((l) => l[0] === 'A').length;
+const kvHeads = typeof m.values.kv_heads?.v === 'number' ? m.values.kv_heads.v : null;
+const heads = typeof m.values.heads?.v === 'number' ? m.values.heads.v : null;
+const headDim = heads ? d / heads : null;
+const config = JSON.stringify({ k, d, sets, runs, convLayers, attnLayers, kvPerToken: kvHeads && headDim ? 2 * kvHeads * headDim : null });
+---
+
+<x-convtokens class="ct ui" data-restorable>
+  <script type="application/json" set:html={config} />
+  <p class="title">{m.title}: one gated short convolution, token by token</p>
+
+  <div class="bar">
+    {
+      sets.length > 1 && (
+        <div class="tabs" role="tablist" aria-label="Sample text">
+          {sets.map((s, i) => (
+            <button type="button" role="tab" data-set={i} aria-selected={i === 0 ? 'true' : 'false'}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )
+    }
+    <div class="tabs" role="tablist" aria-label="Mode">
+      <button type="button" role="tab" data-mode="prefill" aria-selected="true">Prefill: whole prompt</button>
+      <button type="button" role="tab" data-mode="decode" aria-selected="false">Decode: one new token</button>
+    </div>
+  </div>
+
+  <section>
+    <h4>1. Which tokens does one output read?</h4>
+    <div class="scroll" data-keep-scroll>
+      <div class="grid" role="grid" aria-label="Stages of the block by token">
+        <div class="rowlabel head"></div>
+        <div class="cells head" data-cells="tok"></div>
+        <div class="rowlabel"><b>h</b><span>block input</span></div>
+        <div class="cells" data-cells="h"></div>
+        <div class="rowlabel"><b>B, C, h̃</b><span>Linear in, each token alone</span></div>
+        <div class="cells" data-cells="lin"></div>
+        <div class="rowlabel"><b>y = B ⊙ h̃</b><span>gate, each token alone</span></div>
+        <div class="cells" data-cells="y"></div>
+        <div class="rowlabel cross"><b>z = Conv<sub>k</sub>(y)</b><span>reads {k} tokens: the only row that crosses</span></div>
+        <div class="cells" data-cells="z"></div>
+        <div class="rowlabel"><b>o</b><span>C ⊙ z, then Linear out</span></div>
+        <div class="cells" data-cells="o"></div>
+      </div>
+    </div>
+    <p class="readout" data-out="path" aria-live="polite"></p>
+    <p class="hint">Click a token to choose the position whose output we follow.</p>
+  </section>
+
+  <section>
+    <h4>2. Channels never mix inside the convolution</h4>
+    <div class="scroll" data-keep-scroll>
+      <table class="chan" data-out="chan"></table>
+    </div>
+    <p class="readout" data-out="chanread" aria-live="polite"></p>
+    <p class="hint">Click a channel row. Each channel has its own {k} kernel weights; only the Linear layers move information between channels.</p>
+  </section>
+
+  <section>
+    <h4>3. How far back can stacked conv layers see?</h4>
+    <label class="slider">
+      <span>Consecutive conv layers</span>
+      <input type="range" min="1" max={Math.max(convLayers, 1)} value="1" data-in="layers" />
+      <output data-out="n">1</output>
+    </label>
+    <div class="scroll" data-keep-scroll>
+      <div class="cells reach" data-cells="reach"></div>
+    </div>
+    <p class="readout" data-out="reachread" aria-live="polite"></p>
+  </section>
+
+  {caption && <p class="caption">{caption}</p>}
+</x-convtokens>
+
+<script>
+  // Restorable (src/scripts/trail.ts): sample, mode, chosen token, chosen channel and slider come back.
+  interface Tok { text: string; id: number; special: boolean }
+  interface Cfg { k: number; d: number; sets: { id: string; label: string; tokens: Tok[] }[]; runs: number[]; convLayers: number; attnLayers: number; kvPerToken: number | null }
+  const ws = (t: string) => t.replace(/ /g, '·').replace(/\n/g, '↵').replace(/\t/g, '→');
+  const fmt = (x: number) => x.toLocaleString('en-US');
+  const CHANNELS = ['1', '2', 'i', 'd'];
+
+  class XConvTokens extends HTMLElement {
+    st = { set: 0, mode: 'prefill', t: 4, ch: 2, n: 1 };
+    ready = true;
+    snapshot() {
+      const s = this.st;
+      return s.set || s.mode !== 'prefill' || s.t !== 4 || s.ch !== 2 || s.n !== 1 ? { ...s } : null;
+    }
+    restore(state: unknown) {
+      const s = state as Partial<XConvTokens['st']>;
+      if (s && typeof s === 'object') this.apply({ ...this.st, ...s });
+    }
+    apply(s: XConvTokens['st']) {}
+    connectedCallback() {
+      const cfg: Cfg = JSON.parse(this.querySelector('script[type="application/json"]')!.textContent!);
+      const { k } = cfg;
+      const q = <T extends Element>(sel: string) => this.querySelector<T>(sel)!;
+      const cellsOf = (name: string) => q<HTMLElement>(`[data-cells="${name}"]`);
+      const out = (name: string) => q<HTMLElement>(`[data-out="${name}"]`);
+      const slider = q<HTMLInputElement>('[data-in="layers"]');
+
+      this.apply = (s) => {
+        const set = cfg.sets[Math.max(0, Math.min(cfg.sets.length - 1, s.set))];
+        const toks = set.tokens;
+        const n = toks.length;
+        const t = Math.max(0, Math.min(n - 1, s.t));
+        const ch = Math.max(0, Math.min(CHANNELS.length - 1, s.ch));
+        const layersN = Math.max(1, Math.min(Math.max(cfg.convLayers, 1), s.n));
+        const decode = s.mode === 'decode';
+        this.st = { set: cfg.sets.indexOf(set), mode: decode ? 'decode' : 'prefill', t, ch, n: layersN };
+        this.querySelectorAll('[data-set]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.set === String(this.st.set))));
+        this.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.mode === this.st.mode)));
+        slider.value = String(layersN);
+        out('n').textContent = String(layersN);
+
+        const inWindow = (j: number) => j <= t && j > t - k;
+        const name = (j: number) => (j < 0 ? '0' : `“${ws(toks[j].text).trim() || ws(toks[j].text)}”`);
+        const col = (j: number, stage: string): string => {
+          // Decode: tokens before the window were processed earlier and are not touched again; the
+          // window holds the last k inputs of the conv (cache); the new token is column t.
+          if (j > t) return 'future';
+          if (decode) return j === t ? 'new' : inWindow(j) ? (stage === 'y' || stage === 'z' ? 'cached' : 'old') : 'old';
+          return inWindow(j) ? 'read' : 'other';
+        };
+
+        // Row 1: header (token chips) and stage rows. Pad columns (left of the first token) make the
+        // window of the first tokens visible.
+        const pad = k - 1;
+        const win: number[] = [];
+        for (let i = k - 1; i >= 0; i--) win.push(t - i);
+        const header = cellsOf('tok');
+        header.style.setProperty('--n', String(n + pad));
+        const stageRow = (stage: string) => {
+          const el = cellsOf(stage);
+          el.style.setProperty('--n', String(n + pad));
+          el.textContent = '';
+          for (let p = 0; p < pad; p++) {
+            const c = document.createElement('span');
+            c.className = 'cell pad' + (stage === 'y' || stage === 'z' ? '' : ' blank');
+            c.textContent = stage === 'y' ? '0' : '';
+            c.title = 'before the first token: nothing to read, so this tap sees zeros';
+            el.append(c);
+          }
+          for (let j = 0; j < n; j++) {
+            const state = col(j, stage);
+            const hit = stage === 'o' || stage === 'z' ? j === t : stage === 'lin' ? inWindow(j) || j === t : inWindow(j);
+            const c = document.createElement('span');
+            c.className = `cell ${stage} ${state}${hit ? ' hit' : ''}${j === t ? ' cur' : ''}`;
+            c.dataset.j = String(j);
+            c.textContent = { h: `h${j + 1}`, lin: `B,C,h̃`, y: `y${j + 1}`, z: j <= t ? `z${j + 1}` : '', o: j <= t ? `o${j + 1}` : '' }[stage] ?? '';
+            if (decode && j < t && stage !== 'y') c.textContent = '';
+            if (decode && j < t - k + 1 && stage === 'y') c.textContent = '';
+            el.append(c);
+          }
+        };
+        header.textContent = '';
+        for (let p = 0; p < pad; p++) header.append(Object.assign(document.createElement('span'), { className: 'tok padtok', textContent: '0' }));
+        toks.forEach((tk, j) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = `tok${tk.special ? ' special' : ''}${j === t ? ' cur' : ''}${j > t ? ' future' : ''}`;
+          b.dataset.j = String(j);
+          b.setAttribute('aria-pressed', String(j === t));
+          b.innerHTML = `<span class="tt"></span><span class="ti">${tk.id}</span>`;
+          b.querySelector('.tt')!.textContent = ws(tk.text);
+          header.append(b);
+        });
+        ['h', 'lin', 'y', 'z', 'o'].forEach(stageRow);
+
+        const names = win.filter((j) => j >= 0).map(name).join(', ');
+        const padNote = t < k - 1 ? ` Positions before the first token count as zeros (${k - 1 - t} of the ${k} taps).` : '';
+        out('path').innerHTML = decode
+          ? `Generating token ${t + 1}. The block runs on <b>one</b> token. The convolution takes y${t + 1} from this step and the previous ${Math.min(t, k - 1)} from its window cache, then the window slides by one. Earlier tokens are not recomputed.`
+          : `Output o${t + 1} reads y from ${names}. Every other stage touches token ${t + 1} alone, and tokens to its right are never read because the convolution only looks back.${padNote}`;
+
+        // Section 2: one channel's kernel on the window.
+        const tbl = out('chan');
+        tbl.textContent = '';
+        const hr = tbl.createTHead().insertRow();
+        hr.insertCell().outerHTML = '<th></th>';
+        win.forEach((j, i) => {
+          hr.insertCell().outerHTML = `<th class="${j < 0 ? 'padh' : ''}">${j < 0 ? '0' : '<span class="tt"></span>'}</th>`;
+          if (j >= 0) (hr.cells[i + 1].querySelector('.tt') as HTMLElement).textContent = ws(toks[j].text);
+        });
+        hr.insertCell().outerHTML = '<th>kernel</th>';
+        hr.insertCell().outerHTML = '<th>z</th>';
+        const body = tbl.createTBody();
+        const labels = ['channel 1', 'channel 2', 'channel c', `channel d`];
+        CHANNELS.forEach((cid, ci) => {
+          if (ci === 3) {
+            const gap = body.insertRow();
+            gap.className = 'gap';
+            gap.insertCell().colSpan = k + 3;
+            gap.cells[0].textContent = '⋮';
+          }
+          const r = body.insertRow();
+          r.dataset.ch = String(ci);
+          r.className = ci === ch ? 'pick' : '';
+          r.insertCell().textContent = ci === 3 ? `channel d = ${fmt(cfg.d)}` : labels[ci];
+          win.forEach((j, i) => {
+            const c = r.insertCell();
+            c.className = j < 0 ? 'pad' : 'val';
+            c.textContent = j < 0 ? '0' : `y${j + 1},${cid}`;
+          });
+          const kc = r.insertCell();
+          kc.className = 'ker';
+          kc.textContent = `w${cid},0…${k - 1}`;
+          const zc = r.insertCell();
+          zc.className = 'res';
+          zc.textContent = `z${t + 1},${cid}`;
+        });
+        const cid = CHANNELS[ch];
+        const terms = win.map((j, i) => `w${cid},${i} · ${j < 0 ? '0' : `y${j + 1},${cid}`}`).join(' + ');
+        out('chanread').innerHTML = `z${t + 1},${cid} = ${terms}. Channel ${cid} of ${name(t)} is combined only with channel ${cid} of the ${k - 1} tokens before it.`;
+
+        // Section 3: reach through n stacked conv layers (each adds k − 1 tokens back).
+        const reach = 1 + (k - 1) * layersN;
+        const r = cellsOf('reach');
+        r.style.setProperty('--n', String(n));
+        r.textContent = '';
+        toks.forEach((tk, j) => {
+          const c = document.createElement('span');
+          const back = t - j;
+          c.className = `cell rch ${j === t ? 'cur hit' : back > 0 && back < reach ? 'hit' : back > 0 ? 'far' : 'future'}`;
+          c.textContent = j > t ? '' : back === 0 ? 'self' : back < reach ? `−${back}` : '';
+          r.append(c);
+        });
+        const longest = cfg.runs.length ? Math.max(...cfg.runs) : 0;
+        const seen = Math.min(reach, t + 1);
+        out('reachread').innerHTML =
+          `After ${layersN} conv layer${layersN > 1 ? 's' : ''} in a row, token ${t + 1} has mixed in information from ${reach - 1} tokens back (${seen} token${seen > 1 ? 's' : ''} here, itself included). ` +
+          (cfg.runs.length
+            ? `In this model the longest run of conv layers between attention layers is ${longest}, and every attention layer then reads <b>all</b> earlier tokens, so the convolution only has to handle the nearby ones.`
+            : '');
+        if (decode && cfg.kvPerToken) {
+          out('path').innerHTML += ` The cache holds ${k} × ${fmt(cfg.d)} = ${fmt(k * cfg.d)} numbers per conv layer however long the prompt gets; an attention layer here stores ${fmt(cfg.kvPerToken)} numbers for every token so far.`;
+        }
+      };
+
+      this.addEventListener('click', (e) => {
+        const el = e.target as HTMLElement;
+        const tok = el.closest<HTMLElement>('.tok[data-j], .cell[data-j]');
+        const set = el.closest<HTMLElement>('[data-set]');
+        const mode = el.closest<HTMLElement>('[data-mode]');
+        const row = el.closest<HTMLElement>('tr[data-ch]');
+        if (tok) this.apply({ ...this.st, t: Number(tok.dataset.j) });
+        else if (set) this.apply({ ...this.st, set: Number(set.dataset.set), t: Math.min(this.st.t, cfg.sets[Number(set.dataset.set)].tokens.length - 1) });
+        else if (mode) this.apply({ ...this.st, mode: mode.dataset.mode! });
+        else if (row) this.apply({ ...this.st, ch: Number(row.dataset.ch) });
+      });
+      slider.addEventListener('input', () => this.apply({ ...this.st, n: Number(slider.value) }));
+      this.apply(this.st);
+    }
+  }
+  customElements.define('x-convtokens', XConvTokens);
+</script>
+
+<style is:global>
+  .ct {
+    display: block;
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .ct .title {
+    margin: 0 0 0.7rem;
+    font-weight: 600;
+  }
+  .ct h4 {
+    margin: 1.2rem 0 0.5rem;
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--ink-soft);
+  }
+  .ct .bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.2rem;
+  }
+  .ct .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .ct .tabs button {
+    font: inherit;
+    font-size: var(--step--1);
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .ct .tabs button[aria-selected='true'] {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper-raised);
+  }
+  .ct .scroll {
+    overflow-x: auto;
+  }
+  .ct .grid {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr;
+    gap: 4px 0.6rem;
+    align-items: stretch;
+    min-width: 40rem;
+  }
+  .ct .rowlabel {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    font-size: 0.78rem;
+    line-height: 1.25;
+    color: var(--ink-soft);
+  }
+  .ct .rowlabel b {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .ct .rowlabel.cross b {
+    color: var(--role-op);
+  }
+  .ct .cells {
+    display: grid;
+    grid-template-columns: repeat(var(--n), minmax(3.1rem, 1fr));
+    gap: 4px;
+  }
+  .ct .reach {
+    min-width: 34rem;
+  }
+  .ct .cell,
+  .ct .tok {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    min-height: 1.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-block);
+    border: 1px solid var(--rule-soft);
+    background: var(--paper);
+    color: var(--ink-faint);
+    padding: 0 0.15rem;
+    white-space: nowrap;
+  }
+  .ct .tok {
+    flex-direction: column;
+    gap: 0;
+    padding: 0.2rem 0.15rem;
+    border-color: var(--rule);
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.2;
+  }
+  .ct .tok .ti {
+    font-size: 0.62rem;
+    color: var(--ink-faint);
+  }
+  .ct .tok .tt {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ct .tok.special .tt {
+    font-size: 0.6rem;
+  }
+  .ct .tok.cur {
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
+  }
+  .ct .tok.future,
+  .ct .cell.future {
+    opacity: 0.35;
+  }
+  .ct .tok.padtok,
+  .ct .cell.pad {
+    border-style: dashed;
+    background: transparent;
+    color: var(--ink-faint);
+  }
+  .ct .cell.blank {
+    border-color: transparent;
+  }
+  /* roles: h, B/C/h̃, y, z, o are activations; the conv row is an op; the window cache is the cache role */
+  .ct .cell.hit {
+    color: var(--ink);
+    background: var(--role-activation-wash);
+    border-color: var(--role-activation);
+  }
+  .ct .cell.z.hit {
+    background: var(--role-op-wash);
+    border-color: var(--role-op);
+  }
+  .ct .cell.o.hit {
+    background: var(--role-weight-wash);
+    border-color: var(--role-weight);
+  }
+  .ct .cell.cached,
+  .ct .cell.new.y {
+    color: var(--ink);
+    background: var(--role-cache-wash);
+    border-color: var(--role-cache);
+  }
+  .ct .cell.new:not(.y) {
+    color: var(--ink);
+    background: var(--role-activation-wash);
+    border-color: var(--role-activation);
+  }
+  .ct .cell.old {
+    opacity: 0.4;
+  }
+  .ct .cell.cur {
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
+  }
+  .ct .cell.rch.far {
+    opacity: 0.5;
+  }
+  .ct .chan {
+    border-collapse: separate;
+    border-spacing: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    min-width: 28rem;
+  }
+  .ct .chan th {
+    font-weight: 500;
+    color: var(--ink-soft);
+    padding: 0 0.3rem;
+    text-align: center;
+  }
+  .ct .chan td {
+    padding: 0.3rem 0.5rem;
+    text-align: center;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-block);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .ct .chan tr[data-ch] {
+    cursor: pointer;
+  }
+  .ct .chan td:first-child {
+    text-align: left;
+    border-color: transparent;
+    background: transparent;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  .ct .chan td.val {
+    background: var(--role-activation-wash);
+    border-color: var(--role-activation);
+  }
+  .ct .chan td.ker {
+    background: var(--role-weight-wash);
+    border-color: var(--role-weight);
+  }
+  .ct .chan td.res {
+    background: var(--role-op-wash);
+    border-color: var(--role-op);
+  }
+  .ct .chan td.pad {
+    border-style: dashed;
+    color: var(--ink-faint);
+  }
+  .ct .chan tr:not(.pick) td:not(:first-child) {
+    opacity: 0.55;
+  }
+  .ct .chan tr.pick td:first-child {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .ct .chan tr.gap td {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    text-align: left;
+    color: var(--ink-faint);
+  }
+  .ct .chan .tt {
+    display: inline-block;
+    max-width: 6rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
+  .ct .slider {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    font-size: var(--step--1);
+    margin-bottom: 0.7rem;
+    color: var(--ink-soft);
+  }
+  .ct .slider input {
+    flex: 1 1 8rem;
+    max-width: 16rem;
+  }
+  .ct .slider output {
+    font-family: var(--font-mono);
+    min-width: 1.5rem;
+    color: var(--ink);
+  }
+  .ct .readout {
+    margin: 0.6rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink);
+  }
+  .ct .hint,
+  .ct .caption {
+    margin: 0.4rem 0 0;
+    font-size: 0.75rem;
+    color: var(--ink-faint);
+  }
+  .ct .caption {
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    margin-top: 1rem;
+  }
+
+
+</style>
