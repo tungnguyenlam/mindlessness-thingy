@@ -3,7 +3,7 @@
 // can grandfather notes written before a rule existed; anything new is an error.
 import { maskComponents } from '../lib/mdx-props.mjs';
 
-const VISUALS = ['ArchDiagram', 'ModelDiagram', 'LayerStrip', 'Compare', 'Calc', 'Stepper', 'Figure', 'MaskGrid', 'ShapeFlow', 'Timeline', 'ModelOverview', 'TokenizerFlow', 'TokenizerCompare', 'Tokenizer'];
+const VISUALS = ['ArchDiagram', 'BiasVariance', 'ModelDiagram', 'LayerStrip', 'Compare', 'Calc', 'Stepper', 'Figure', 'MaskGrid', 'ShapeFlow', 'Timeline', 'ModelOverview', 'TokenizerFlow', 'TokenizerCompare', 'Tokenizer'];
 const TABLES = ['Spec', 'ModelSpec'];
 const ALL = [...VISUALS, ...TABLES];
 const MARK = '\u0000VISUAL\u0000';

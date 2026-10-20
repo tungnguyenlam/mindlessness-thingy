@@ -122,6 +122,7 @@ Available in every note without imports. Full props are in each file under `src/
 | Component | Use it for |
 | --- | --- |
 | `<ArchDiagram>` | Hand-drawn block diagrams for concepts: data flow, what is cached. Leave out `col`/`row` and blocks are placed from the edges; edges route around blocks; groups take `blocks: [ids]`. Blocks can link to notes. (`link`), or, inside a component with views, open one (`open`, drawn with a + badge). |
+| `<BiasVariance>` | Bias and variance measured live: many noisy training sets, one model family fit to each in the browser (`src/lib/fitlab.mjs`), the fits on the left (spread = variance, gap to the truth = bias), bias², variance, test and train error across the model's knob on the right. `models={['poly', 'knn', ...]}` gives one tab each; `controls` adds noise, n and λ sliders. |
 | `<Calc>` | Sliders plus formulas, e.g. cache size as context length grows. |
 | `<MaskGrid>` | Which keys each query may read (`causal`, `window`, `topk`, `full`), several masks compared with tabs; the reader picks a query row. |
 | `<ShapeFlow>` | Tensor shapes step by step, the dimension that changed highlighted. Symbols, not numbers. |

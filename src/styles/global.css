@@ -28,6 +28,11 @@
   --role-route-wash: #f6ead2;
   --role-op-wash: #e6e9ee;
 
+  /* Chart series for bias and variance (<BiasVariance>). Not diagram roles; validated as a pair
+     for colour-blind separation, and always shown with a legend or direct label. */
+  --series-bias: #e0662f;
+  --series-variance: #169a6b;
+
   --warn: #b3412e;
 
   /* Your place: the return-to-place ribbon and the "you were here" mark. Never used for diagram roles. */

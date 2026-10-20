@@ -9,6 +9,7 @@ const g = await getGraph();
 const citedBy = (id: string) => [...g.notes.values()].filter((n) => n.data.sources.includes(id));
 const typeLabel = {
   paper: 'Paper',
+  book: 'Book',
   report: 'Technical report',
   config: 'Model config',
   'model-card': 'Model card',

@@ -1,0 +1,855 @@
+---
+// Bias and variance, measured live. Many training sets are drawn from one true curve, the same
+// model is fit to each (src/lib/fitlab.mjs), and two linked panels show the result: on the left the
+// fits themselves (their spread is the variance, the gap between their average and the truth is the
+// bias), on the right bias², variance, test and train error across the model's knob. Hover or drag
+// on the right panel to move the knob; tabs switch between model families.
+//   <BiasVariance title="..." models={['poly', 'knn']} />
+//   <BiasVariance title="..." models={['features']} controls={['noise', 'n', 'lambda']} start={{ features: 20 }} />
+// models: keys of FAMILIES in src/lib/fitlab.mjs. start: knob value per model (nearest grid value).
+import { FAMILIES } from '../../lib/fitlab.mjs';
+
+type Control = 'noise' | 'n' | 'lambda';
+interface Props {
+  title: string;
+  models: string[];
+  /** Training points per set. */
+  n?: number;
+  /** Standard deviation σ of the label noise. */
+  noise?: number;
+  controls?: Control[];
+  start?: Record<string, number>;
+  caption?: string;
+}
+const { title, models, n = 20, noise = 0.3, controls = [], start = {}, caption } = Astro.props;
+if (!models?.length) throw new Error(`<BiasVariance title="${title}">: needs models={[...]}`);
+for (const m of models) if (!(m in FAMILIES)) throw new Error(`<BiasVariance title="${title}">: unknown model "${m}"; use ${Object.keys(FAMILIES).join(', ')}`);
+const fam = (m: string) => (FAMILIES as Record<string, { label: string; tab: string; knob: string }>)[m];
+const config = JSON.stringify({ models, n, noise, controls, start });
+---
+
+<x-biasvar class="biasvar ui" data-restorable>
+  <script type="application/json" set:html={config} />
+  <p class="bv-title">{title}</p>
+  {
+    models.length > 1 && (
+      <div class="bv-tabs" role="tablist">
+        {models.map((m, k) => (
+          <button type="button" role="tab" data-model={k} aria-selected={k === 0 ? 'true' : 'false'}>
+            {fam(m).tab}
+          </button>
+        ))}
+      </div>
+    )
+  }
+  <p class="bv-model">{fam(models[0]).label}</p>
+  <div class="bv-panels">
+    <div class="bv-panel">
+      <p class="bv-head">The fits</p>
+      <svg class="bv-fits" viewBox="0 0 340 232" role="img" aria-label="Fits of the model to many training sets"></svg>
+      <ul class="bv-legend">
+        <li><i class="k-truth"></i>true curve f</li>
+        <li><i class="k-dot"></i>one training set</li>
+        <li><i class="k-hi"></i>its fit</li>
+        <li><i class="k-thin"></i>fits to other sets</li>
+        <li><i class="k-mean"></i>average fit</li>
+        <li><i class="k-gap"></i>bias (the gap)</li>
+      </ul>
+    </div>
+    <div class="bv-panel">
+      <p class="bv-head">Error as the knob turns <span class="bv-scale">(log scale)</span></p>
+      <svg class="bv-curve" viewBox="0 0 340 232" role="img" aria-label="Bias squared, variance, test and train error across the knob"></svg>
+      <ul class="bv-legend">
+        <li><i class="k-bias"></i>bias²</li>
+        <li><i class="k-var"></i>variance</li>
+        <li><i class="k-test"></i>test error</li>
+        <li><i class="k-train"></i>train error</li>
+        <li><i class="k-noise"></i>noise σ²</li>
+      </ul>
+    </div>
+  </div>
+  <div class="bv-controls">
+    <label>
+      <span class="bv-knob-name">{fam(models[0]).knob}</span>
+      <input type="range" name="knob" min="0" max="10" step="1" value="0" />
+      <output class="bv-knob-val">…</output>
+    </label>
+    {
+      controls.includes('noise') && (
+        <label>
+          <span>noise σ</span>
+          <input type="range" name="noise" min="0" max="0.6" step="0.05" value={noise} />
+          <output data-for="noise">{noise}</output>
+        </label>
+      )
+    }
+    {
+      controls.includes('n') && (
+        <label>
+          <span>training points n</span>
+          <input type="range" name="n" min="10" max="40" step="1" value={n} />
+          <output data-for="n">{n}</output>
+        </label>
+      )
+    }
+    {
+      controls.includes('lambda') && (
+        <label>
+          <span>ridge penalty λ</span>
+          <input type="range" name="lambda" min="0" max="8" step="1" value="0" />
+          <output data-for="lambda">0</output>
+        </label>
+      )
+    }
+  </div>
+  <div class="bv-readout" aria-live="polite">
+    <div class="bv-stack" aria-hidden="true"><span class="s-bias"></span><span class="s-var"></span><span class="s-noise"></span></div>
+    <dl class="bv-stats">
+      <div><dt><i class="k-bias"></i>bias²</dt><dd data-stat="bias2">…</dd></div>
+      <div><dt><i class="k-var"></i>variance</dt><dd data-stat="variance">…</dd></div>
+      <div><dt><i class="k-noise"></i>noise σ²</dt><dd data-stat="noise">…</dd></div>
+      <div><dt><i class="k-test"></i>test error</dt><dd data-stat="test">…</dd></div>
+      <div><dt><i class="k-train"></i>train error</dt><dd data-stat="train">…</dd></div>
+      {models.includes('features') && <div><dt>weight size ‖w‖</dt><dd data-stat="norm">…</dd></div>}
+    </dl>
+  </div>
+  <div class="bv-foot">
+    <button type="button" class="bv-resample">Show another training set</button>
+    <span class="bv-status"></span>
+  </div>
+  <details class="bv-table">
+    <summary>All values as a table</summary>
+    <div class="bv-scroll" data-keep-scroll><table></table></div>
+  </details>
+  {caption && <p class="bv-caption">{caption}</p>}
+</x-biasvar>
+
+<script>
+  import { FAMILIES, GRID_X, fitSteps, sci } from '../../lib/fitlab.mjs';
+
+  type Row = { bias2: number; variance: number; test: number; train: number; norm?: number };
+  type Result = { grid: number[]; fits: Float64Array[][]; means: Float64Array[]; rows: Row[]; data: { x: Float64Array; y: Float64Array }[]; truth: Float64Array; noise: number };
+  type Family = { label: string; tab: string; knob: string; grid: number[] | ((n: number) => number[]); format?: (v: number) => string; log?: boolean };
+  type Cfg = { models: string[]; n: number; noise: number; controls: string[]; start: Record<string, number> };
+  const FAM = FAMILIES as unknown as Record<string, Family>;
+  const LAMBDAS = [0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 0.1, 1, 10];
+  const cache = new Map<string, Result>();
+
+  // Panel geometry, in viewBox units (both panels are 340 × 232).
+  const W = 340;
+  const F = { l: 26, r: 334, t: 8, b: 208, y0: -2.2, y1: 2.2 };
+  const C = { l: 42, r: 276, t: 10, b: 190 };
+  const NS = 'http://www.w3.org/2000/svg';
+
+  const fmtNum = (v: number) => {
+    if (!Number.isFinite(v)) return '—';
+    if (v >= 1000) return Math.round(v).toLocaleString('en-US');
+    if (v >= 10) return v.toFixed(1);
+    if (v >= 0.001) return v.toPrecision(2);
+    return v === 0 ? '0' : '< 0.001';
+  };
+  const gridOf = (key: string, n: number) => {
+    const g = FAM[key].grid;
+    return typeof g === 'function' ? g(n) : g;
+  };
+  const fmtKnob = (key: string, v: number) => (FAM[key].format ?? String)(v);
+  const nearest = (grid: number[], v: number) => grid.reduce((best, g, i) => (Math.abs(Math.log1p(g) - Math.log1p(v)) < Math.abs(Math.log1p(grid[best]) - Math.log1p(v)) ? i : best), 0);
+  const path = (xs: ArrayLike<number>, ys: ArrayLike<number>) => {
+    let d = '';
+    for (let i = 0; i < xs.length; i++) d += `${i ? 'L' : 'M'}${xs[i].toFixed(1)},${ys[i].toFixed(1)}`;
+    return d;
+  };
+
+  // Restorable (src/scripts/trail.ts): the model tab, each model's knob, the training set shown and
+  // the extra sliders all come back when the reader returns.
+  class XBiasVar extends HTMLElement {
+    cfg!: Cfg;
+    m = 0;
+    knob: Record<string, number> = {};
+    r = 0;
+    noise = 0.3;
+    n = 20;
+    lam = 0;
+    preview: number | null = null;
+    job = 0;
+    ready = false;
+    // Fitting starts when the lab comes near the screen, so a page with several labs loads fast.
+    near = false;
+
+    snapshot() {
+      const c = this.cfg;
+      const moved = Object.entries(this.knob).filter(([k, v]) => v !== this.startValue(k));
+      const s = { m: this.m, k: Object.fromEntries(moved), r: this.r, noise: this.noise, n: this.n, lam: this.lam };
+      const same = !this.m && !moved.length && !this.r && this.noise === c.noise && this.n === c.n && !this.lam;
+      return same ? null : s;
+    }
+    restore(state: unknown) {
+      const s = state as { m: number; k: Record<string, number>; r: number; noise: number; n: number; lam: number } | null;
+      if (!s || typeof s !== 'object') return;
+      this.m = s.m ?? 0;
+      Object.assign(this.knob, s.k ?? {});
+      this.r = s.r ?? 0;
+      this.noise = s.noise ?? this.noise;
+      this.n = s.n ?? this.n;
+      this.lam = s.lam ?? 0;
+      if (this.ready) this.sync();
+    }
+    startValue(key: string) {
+      const g = gridOf(key, this.cfg.n);
+      return this.cfg.start[key] ?? g[Math.floor((g.length - 1) / 3)];
+    }
+    get key() {
+      return this.cfg.models[this.m];
+    }
+    get grid() {
+      return gridOf(this.key, this.n);
+    }
+    get index() {
+      return this.preview ?? nearest(this.grid, this.knob[this.key]);
+    }
+    q<T extends Element = HTMLElement>(sel: string) {
+      return this.querySelector(sel) as T;
+    }
+
+    connectedCallback() {
+      this.cfg = JSON.parse(this.q('script[type="application/json"]').textContent!);
+      const c = this.cfg;
+      this.noise = c.noise;
+      this.n = c.n;
+      for (const k of c.models) this.knob[k] ??= this.startValue(k);
+
+      this.q('.bv-tabs')?.addEventListener('click', (e) => {
+        const b = (e.target as HTMLElement).closest<HTMLElement>('[data-model]');
+        if (!b) return;
+        this.m = Number(b.dataset.model);
+        this.preview = null;
+        this.sync();
+      });
+      const range = (name: string) => this.q<HTMLInputElement>(`input[name="${name}"]`);
+      range('knob').addEventListener('input', (e) => {
+        this.knob[this.key] = this.grid[Number((e.target as HTMLInputElement).value)];
+        this.draw();
+      });
+      range('noise')?.addEventListener('input', (e) => {
+        this.noise = Number((e.target as HTMLInputElement).value);
+        this.sync();
+      });
+      range('n')?.addEventListener('input', (e) => {
+        this.n = Number((e.target as HTMLInputElement).value);
+        this.sync();
+      });
+      range('lambda')?.addEventListener('input', (e) => {
+        this.lam = LAMBDAS[Number((e.target as HTMLInputElement).value)];
+        this.sync();
+      });
+      this.q('.bv-resample').addEventListener('click', () => {
+        const res = cache.get(this.cacheKey());
+        if (!res) return;
+        this.r = (this.r + 1) % res.data.length;
+        this.draw();
+      });
+
+      // Scrub the right panel: hover previews a knob value, click or drag sets it.
+      const curve = this.q<SVGSVGElement>('.bv-curve');
+      const at = (e: PointerEvent) => {
+        const res = cache.get(this.cacheKey());
+        if (!res) return null;
+        const box = curve.getBoundingClientRect();
+        const x = ((e.clientX - box.left) / box.width) * W;
+        const xs = this.xPositions(res.grid);
+        let best = 0;
+        xs.forEach((v, i) => Math.abs(v - x) < Math.abs(xs[best] - x) && (best = i));
+        return best;
+      };
+      let dragging = false;
+      curve.addEventListener('pointerdown', (e) => {
+        const i = at(e);
+        if (i === null) return;
+        dragging = true;
+        curve.setPointerCapture(e.pointerId);
+        this.preview = null;
+        this.knob[this.key] = this.grid[i];
+        this.draw();
+      });
+      curve.addEventListener('pointermove', (e) => {
+        const i = at(e);
+        if (i === null) return;
+        if (dragging) this.knob[this.key] = this.grid[i];
+        else if (e.pointerType === 'mouse') this.preview = i;
+        else return;
+        this.draw();
+      });
+      const end = () => {
+        dragging = false;
+        if (this.preview !== null) {
+          this.preview = null;
+          this.draw();
+        }
+      };
+      curve.addEventListener('pointerup', () => (dragging = false));
+      curve.addEventListener('pointerleave', end);
+      this.ready = true;
+      this.sync();
+      new IntersectionObserver(
+        (entries, obs) => {
+          if (!entries.some((e) => e.isIntersecting)) return;
+          obs.disconnect();
+          this.near = true;
+          this.sync();
+        },
+        { rootMargin: '600px 0px' },
+      ).observe(this);
+      // Labs further down the page start on their own once the visible ones have had their turn.
+      setTimeout(() => {
+        if (this.near) return;
+        this.near = true;
+        this.sync();
+      }, 1500);
+    }
+
+    cacheKey() {
+      return `${this.key}|${this.n}|${this.noise}|${this.lam}`;
+    }
+
+    /** Put the controls in line with the state, then fit (if needed) and draw. */
+    sync() {
+      const f = FAM[this.key];
+      this.querySelectorAll('[role=tab]').forEach((t, k) => t.setAttribute('aria-selected', String(k === this.m)));
+      this.q('.bv-model').textContent = f.label;
+      this.q('.bv-knob-name').textContent = f.knob;
+      const knob = this.q<HTMLInputElement>('input[name="knob"]');
+      knob.max = String(this.grid.length - 1);
+      const set = (name: string, v: number, text: string) => {
+        const el = this.q<HTMLInputElement>(`input[name="${name}"]`);
+        if (!el) return;
+        el.value = String(v);
+        this.q(`output[data-for="${name}"]`).textContent = text;
+      };
+      set('noise', this.noise, String(this.noise));
+      set('n', this.n, String(this.n));
+      set('lambda', LAMBDAS.indexOf(this.lam), sci(this.lam));
+      const key = this.cacheKey();
+      if (cache.has(key)) return this.draw();
+      if (!this.near) return;
+      this.classList.add('busy');
+      const it = fitSteps(this.key, { n: this.n, noise: this.noise, lambda: this.lam });
+      const job = ++this.job;
+      const tick = () => {
+        if (job !== this.job) return;
+        const t0 = performance.now();
+        let step = it.next();
+        while (!step.done && performance.now() - t0 < 14) step = it.next();
+        if (step.done) {
+          cache.set(key, step.value as Result);
+          this.classList.remove('busy');
+          this.draw();
+        } else {
+          this.q('.bv-status').textContent = `Fitting ${Math.round((step.value as number) * 100)}%…`;
+          setTimeout(tick, 0);
+        }
+      };
+      tick();
+    }
+
+    xPositions(grid: number[]) {
+      if (FAM[this.key].log) {
+        const lo = Math.log(grid[0]);
+        const hi = Math.log(grid[grid.length - 1]);
+        return grid.map((g) => C.l + ((Math.log(g) - lo) / (hi - lo)) * (C.r - C.l));
+      }
+      return grid.map((_, i) => C.l + (i / (grid.length - 1)) * (C.r - C.l));
+    }
+
+    draw() {
+      const res = cache.get(this.cacheKey());
+      if (!res) return;
+      const k = this.index;
+      const row = res.rows[k];
+      const knob = this.q<HTMLInputElement>('input[name="knob"]');
+      knob.value = String(nearest(this.grid, this.knob[this.key]));
+      const label = fmtKnob(this.key, res.grid[k]);
+      this.q('.bv-knob-val').textContent = label;
+      knob.setAttribute('aria-valuetext', `${FAM[this.key].knob} ${label}`);
+      this.r %= res.data.length;
+      this.q('.bv-status').textContent = `${res.data.length} training sets of ${this.n} points; showing set ${this.r + 1}.`;
+      this.drawFits(res, k);
+      this.drawCurve(res, k);
+
+      const n2 = res.noise ** 2;
+      const total = row.bias2 + row.variance + n2 || 1;
+      const seg = (cls: string, v: number) => (this.q(`.bv-stack .${cls}`).style.flexGrow = String(Math.max(v / total, 0)));
+      seg('s-bias', row.bias2);
+      seg('s-var', row.variance);
+      seg('s-noise', n2);
+      const stat = { bias2: row.bias2, variance: row.variance, noise: n2, test: row.test, train: row.train, norm: row.norm ?? NaN };
+      this.querySelectorAll<HTMLElement>('[data-stat]').forEach((el) => (el.textContent = fmtNum(stat[el.dataset.stat as keyof typeof stat])));
+
+      const t = this.q('.bv-table table');
+      t.innerHTML =
+        `<thead><tr><th>${FAM[this.key].knob}</th><th>bias²</th><th>variance</th><th>test</th><th>train</th></tr></thead><tbody>` +
+        res.rows.map((r, i) => `<tr${i === k ? ' class="on"' : ''}><td>${fmtKnob(this.key, res.grid[i])}</td><td>${fmtNum(r.bias2)}</td><td>${fmtNum(r.variance)}</td><td>${fmtNum(r.test)}</td><td>${fmtNum(r.train)}</td></tr>`).join('') +
+        '</tbody>';
+    }
+
+    drawFits(res: Result, k: number) {
+      const svg = this.q<SVGSVGElement>('.bv-fits');
+      const X = (x: number) => F.l + ((x + 1) / 2) * (F.r - F.l);
+      const Y = (y: number) => F.b - ((Math.max(-40, Math.min(40, y)) - F.y0) / (F.y1 - F.y0)) * (F.b - F.t);
+      const xs = Array.from(GRID_X, X);
+      const id = `bvclip-${this.job}-${Math.random().toString(36).slice(2, 7)}`;
+      const fits = res.fits[k];
+      let s = `<defs><clipPath id="${id}"><rect x="${F.l}" y="${F.t}" width="${F.r - F.l}" height="${F.b - F.t}"/></clipPath></defs>`;
+      s += `<rect class="frame" x="${F.l}" y="${F.t}" width="${F.r - F.l}" height="${F.b - F.t}"/>`;
+      for (const v of [-2, -1, 0, 1, 2]) s += `<line class="grid" x1="${F.l}" x2="${F.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="tick" x="${F.l - 5}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+      for (const v of [-1, 0, 1]) s += `<text class="tick" x="${X(v)}" y="${F.b + 15}" text-anchor="middle">${v}</text>`;
+      s += `<g clip-path="url(#${id})">`;
+      const mean = res.means[k];
+      const gap = path(xs, Array.from(mean, Y)) + 'L' + [...xs].reverse().map((x, i) => `${x.toFixed(1)},${Y(res.truth[res.truth.length - 1 - i]).toFixed(1)}`).join('L') + 'Z';
+      s += `<path class="gap" d="${gap}"/>`;
+      fits.forEach((y, r) => r !== this.r && (s += `<path class="thin" d="${path(xs, Array.from(y, Y))}"/>`));
+      s += `<path class="truth" d="${path(xs, Array.from(res.truth, Y))}"/>`;
+      s += `<path class="mean" d="${path(xs, Array.from(mean, Y))}"/>`;
+      s += `<path class="hi" d="${path(xs, Array.from(fits[this.r], Y))}"/>`;
+      const d = res.data[this.r];
+      d.x.forEach((x, i) => (s += `<circle class="dot" cx="${X(x).toFixed(1)}" cy="${Y(d.y[i]).toFixed(1)}" r="3.6"/>`));
+      s += '</g>';
+      svg.innerHTML = s;
+    }
+
+    drawCurve(res: Result, k: number) {
+      const svg = this.q<SVGSVGElement>('.bv-curve');
+      const xs = this.xPositions(res.grid);
+      const n2 = res.noise ** 2;
+      const all = res.rows.flatMap((r) => [r.bias2, r.variance, r.test, r.train]).concat(n2 || []);
+      const lo = Math.max(-3, Math.floor(Math.log10(Math.max(1e-3, Math.min(...all.filter((v) => v > 0))))));
+      const hi = Math.min(5, Math.max(lo + 1, Math.ceil(Math.log10(Math.max(...res.rows.map((r) => r.test))))));
+      const Y = (v: number) => {
+        const l = Math.log10(Math.max(v, 10 ** lo));
+        return C.b - ((Math.min(l, hi) - lo) / (hi - lo)) * (C.b - C.t);
+      };
+      let s = `<rect class="frame" x="${C.l}" y="${C.t}" width="${C.r - C.l}" height="${C.b - C.t}"/>`;
+      for (let e = lo; e <= hi; e++) {
+        s += `<line class="grid" x1="${C.l}" x2="${C.r}" y1="${Y(10 ** e)}" y2="${Y(10 ** e)}"/>`;
+        s += `<text class="tick" x="${C.l - 5}" y="${Y(10 ** e) + 4}" text-anchor="end">${e >= 0 ? (10 ** e).toLocaleString('en-US') : sci(10 ** e)}</text>`;
+      }
+      // x ticks: every value for short grids, a readable subset otherwise.
+      const fam = FAM[this.key];
+      let ticks = res.grid.map((_, i) => i);
+      if (fam.log) ticks = ticks.filter((i) => [1, 2, 5, 10, 20, 50, 100, 200, 500].includes(res.grid[i]) || res.grid[i] === this.n);
+      else if (ticks.length > 9) ticks = ticks.filter((i) => i % Math.ceil(ticks.length / 8) === 0 || i === ticks.length - 1);
+      let lastX = -99;
+      for (const i of ticks) {
+        if (xs[i] - lastX < 22) continue;
+        lastX = xs[i];
+        s += `<text class="tick" x="${xs[i].toFixed(1)}" y="${C.b + 15}" text-anchor="middle">${fmtKnob(this.key, res.grid[i])}</text>`;
+      }
+      s += `<text class="axis" x="${(C.l + C.r) / 2}" y="${C.b + 34}" text-anchor="middle">${fam.knob} → more flexible</text>`;
+      if (fam.log) {
+        const xi = xs[res.grid.indexOf(this.n)];
+        s += `<line class="thresh" x1="${xi}" x2="${xi}" y1="${C.t}" y2="${C.b}"/><text class="note" x="${xi + 4}" y="${C.t + 11}">p = n</text>`;
+      }
+      if (n2 > 0) s += `<line class="noise" x1="${C.l}" x2="${C.r}" y1="${Y(n2)}" y2="${Y(n2)}"/>`;
+      const line = (cls: string, get: (r: Row) => number) => `<path class="${cls}" d="${path(xs, res.rows.map((r) => Y(get(r))))}"/>`;
+      s += line('c-train', (r) => r.train) + line('c-bias', (r) => r.bias2) + line('c-var', (r) => r.variance) + line('c-test', (r) => r.test);
+      s += `<line class="marker" x1="${xs[k]}" x2="${xs[k]}" y1="${C.t}" y2="${C.b}"/>`;
+      const row = res.rows[k];
+      for (const [cls, v] of [['c-bias', row.bias2], ['c-var', row.variance], ['c-test', row.test]] as const) s += `<circle class="pt ${cls}" cx="${xs[k]}" cy="${Y(v)}" r="4"/>`;
+      // Direct labels at the right end, nudged apart so they never overlap.
+      const last = res.rows[res.rows.length - 1];
+      const labels = [
+        { t: 'bias²', y: Y(last.bias2) },
+        { t: 'variance', y: Y(last.variance) },
+        { t: 'test', y: Y(last.test) },
+      ].sort((a, b) => a.y - b.y);
+      for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 15);
+      const over = labels[labels.length - 1].y - (C.b + 4);
+      if (over > 0) labels.forEach((l) => (l.y -= over));
+      for (const l of labels) s += `<text class="end" x="${C.r + 6}" y="${(l.y + 4).toFixed(1)}">${l.t}</text>`;
+      s += `<rect class="hit" x="0" y="0" width="${W}" height="232"/>`;
+      svg.innerHTML = s;
+    }
+  }
+  customElements.define('x-biasvar', XBiasVar);
+</script>
+
+<style is:global>
+  .biasvar {
+    display: block;
+    margin: 2rem 0;
+    padding: 1rem 1.1rem 1.1rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-panel);
+    font-size: var(--step--1);
+  }
+  .biasvar .bv-title {
+    margin: 0 0 0.6rem;
+    font-weight: 600;
+    font-size: var(--step-0);
+  }
+  .biasvar .bv-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+  }
+  .biasvar .bv-tabs button {
+    font: inherit;
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .biasvar .bv-tabs button[aria-selected='true'] {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper-raised);
+  }
+  .biasvar .bv-model {
+    margin: 0 0 0.6rem;
+    color: var(--ink-soft);
+  }
+  .biasvar .bv-panels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    gap: 0.8rem 1.4rem;
+  }
+  .biasvar .bv-head {
+    margin: 0 0 0.2rem;
+    font-weight: 500;
+  }
+  .biasvar .bv-scale {
+    color: var(--ink-faint);
+    font-weight: 400;
+  }
+  .biasvar svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 340 / 232;
+    overflow: visible;
+    transition: opacity 150ms;
+  }
+  .biasvar.busy svg {
+    opacity: 0.45;
+  }
+  .biasvar .bv-curve {
+    cursor: crosshair;
+    touch-action: pan-y;
+  }
+  .biasvar svg text {
+    font-family: var(--font-ui);
+  }
+  .biasvar .frame {
+    fill: var(--paper);
+    stroke: var(--rule-soft);
+  }
+  .biasvar .grid {
+    stroke: var(--rule-soft);
+    stroke-width: 1;
+  }
+  .biasvar .tick,
+  .biasvar .axis,
+  .biasvar .note,
+  .biasvar .end {
+    font-size: 12px;
+    fill: var(--ink-faint);
+  }
+  .biasvar .axis {
+    fill: var(--ink-soft);
+  }
+  .biasvar .end {
+    fill: var(--ink-soft);
+    font-size: 12.5px;
+  }
+  .biasvar .gap {
+    fill: var(--series-bias);
+    fill-opacity: 0.18;
+    stroke: none;
+  }
+  .biasvar .thin {
+    fill: none;
+    stroke: var(--series-variance);
+    stroke-opacity: 0.28;
+    stroke-width: 1;
+  }
+  .biasvar .truth {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.6;
+    stroke-dasharray: 5 4;
+  }
+  .biasvar .mean {
+    fill: none;
+    stroke: var(--series-bias);
+    stroke-width: 2.4;
+    stroke-linejoin: round;
+  }
+  .biasvar .hi {
+    fill: none;
+    stroke: var(--series-variance);
+    stroke-width: 2;
+    stroke-linejoin: round;
+  }
+  .biasvar .dot {
+    fill: var(--ink);
+    stroke: var(--paper);
+    stroke-width: 2;
+  }
+  .biasvar .c-bias,
+  .biasvar .c-var,
+  .biasvar .c-test,
+  .biasvar .c-train {
+    fill: none;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  .biasvar .c-bias {
+    stroke: var(--series-bias);
+  }
+  .biasvar .c-var {
+    stroke: var(--series-variance);
+  }
+  .biasvar .c-test {
+    stroke: var(--ink);
+    stroke-width: 2.4;
+  }
+  .biasvar .c-train {
+    stroke: var(--ink-faint);
+    stroke-dasharray: 2 3;
+  }
+  .biasvar .pt {
+    stroke: var(--paper);
+    stroke-width: 2;
+  }
+  .biasvar .pt.c-bias {
+    fill: var(--series-bias);
+  }
+  .biasvar .pt.c-var {
+    fill: var(--series-variance);
+  }
+  .biasvar .pt.c-test {
+    fill: var(--ink);
+  }
+  .biasvar .noise {
+    stroke: var(--ink-faint);
+    stroke-width: 1;
+    stroke-dasharray: 1 3;
+  }
+  .biasvar .thresh {
+    stroke: var(--ink-soft);
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+  }
+  .biasvar .marker {
+    stroke: var(--ink);
+    stroke-width: 1;
+    stroke-opacity: 0.5;
+  }
+  .biasvar .hit {
+    fill: transparent;
+  }
+  .biasvar .bv-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.9rem;
+    margin: 0.35rem 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+  }
+  .biasvar .bv-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .biasvar i[class^='k-'] {
+    display: inline-block;
+    width: 1.1rem;
+    height: 0;
+    border-top: 2px solid;
+    flex: none;
+  }
+  .biasvar .k-truth {
+    border-top: 2px dashed var(--ink) !important;
+  }
+  .biasvar .k-dot {
+    width: 0.5rem !important;
+    height: 0.5rem !important;
+    border: 0 !important;
+    border-radius: 50%;
+    background: var(--ink);
+  }
+  .biasvar .k-hi,
+  .biasvar .k-var {
+    border-color: var(--series-variance) !important;
+  }
+  .biasvar .k-thin {
+    border-top: 1px solid var(--series-variance) !important;
+    opacity: 0.5;
+  }
+  .biasvar .k-mean,
+  .biasvar .k-bias {
+    border-color: var(--series-bias) !important;
+  }
+  .biasvar .k-gap {
+    height: 0.6rem !important;
+    border: 0 !important;
+    background: color-mix(in srgb, var(--series-bias) 22%, transparent);
+  }
+  .biasvar .k-test {
+    border-color: var(--ink) !important;
+  }
+  .biasvar .k-train {
+    border-top: 2px dotted var(--ink-faint) !important;
+  }
+  .biasvar .k-noise {
+    border-top: 2px dotted var(--ink-faint) !important;
+    width: 0.6rem !important;
+  }
+  .biasvar .bv-controls {
+    display: grid;
+    gap: 0.45rem;
+    margin: 1rem 0 0.8rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .biasvar .bv-controls label {
+    display: grid;
+    grid-template-columns: minmax(7rem, 11rem) 1fr 5.5rem;
+    align-items: center;
+    gap: 0.8rem;
+  }
+  .biasvar .bv-controls label > span:first-child {
+    font-weight: 500;
+  }
+  .biasvar input[type='range'] {
+    width: 100%;
+    accent-color: var(--ink);
+  }
+  .biasvar output {
+    font-family: var(--font-mono);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .biasvar .bv-stack {
+    display: flex;
+    gap: 2px;
+    height: 0.75rem;
+    margin-bottom: 0.45rem;
+  }
+  .biasvar .bv-stack span {
+    flex: 0 0 auto;
+    min-width: 2px;
+    border-radius: 2px;
+    transition: flex-grow 120ms ease-out;
+  }
+  .biasvar .s-bias {
+    background: var(--series-bias);
+  }
+  .biasvar .s-var {
+    background: var(--series-variance);
+  }
+  .biasvar .s-noise {
+    background: var(--rule);
+  }
+  .biasvar .bv-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(5.4rem, 1fr));
+    gap: 0.3rem 0.8rem;
+    margin: 0;
+  }
+  .biasvar .bv-stats dt {
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  .biasvar .bv-stats dt i {
+    margin-right: 0.35rem;
+    vertical-align: middle;
+  }
+  .biasvar .bv-stats dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .biasvar .bv-stats div:nth-child(4) dd {
+    font-weight: 600;
+  }
+  .biasvar .bv-stats .k-noise {
+    border-top: 0.6rem solid var(--rule) !important;
+    width: 0.6rem !important;
+    border-radius: 2px;
+  }
+  .biasvar .bv-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 1rem;
+    margin-top: 0.7rem;
+  }
+  .biasvar .bv-resample {
+    font: inherit;
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-block);
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .biasvar .bv-resample:hover {
+    border-color: var(--ink-faint);
+  }
+  .biasvar .bv-status {
+    flex: 1 1 14rem;
+    min-width: 0;
+    color: var(--ink-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .biasvar .bv-table {
+    margin-top: 0.6rem;
+    color: var(--ink-soft);
+  }
+  .biasvar .bv-table summary {
+    cursor: pointer;
+  }
+  .biasvar .bv-scroll {
+    max-height: 16rem;
+    overflow: auto;
+    margin-top: 0.4rem;
+  }
+  .biasvar table {
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+    width: 100%;
+  }
+  .biasvar th,
+  .biasvar td {
+    text-align: right;
+    padding: 0.15rem 0.6rem;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .biasvar tr.on td {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .biasvar .bv-caption {
+    margin: 0.7rem 0 0;
+    color: var(--ink-soft);
+  }
+  @media (max-width: 560px) {
+    .biasvar .bv-controls label {
+      grid-template-columns: 1fr auto;
+    }
+    .biasvar .bv-controls label input {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+</style>

@@ -96,6 +96,21 @@ import { url } from '../lib/url';
           ? { source: e.to, target: e.from, type: e.type }
           : { source: e.from, target: e.to, type: e.type },
       );
+      // Notes not linked to the main web (a new topic with its own few notes) would be pushed to the
+      // far edge by the charge force and shrink the whole map, so they get a firmer pull to the centre.
+      const group = new Map<string, number>();
+      const nbrs = new Map<string, string[]>(nodes.map((n) => [n.slug, []]));
+      for (const e of edges) nbrs.get(e.from)!.push(e.to), nbrs.get(e.to)!.push(e.from);
+      for (const n of nodes) {
+        if (group.has(n.slug)) continue;
+        const stack = [n.slug];
+        group.set(n.slug, group.size);
+        const id = group.get(n.slug)!;
+        while (stack.length) for (const t of nbrs.get(stack.pop()!)!) if (!group.has(t)) group.set(t, id), stack.push(t);
+      }
+      const sizes = new Map<number, number>();
+      for (const id of group.values()) sizes.set(id, (sizes.get(id) ?? 0) + 1);
+      const main = [...sizes].sort((a, b) => b[1] - a[1])[0]?.[0];
       const degree = new Map<string, number>();
       for (const e of edges) for (const s of [e.from, e.to]) degree.set(s, (degree.get(s) ?? 0) + 1);
 
@@ -141,7 +156,7 @@ import { url } from '../lib/url';
         .force('link', forceLink<N, any>(links).id((d) => d.slug).distance((l) => (strong.has(l.type) ? 70 : 120)).strength((l) => (strong.has(l.type) ? 0.3 : 0.03)))
         .force('charge', forceManyBody().strength(-420))
         .force('collide', forceCollide<N>().radius((d) => radius(d) + 22))
-        .force('x', forceX(0).strength(0.015))
+        .force('x', forceX(0).strength((d) => (group.get((d as N).slug) === main ? 0.015 : 0.12)))
         .force('y', forceY<N>((d) => depth.get(d.slug)! * ROW).strength(0.9));
 
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {

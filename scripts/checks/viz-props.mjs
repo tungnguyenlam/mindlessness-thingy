@@ -1,15 +1,16 @@
-// Props of <MaskGrid>, <ShapeFlow> and <Timeline>, checked in the fast pass so mistakes surface
+// Props of <MaskGrid>, <ShapeFlow>, <Timeline> and <BiasVariance>, checked in the fast pass so mistakes surface
 // per turn instead of at build: unknown links and paths (no-dangling), numbers typed into picture
 // labels (sourced-numbers) and shapes that won't lay out (diagram-geometry).
 import { findComponents } from '../lib/mdx-props.mjs';
 import { textWidth } from '../../src/lib/diagram/geometry.mjs';
+import { FAMILIES } from '../../src/lib/fitlab.mjs';
 
 const NUMBER = /(?<![A-Za-z_\d.\-^])\d[\d,.]*(?![A-Za-z_\d])/;
 const KINDS = ['full', 'causal', 'window', 'topk'];
 
 export default function vizProps({ notes, bySlug }, { error, warn }) {
   for (const n of notes) {
-    for (const use of findComponents(n.text, ['MaskGrid', 'ShapeFlow', 'Timeline'])) {
+    for (const use of findComponents(n.text, ['MaskGrid', 'ShapeFlow', 'Timeline', 'BiasVariance'])) {
       const at = `line ${use.line + n.bodyLine - 1}: <${use.name}>`;
       const e = (rule, msg, fix, code) => error(rule, n.file, `${at} ${msg}`, fix, { code });
       if (use.error) {
@@ -35,6 +36,13 @@ export default function vizProps({ notes, bySlug }, { error, warn }) {
           if (s.link && !bySlug.has(s.link)) e('no-dangling', `step "${s.label}" links to unknown note "${s.link}"`, `create it with pnpm run new concept ${s.link} "Title"`, 'link');
           for (const t of [s.label, s.op, ...(s.shape ?? [])]) if (t && NUMBER.test(String(t))) warn('sourced-numbers', n.file, `${at} "${t}" contains a number`, 'use symbols (d, d_c, n_h) in shapes; values go in <Spec>/<ModelSpec>');
         }
+      }
+      if (use.name === 'BiasVariance') {
+        const known = Object.keys(FAMILIES);
+        if (!Array.isArray(p.models) || !p.models.length) e('diagram-geometry', 'needs models={[...]}', `pick from ${known.join(', ')}`, 'bv-models');
+        for (const m of p.models ?? []) if (!known.includes(m)) e('diagram-geometry', `unknown model "${m}"`, `use one of ${known.join(', ')} (src/lib/fitlab.mjs)`, 'bv-model');
+        for (const c of p.controls ?? []) if (!['noise', 'n', 'lambda'].includes(c)) e('diagram-geometry', `unknown control "${c}"`, 'use noise, n or lambda', 'bv-control');
+        if (p.n != null && (p.n < 10 || p.n > 40)) e('diagram-geometry', `n = ${p.n} is outside the slider range`, 'use 10 to 40 training points', 'bv-n');
       }
       if (use.name === 'Timeline') {
         const path = bySlug.get(p.path);

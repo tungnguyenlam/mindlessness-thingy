@@ -43,7 +43,7 @@ const sources = defineCollection({
     authors: z.string().optional(),
     year: z.number().int(),
     url: z.url(),
-    type: z.enum(['paper', 'report', 'config', 'model-card', 'blog', 'repo', 'docs']),
+    type: z.enum(['paper', 'book', 'report', 'config', 'model-card', 'blog', 'repo', 'docs']),
     accessed: z.coerce.date().optional(),
     notes: z.string().optional(),
   }),

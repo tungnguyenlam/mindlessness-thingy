@@ -1,0 +1,108 @@
+---
+title: Double descent
+kind: concept
+summary: "As a model grows, test error can fall, rise to a peak where the model can just barely fit every training point, then fall again; the classical U-shaped bias–variance curve misses that second fall."
+domains: [ml-fundamentals, generalization]
+prerequisites: [bias-variance-tradeoff]
+builds_on: []
+contrasts_with: []
+related: []
+sources: [belkin-double-descent-paper, deep-double-descent-paper, optimal-regularization-dd-paper, ridgeless-least-squares-paper, rethinking-bias-variance-paper]
+status: draft
+updated: 2026-10-20
+---
+
+The [[bias-variance-tradeoff]] predicts a U: as a model gets more flexible, test error first falls and then rises, so the best model sits in the middle. But modern networks have far more parameters than training points, fit their training data perfectly, and still predict well. Double descent is the curve that covers both cases <Cite id="belkin-double-descent-paper" />.
+
+## The idea in one picture
+
+<BiasVariance
+  title="A model with p features, fit to n = 20 points"
+  models={['features']}
+  start={{ features: 20 }}
+  caption="Start at p = 20, the peak. Each green fit passes through its 20 dots and swings wildly between them. Now drag right, past the dashed line: the fits still pass through every dot, but they calm down."
+/>
+
+The model is a straight sum of $p$ fixed waves, slowest first: a constant, then $\cos(\pi x / L)$, $\sin(\pi x / L)$, $\cos(2\pi x / L)$ and so on, where $L$ is a little wider than the input range. Wave $k$ is scaled by $1/k$. Only the weights $w$ of the waves are learned, so this is a linear model on fixed features, like a two-layer network whose first layer is frozen. Here $n$ is the number of training points and $p$ the number of features, which we call the model's width.
+
+Read the right panel from left to right. With few features the curve is the familiar U from the [[bias-variance-tradeoff]]. Variance then shoots up to a peak exactly at $p = n$. Past the peak, every model fits the training data perfectly, because train error is zero, and yet test error falls again. That second fall is the second descent. Belkin et al. found the same shape with random Fourier features, fully connected networks, random forests and boosting <Cite id="belkin-double-descent-paper" where="Fig. 2, 4, 5; App. E" />.
+
+## Why the peak sits at p = n
+
+How the weights are chosen changes at $p = n$. Step through the three regimes, and watch the weight size $\lVert w \rVert$ in the readout of the lab above as you move the width.
+
+<Stepper title="Least squares with p features and n points">
+  <Step title="Fewer features than points (p < n)">
+    There is no exact fit, so least squares picks the closest one: $w = (\Phi^\top \Phi)^{-1} \Phi^\top y$, where $\Phi$ is the $n \times p$ matrix of features at the training points. This is the classical regime: more features, less bias, more variance.
+  </Step>
+  <Step title="Exactly as many features as points (p = n)">
+    Now $\Phi$ is square and there is exactly one fit through all $n$ points: $w = \Phi^{-1} y$. Nothing chooses between solutions, so the noise in $y$ must be fit too. If two columns of $\Phi$ are nearly alike, $\Phi$ is close to singular, and fitting the noise needs huge weights that pull in opposite directions. Huge weights mean wild swings between the points.
+  </Step>
+  <Step title="More features than points (p > n)">
+    Now infinitely many weight vectors pass through all $n$ points. We pick the one with the smallest norm: $w = \Phi^\top (\Phi \Phi^\top)^{-1} y$. Every extra feature adds new directions in which to fit the same points, so the smallest fit gets smaller and smoother as $p$ grows.
+  </Step>
+</Stepper>
+
+The peak is a variance peak, caused by the fit being forced through noisy points with no freedom left. Belkin et al. show the same thing in their own experiments: the weight norm is largest at the interpolation threshold and shrinks as $p$ grows past it <Cite id="belkin-double-descent-paper" where="§2, Fig. 2" />.
+
+Why the smallest norm? It is not an arbitrary choice. Gradient descent on least squares, started from zero weights, converges to exactly this minimum-norm solution <Cite id="belkin-double-descent-paper" where="§4" />. So a plain training loop already prefers small weights, and in this lab that means a preference for slow, smooth waves. Hastie et al. work out the full test-error curve for minimum-norm least squares and confirm the peak and the second descent <Cite id="ridgeless-least-squares-paper" />.
+
+<Callout type="pitfall">
+"Past the peak" is not the same as "better than the classical best." Whether the second descent ends below the bottom of the U depends on the data, the noise and the features. In this lab, with one input and noisy labels, the far right stays a little above the best small model. In the large experiments of Belkin et al. it ends below it <Cite id="belkin-double-descent-paper" where="§2, Fig. 2" />. The robust lesson is narrower: the worst place to be is right at the threshold.
+</Callout>
+
+## Noise makes the peak, regularization removes it
+
+The peak exists because the fit at $p = n$ must absorb the noise. So more noise should make it taller, and anything that stops the model from fitting the noise exactly should flatten it.
+
+<BiasVariance
+  title="The same model with noise and a ridge penalty you can change"
+  models={['features']}
+  start={{ features: 20 }}
+  controls={['noise', 'lambda']}
+  caption="Set noise σ to zero: the peak disappears. Put σ back and raise λ: the peak shrinks, and by λ = 0.1 it is gone, because the penalty stops the fit from passing through every noisy point."
+/>
+
+Both effects appear in deep networks. The peak is strongest when part of the training labels are wrong, which is label noise <Cite id="deep-double-descent-paper" where="§1, §5" />. For linear regression with isotropic features, a ridge penalty that is tuned well makes test error fall steadily as the model or the data grows, with no peak at all <Cite id="optimal-regularization-dd-paper" />. Their experiments suggest that tuned regularization also reduces the peak in neural networks.
+
+This explains why the classical U was seen for so long and the second descent was not. Regularization, early stopping and models kept smaller than $n$ are all standard practice, and each one hides the peak <Cite id="belkin-double-descent-paper" where="§4" />.
+
+## More data can hurt
+
+The peak sits where $p = n$, so it can be reached from two sides. We can grow the model toward the data, or grow the data toward the model.
+
+<BiasVariance
+  title="Fix the width, add training points"
+  models={['features']}
+  start={{ features: 30 }}
+  controls={['n']}
+  n={12}
+  caption="Width is set to p = 30. Slide n from 12 toward 30: test error goes up, although every step adds data. Past n = 30 it comes down again."
+/>
+
+With $p = 30$ and only 12 points the model sits well to the right of the peak, in the smooth minimum-norm regime. Each added point moves the peak, which is at $p = n$, closer to the model's own width. When $n$ reaches 30 the model is exactly at the threshold, and test error is at its worst. Nakkiran et al. show this with transformers trained on a translation task: there is a range of training-set sizes where more data makes the trained model worse <Cite id="deep-double-descent-paper" where="§7, Fig. 11" />.
+
+## Double descent in deep networks
+
+Nakkiran et al. found the same peak in convolutional networks, ResNets and transformers, along three different axes <Cite id="deep-double-descent-paper" />.
+
+<Spec
+  title="Three ways to reach the peak in a deep network"
+  columns={['Axis', 'What is varied', 'What happens']}
+  rows={[
+    { label: 'Model-wise', values: ['width of a ResNet18 (layer widths k, 2k, 4k, 8k)', 'test error peaks at the width that just fits the training set'], source: 'deep-double-descent-paper', where: '§5, Fig. 4' },
+    { label: 'Epoch-wise', values: ['training time of one large model', 'test error falls, rises, then falls again as training goes on'], source: 'deep-double-descent-paper', where: '§6, Fig. 10' },
+    { label: 'Sample-wise', values: ['number of training samples', 'a range where more samples give a worse model'], source: 'deep-double-descent-paper', where: '§7, Fig. 11' },
+  ]}
+  note="All three peaks are strongest with label noise; some appear without it, for example ResNets on CIFAR-100 (Fig. 4a)."
+/>
+
+To put all three axes on one scale, they define the **effective model complexity** of a training procedure. It is the largest number of training samples on which the procedure still reaches about zero training error <Cite id="deep-double-descent-paper" where="§2, Def. 1" />. Their hypothesis is that test error behaves strangely when this number is close to the actual number of training samples.
+
+In this view, a bigger model, a longer training run and a smaller dataset all push effective complexity up past $n$. The lab above shows the same thing in its simplest form, with width $p$ as the complexity: the critical point is $p = n$.
+
+## What changes, and what doesn't
+
+The decomposition test error = bias² + variance + noise still holds everywhere on the curve. What double descent changes is the assumption that variance always grows with model size. Measured directly on real networks, bias keeps falling with width while variance rises and then falls again <Cite id="rethinking-bias-variance-paper" />. So the second descent is the variance coming back down.
+
+In practice, this means two things. First, if a model is near the size where it can just fit its training set, making it bigger can help more than making it smaller. Second, tuning regularization is usually a safer way to stay away from the peak than guessing the right size.

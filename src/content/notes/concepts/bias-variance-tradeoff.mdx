@@ -1,0 +1,143 @@
+---
+title: Bias–variance tradeoff
+kind: concept
+summary: "Test error splits into bias (the model is too rigid to follow the truth), variance (it follows its own training sample too closely) and noise; every learning algorithm has a knob that trades the first two."
+domains: [ml-fundamentals, generalization]
+prerequisites: []
+builds_on: []
+contrasts_with: []
+related: [double-descent]
+sources: [esl-book, geman-bias-variance-paper, bagging-paper, random-forests-paper, gradient-boosting-paper, rethinking-generalization-paper, neal-bias-variance-paper, rethinking-bias-variance-paper, belkin-double-descent-paper]
+status: draft
+updated: 2026-10-20
+---
+
+A model learns from one training set, but we care about how it does on new data. It can fail in two different ways. It can be too rigid to follow the real pattern, or it can follow the accidents of its own training set so closely that a different training set would give a different model. The first failure is called **bias**, the second **variance**, and the picture below measures both.
+
+## The idea in one picture
+
+<BiasVariance
+  title="The same polynomial model, fit to 32 different training sets"
+  models={['poly']}
+  start={{ poly: 1 }}
+  caption="Move the degree, or hover over the right panel. A straight line (degree 1) misses the bends in the same way on every training set: a big orange gap and tightly packed green lines. A high degree goes through every dot, so each green line wiggles differently."
+/>
+
+Every number in this picture is computed in your browser. We draw 32 training sets from the same dashed curve $f$, each with 20 points and random noise on $y$. We fit the same model to each one, so we get 32 green lines. The dots belong to one of those training sets, and the bold green line is its fit.
+
+The **variance** is how far the green lines spread around their own average. The **bias** is the orange gap between that average and the true curve. At degree 1 the lines agree with each other but all miss the bends, so bias is large and variance small. At degree 15 they bend through every dot, noise included, so they disagree wildly: variance is large. In between, a degree near 3 to 5 keeps both small, and that is where test error is lowest.
+
+## Where the three parts come from
+
+Write $\hat f_D$ for the model trained on training set $D$, and $\bar f(x) = \mathbb{E}_D[\hat f_D(x)]$ for the average model over all training sets we might have drawn (the orange line). A new point is $y = f(x) + \varepsilon$, where the noise $\varepsilon$ has mean zero and variance $\sigma^2$.
+
+<Stepper title="Splitting the expected test error at one input x">
+  <Step title="Add and subtract the average model">
+    The error is $\mathbb{E}\big[(y - \hat f_D(x))^2\big]$, averaged over new noise and over training sets. Write $y - \hat f_D = \varepsilon + (f - \bar f) + (\bar f - \hat f_D)$, all at the same $x$.
+  </Step>
+  <Step title="Square and take the average">
+    Squaring gives three squared terms and three cross terms. Each cross term averages to zero: the new noise $\varepsilon$ is independent of the training set, and $\bar f - \hat f_D$ averages to zero by the definition of $\bar f$.
+  </Step>
+  <Step title="Name what is left">
+    $$\mathbb{E}\big[(y - \hat f_D(x))^2\big] = \underbrace{\big(f(x) - \bar f(x)\big)^2}_{\text{bias}^2} + \underbrace{\mathbb{E}_D\big[(\hat f_D(x) - \bar f(x))^2\big]}_{\text{variance}} + \underbrace{\sigma^2}_{\text{noise}}$$
+    Average this over $x$ and you get the readout under the picture above.
+  </Step>
+</Stepper>
+
+This is the decomposition in <Cite id="esl-book" where="§7.3" />, made famous for neural networks by <Cite id="geman-bias-variance-paper" />. Only the first two terms depend on the model. The noise $\sigma^2$ is a floor: no model can predict the random part of $y$, so test error never goes below it.
+
+<Callout type="pitfall">
+Bias and variance belong to a **training procedure**, not to one trained model. They describe what happens across many possible training sets, so you cannot read them off a single run. In practice you only have one training set, and you estimate the tradeoff indirectly with a validation set or cross-validation <Cite id="esl-book" where="§7.10" />.
+</Callout>
+
+## One knob per algorithm
+
+Every learning algorithm has some setting that makes it more or less flexible. Turning it toward "flexible" lowers bias and raises variance. The labs below fit classic algorithms to the same kind of data, each with its own knob, ordered from rigid on the left to flexible on the right.
+
+<BiasVariance
+  title="Linear models: how many features, and how big the weights may be"
+  models={['poly', 'ridge']}
+  start={{ poly: 4, ridge: 1 }}
+  caption="Polynomial: the knob adds features. Ridge: all sixteen features stay, and the penalty λ decides how big their weights may grow. Both tabs end with the same wild degree-15 fit."
+/>
+
+**Linear and polynomial regression.** The knob is how many features the model has: the degree here, or the number of inputs in general. With few features the model cannot bend, so bias is high. Each extra feature is one more coefficient estimated from the same noisy points. For least squares the average variance is about $\sigma^2 p / n$, with $p$ features and $n$ training points <Cite id="esl-book" where="§7.3" />, so variance grows with every feature you add.
+
+**Ridge regression.** It keeps all 16 coefficients of a degree-15 polynomial but adds a penalty $\lambda \lVert w \rVert^2$ on their size <Cite id="esl-book" where="§3.4" />. A large $\lambda$ forces the coefficients toward zero: a flat, biased fit with low variance. As $\lambda \to 0$ the penalty disappears and we are back to degree 15 with its huge variance. Lasso and weight decay work the same way.
+
+## Neighbours, trees and kernels
+
+These three methods have no fixed formula for the curve. They build it from the training points themselves, and their knob says how local that construction is.
+
+<BiasVariance
+  title="Local methods: how many neighbours, how many splits, how wide a kernel"
+  models={['knn', 'tree', 'kernel']}
+  start={{ knn: 5, tree: 3, kernel: 0.58 }}
+  caption="In all three tabs the flexible end gives a fit that touches every dot: one neighbour, one point per leaf, or a kernel narrower than the gaps between points."
+/>
+
+**k-nearest neighbours.** The prediction is the average $y$ of the $k$ closest training points. Averaging $k$ noisy labels divides the noise variance by $k$, but the neighbours sit further from $x$ as $k$ grows, so their true values differ more from $f(x)$:
+
+$$\text{Err}(x) = \sigma^2 + \Big[f(x) - \tfrac{1}{k}\textstyle\sum_{\ell=1}^{k} f(x_{(\ell)})\Big]^2 + \frac{\sigma^2}{k}$$
+
+where $x_{(\ell)}$ is the $\ell$-th nearest neighbour <Cite id="esl-book" where="§7.3" />. So $k = 1$ has the lowest bias and the highest variance, and $k = n$ predicts the global mean everywhere.
+
+**Decision trees.** Depth is the knob <Cite id="esl-book" where="§9.2" />. A shallow tree cuts the input into a few large boxes and predicts one constant per box, which is biased. A deep tree keeps splitting until each leaf holds one training point, so it reproduces the noise of that point. Pruning and a minimum leaf size turn the knob back.
+
+**Kernel methods and SVMs.** An RBF kernel compares points with $\exp(-\lVert x - x' \rVert^2 / 2\ell^2)$, the same kernel an RBF support vector machine uses; the tab fits kernel ridge regression. A wide kernel (large $\ell$, so a small $\gamma = 1/2\ell^2$) gives a smooth, biased fit. A narrow kernel lets each point affect only its own neighbourhood, so the fit follows each point's noise. In an SVM the margin parameter $C$ is a second knob: a large $C$ punishes every training error and so raises variance <Cite id="esl-book" where="§12.3" />.
+
+## Ensembles move one side at a time
+
+The tradeoff is not a law that ties bias and variance together. Ensembles combine many models, and the way they combine them targets one of the two terms.
+
+<BiasVariance
+  title="Ensembles: averaging lowers variance, adding lowers bias"
+  models={['forest', 'boost']}
+  start={{ forest: 1, boost: 30 }}
+  caption="Random forest: the orange curve stays flat while the green one falls. Boosting: the orange curve falls round after round, until the green one starts to climb."
+/>
+
+**Bagging and random forests attack variance.** A random forest trains many deep trees, each on a bootstrap resample of the data, and averages them <Cite id="bagging-paper" /> <Cite id="random-forests-paper" />. Each tree has low bias and high variance. Averaging does not change the average model, so bias stays put, but it cancels part of the disagreement between trees, so variance falls as trees are added.
+
+Variance stops falling when what remains is shared by all trees: they were trained on overlapping data, so their errors are correlated. Random forests also pick a random subset of features at each split, which makes the trees less alike and lowers that floor <Cite id="esl-book" where="§15.2" />. With only one input, as in the lab, this part has no effect.
+
+**Boosting attacks bias.** Gradient boosting starts from a weak, biased model (here a tree with one split) and adds models one at a time, each fit to the errors that remain <Cite id="gradient-boosting-paper" />. Every round removes some bias. After many rounds the sum starts to fit noise, so variance rises again. This is why boosting needs early stopping or a small learning rate <Cite id="esl-book" where="§10.12" />.
+
+## The knobs side by side
+
+<Spec
+  title="Which end of each knob gives which error"
+  columns={['Algorithm', 'Knob', 'High bias, low variance', 'Low bias, high variance']}
+  rows={[
+    { label: 'Linear / logistic regression', values: ['features p', 'few features', 'many features, p close to n'], source: 'esl-book', where: '§7.3' },
+    { label: 'Ridge, lasso, weight decay', values: ['penalty λ', 'large λ', 'λ near zero'], source: 'esl-book', where: '§3.4' },
+    { label: 'k-nearest neighbours', values: ['neighbours k', 'large k', 'k = 1'], source: 'esl-book', where: '§7.3' },
+    { label: 'Decision tree', values: ['depth, leaf size', 'shallow, big leaves', 'deep, one point per leaf'], source: 'esl-book', where: '§9.2' },
+    { label: 'SVM with RBF kernel', values: ['γ and C', 'small γ, small C', 'large γ, large C'], source: 'esl-book', where: '§12.3' },
+    { label: 'Naive Bayes', values: ['none', 'always (independence assumption)', '—'], source: 'esl-book', where: '§6.6.3' },
+    { label: 'Random forest', values: ['number of trees', '—', 'few trees'], source: 'random-forests-paper' },
+    { label: 'Gradient boosting', values: ['rounds, tree depth', 'few rounds, stumps', 'many rounds, deep trees'], source: 'esl-book', where: '§10.12' },
+  ]}
+  note="A dash means that end does not exist: more trees in a forest only lower variance, and naive Bayes has no knob."
+/>
+
+Naive Bayes has no knob in this sense. It assumes that features are independent given the class, which is almost never exactly true, so it has a fixed bias. In return it has very few parameters to estimate, so its variance is low and it often works well with little data <Cite id="esl-book" where="§6.6.3" />.
+
+## Neural networks
+
+The classical picture says a network with far more parameters than training points should have enormous variance. In practice, large networks often generalize well. They can even fit completely random labels on their training images and still generalize when the labels are real <Cite id="rethinking-generalization-paper" />. So parameter count alone is not the knob that sets their variance.
+
+<BiasVariance
+  title="A small network, stopped after more and more training steps"
+  models={['mlp']}
+  start={{ mlp: 100 }}
+  caption="One hidden layer of 24 tanh units, trained with Adam on 16 training sets. Few steps: every network is still close to its flat starting point (bias). Many steps: each network starts to bend toward its own noisy points (variance)."
+/>
+
+For one network, training time works like a knob. Early in training the network has only learned the broad shape, so bias dominates. If it keeps training, it starts to fit the noise in its particular training set, and variance grows. Stopping at the bottom of the test curve is **early stopping**, and it is one of several knobs that control variance in deep learning. The others are weight decay (the ridge penalty above), dropout, data augmentation and more training data.
+
+Measurements on real networks show a shape the classical picture does not predict. As networks get wider, bias keeps falling, but variance rises and then falls again <Cite id="neal-bias-variance-paper" /> <Cite id="rethinking-bias-variance-paper" />. Part of the variance comes from training itself, from the random initialization and the order of mini-batches, and not only from which training set was drawn <Cite id="neal-bias-variance-paper" />. Because variance falls again for very wide networks, test error can fall again too.
+
+## When "more flexible" stops meaning "more variance"
+
+The U-shaped test curve assumes that variance keeps growing as the model gets more flexible. That holds until the model has just enough parameters to pass through every training point. Past that point there are many ways to fit the training data exactly, and a training method that picks the smoothest of them can make variance shrink again <Cite id="belkin-double-descent-paper" />. The test curve then falls, rises to a peak and falls a second time. That is [[double-descent]], and it has its own note with its own lab.
