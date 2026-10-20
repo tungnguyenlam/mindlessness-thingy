@@ -1,0 +1,8 @@
+title: "Qwen3-235B-A22B model card"
+short: Qwen3-235B-A22B card
+authors: Qwen Team
+year: 2025
+url: https://huggingface.co/Qwen/Qwen3-235B-A22B
+type: model-card
+accessed: 2026-10-21
+notes: "235B total / 22B active, 32,768 native context and 131,072 with YaRN."

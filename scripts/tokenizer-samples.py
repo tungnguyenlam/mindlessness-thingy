@@ -34,6 +34,9 @@ TOKENIZERS = {
     'lfm2': {'repo': 'LiquidAI/LFM2.5-1.2B-Instruct', 'chat': ('chat_template.jinja', None)},
     'lfm2-5-128k': {'repo': 'LiquidAI/LFM2.5-2.6B', 'chat': ('chat_template.jinja', None)},
     'minicpm-v-4-7': {'repo': 'openbmb/MiniCPM-V-4.7-35B-A3B', 'chat': ('tokenizer_config.json', 'chat_template')},
+    'qwen2-5': {'repo': 'Qwen/Qwen2.5-72B', 'chat': ('tokenizer_config.json', 'chat_template')},
+    'qwen3': {'repo': 'Qwen/Qwen3-235B-A22B', 'chat': ('tokenizer_config.json', 'chat_template')},
+    'qwen3-5': {'repo': 'Qwen/Qwen3.5-397B-A17B', 'chat': ('tokenizer_config.json', 'chat_template')},
 }
 
 # Short on purpose: each one has to fit on a phone screen as a row of token chips.
@@ -49,7 +52,7 @@ SAMPLES = [
 ]
 
 # Pairs where the second tokenizer followed the first: how much of the older vocabulary survives.
-RELATIONS = [('deepseek-v2', 'deepseek-v3'), ('lfm2', 'lfm2-5-128k')]
+RELATIONS = [('deepseek-v2', 'deepseek-v3'), ('lfm2', 'lfm2-5-128k'), ('qwen2-5', 'qwen3'), ('qwen3', 'qwen3-5')]
 
 CONVERSATION = [
     {'role': 'system', 'content': 'Be brief.'},

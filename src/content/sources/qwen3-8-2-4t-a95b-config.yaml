@@ -1,0 +1,7 @@
+title: "Qwen3.8-2.4T-A95B config.json (Hugging Face)"
+short: Qwen3.8-2.4T-A95B config
+authors: Qwen Team
+year: 2026
+url: https://huggingface.co/Qwen/Qwen3.8-2.4T-A95B/blob/main/config.json
+type: config
+notes: "qwen3_5_moe_text: 92 layers, hidden 8192, Gated DeltaNet + gated GQA (interval 4), 512 experts top-10 plus a shared expert of width 2048, vocab_size 248320, max_position_embeddings 262144. Text-only (no vision_config)."

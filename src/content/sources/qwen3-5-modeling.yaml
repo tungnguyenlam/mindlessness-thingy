@@ -1,0 +1,8 @@
+title: "transformers modeling_qwen3_5.py"
+short: Qwen3.5 dense modeling code
+authors: Qwen Team, Hugging Face
+year: 2026
+url: https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3_5/modeling_qwen3_5.py
+type: repo
+accessed: 2026-10-21
+notes: "Dense qwen3_5_text backbone used by Qwen3.6-27B and Qwen3.8-27B: Gated DeltaNet, gated GQA with QK-Norm, SwiGLU FFN."

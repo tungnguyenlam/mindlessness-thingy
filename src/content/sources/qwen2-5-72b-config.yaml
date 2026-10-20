@@ -1,0 +1,7 @@
+title: "Qwen2.5-72B config.json (Hugging Face)"
+short: Qwen2.5-72B config
+authors: Qwen Team
+year: 2024
+url: https://huggingface.co/Qwen/Qwen2.5-72B/blob/main/config.json
+type: config
+notes: "Qwen2ForCausalLM: 80 layers, hidden 8192, 64 query / 8 KV heads, intermediate_size 29568, vocab_size 152064, max_position_embeddings 131072."

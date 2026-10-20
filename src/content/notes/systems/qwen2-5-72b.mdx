@@ -1,0 +1,55 @@
+---
+title: Qwen2.5-72B
+kind: system
+summary: Qwen's dense 72.7B flagship. Eighty layers of grouped-query attention and SwiGLU, trained on 18T tokens, with a 131K context.
+domains: [llm, attention]
+prerequisites: [gqa, transformer-block, rope]
+builds_on: []
+contrasts_with: []
+related: [qwen3-235b-a22b, qwen2-5-tokenizer]
+sources: [qwen2-5-report, qwen2-5-72b-card, qwen2-5-72b-config, qwen2-modeling]
+status: draft
+updated: 2026-10-21
+---
+
+Qwen2.5-72B is the dense open-weight flagship of Qwen2.5. Every layer is a pre-norm [[transformer-block]] with [[gqa]] and a SwiGLU feed-forward, trained on 18T tokens after Qwen2's 7T <Cite id="qwen2-5-report" where="Abstract; §2; §3" />. [[qwen3-235b-a22b]] later keeps the attention layout and replaces the feed-forward with [[moe]].
+
+## The whole model
+
+Eighty identical layers. Attention is 64 query heads sharing 8 key/value heads; the feed-forward is dense SwiGLU <Cite id="qwen2-5-72b-card" /> <Cite id="qwen2-5-72b-config" where="num_attention_heads, num_key_value_heads, intermediate_size" />.
+
+<ModelOverview model="qwen2-5-72b" />
+
+<LayerStrip model="qwen2-5-72b" />
+
+<ModelDiagram model="qwen2-5-72b" />
+
+<ModelSpec model="qwen2-5-72b" />
+
+## What is new
+
+### More data, a longer window
+
+<Spec
+  title="Pre-training against Qwen2"
+  rows={[
+    { label: 'Pre-training tokens', value: '18T, up from 7T in Qwen2', source: 'qwen2-5-report', where: 'Abstract; §3' },
+    { label: 'Attention extras', value: 'QKV bias; no QK-Norm', source: 'qwen2-5-72b-card', where: 'Architecture' },
+  ]}
+/>
+
+The report's Table 1 writes the 72B context as 128K <Cite id="qwen2-5-report" where="Table 1" />. The released config and card both say 131,072, which is the number in the table above <Cite id="qwen2-5-72b-config" where="max_position_embeddings" />. Sliding-window attention is present in the config (`sliding_window: 131072`) but switched off (`use_sliding_window: false`), so every layer is full [[gqa]] over the whole context <Cite id="qwen2-5-72b-config" where="use_sliding_window" />.
+
+The mix that grew to 18T is heavier on knowledge, code and mathematics than Qwen2's, and pre-training is staged so the mixture can change <Cite id="qwen2-5-report" where="§3" />. Post-training (SFT, DPO, GRPO) is described in the report; this page is the base 72B architecture <Cite id="qwen2-5-72b-card" where="Training Stage: Pretraining" />.
+
+## What it reuses
+
+- [[gqa]] with 64 query heads and 8 key/value heads, so the [[kv-cache]] is eight times smaller than full [[mha]].
+- [[rope]] with $\theta = 10^6$, without a later YaRN stage in the released config.
+- A pre-norm [[transformer-block]] and SwiGLU in every layer.
+
+## Tokenizer
+
+<Tokenizer model="qwen2-5-72b" />
+
+The family tokenizer is [[qwen2-5-tokenizer]]: 151,643 byte-level BPE tokens, NFC, one digit per token, ChatML. The embedding table is padded to 152,064 rows <Cite id="qwen2-5-72b-config" where="vocab_size" />.

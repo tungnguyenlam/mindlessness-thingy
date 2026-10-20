@@ -1,0 +1,8 @@
+title: "transformers modeling_qwen2.py"
+short: Qwen2 modeling code
+authors: Qwen Team, Hugging Face
+year: 2024
+url: https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen2/modeling_qwen2.py
+type: repo
+accessed: 2026-10-21
+notes: "Qwen2Attention uses QKV bias; Qwen2MLP is SwiGLU (gate_proj, up_proj, down_proj with SiLU)."

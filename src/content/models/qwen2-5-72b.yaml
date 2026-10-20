@@ -1,0 +1,19 @@
+title: Qwen2.5-72B
+family: qwen
+params_total: { v: 72.7e9, source: qwen2-5-72b-card, where: "Number of Parameters: 72.7B" }
+layers: { v: 80, source: qwen2-5-72b-config, where: num_hidden_layers }
+layer_pattern: { v: "AD*80", source: qwen2-5-72b-config, where: "num_hidden_layers (dense FFN in every layer)" }
+hidden_size: { v: 8192, source: qwen2-5-72b-config, where: hidden_size }
+vocab_size: { v: 152064, source: qwen2-5-72b-config, where: vocab_size }
+tie_embeddings: { v: false, source: qwen2-5-72b-config, where: tie_word_embeddings }
+norm: { v: "RMSNorm, before each sublayer, ε = 10⁻⁵", source: qwen2-modeling, where: "Qwen2RMSNorm; config rms_norm_eps" }
+attention: { v: gqa, source: qwen2-5-72b-card, where: "Number of Attention Heads (GQA)" }
+heads: { v: 64, source: qwen2-5-72b-config, where: num_attention_heads }
+kv_heads: { v: 8, source: qwen2-5-72b-config, where: num_key_value_heads }
+rope_theta: { v: 1000000, source: qwen2-5-72b-config, where: rope_theta }
+ffn: { v: dense, source: qwen2-5-72b-config, where: "intermediate_size (no experts)" }
+ffn_activation: { v: SwiGLU, source: qwen2-modeling, where: "Qwen2MLP.forward (gate_proj, up_proj, down_proj, SiLU)" }
+ffn_hidden: { v: 29568, source: qwen2-5-72b-config, where: intermediate_size }
+context_length: { v: 131072, source: qwen2-5-72b-config, where: max_position_embeddings }
+training_tokens: { v: 18e12, source: qwen2-5-report, where: "Abstract; §3" }
+tokenizer: { v: qwen2-5, source: qwen2-5-tokenizer, where: tokenizer.json }

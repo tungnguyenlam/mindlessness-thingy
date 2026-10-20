@@ -1,0 +1,94 @@
+---
+title: Qwen3-235B-A22B
+kind: system
+summary: Qwen3's MoE flagship, 235B parameters with 22B active. It drops Qwen2.5's QKV bias, adds QK-Norm, and lets one checkpoint switch thinking on or off.
+domains: [llm, moe, attention]
+prerequisites: [gqa, moe]
+builds_on: [qwen2-5-72b]
+contrasts_with: []
+related: [qwen3-tokenizer, qwen3-5-397b-a17b]
+sources: [qwen3-report, qwen3-235b-a22b-card, qwen3-235b-a22b-config, qwen3-moe-modeling]
+status: draft
+updated: 2026-10-21
+---
+
+Qwen3-235B-A22B keeps [[qwen2-5-72b]]'s [[gqa]] block and replaces every dense feed-forward with [[moe]]: 128 experts, 8 per token, no shared expert <Cite id="qwen3-report" where="§2" />. Two further attention changes matter: QKV bias is gone, and RMSNorm now runs on the queries and keys. This note is those differences, plus the think-span the chat template added.
+
+## The whole model
+
+Ninety-four layers, each attention then MoE. There is no dense prefix: `mlp_only_layers` is empty and `decoder_sparse_step` is 1 <Cite id="qwen3-235b-a22b-config" where="mlp_only_layers, decoder_sparse_step" />.
+
+<ModelOverview model="qwen3-235b-a22b" />
+
+<LayerStrip model="qwen3-235b-a22b" />
+
+<ModelDiagram model="qwen3-235b-a22b" />
+
+<ModelSpec model="qwen3-235b-a22b" />
+
+## What is new
+
+### QK-Norm, no QKV bias
+
+<ShapeFlow
+  title="Q and K are normalized before RoPE"
+  steps={[
+    { label: 'Hidden state', shape: ['T', 'd'] },
+    { label: 'W_Q, W_K, W_V', shape: ['T', 'n_h or n_kv', 'd_h'], changed: 1, note: 'no bias; V unnormalized' },
+    { label: 'RMSNorm on Q and K', shape: ['T', 'n_h or n_kv', 'd_h'], changed: 0, note: 'QK-Norm' },
+    { label: 'RoPE on Q and K', shape: ['T', 'n_h or n_kv', 'd_h'] },
+  ]}
+/>
+
+Qwen2.5's attention projections include a bias. Qwen3 removes it and applies RMSNorm to each query and key head after the projection, before [[rope]] <Cite id="qwen3-report" where="§2" /> <Cite id="qwen3-moe-modeling" where="Qwen3MoeAttention" />. The report's reason is training stability at this scale. Head width is 128, set in the config rather than as $d / n_h$ (that quotient would be 64) <Cite id="qwen3-235b-a22b-config" where="head_dim" />.
+
+### MoE without a shared expert
+
+<Spec
+  title="Qwen3-MoE routing"
+  rows={[
+    { label: 'Shared path', value: 'none (unlike Qwen2.5-MoE)', source: 'qwen3-report', where: '§2' },
+    { label: 'Load balance', value: 'global-batch balancing loss', source: 'qwen3-report', where: '§2' },
+  ]}
+/>
+
+Qwen2.5-MoE used fine-grained experts *and* a shared expert. Qwen3 keeps the fine-grained pool and drops the shared path, so every token's compute is the eight routed experts only <Cite id="qwen3-report" where="§2" />. Balancing is a global-batch loss rather than DeepSeek's bias update; the concept of sparse experts is in [[moe]].
+
+### Thinking and non-thinking in one checkpoint
+
+<ArchDiagram
+  title="One model, two decode paths"
+  caption="The chat template either opens a think span or skips it. The weights are the same; only the special tokens and the sampling settings change."
+  blocks={[
+    { id: 'prompt', label: 'User turn', sub: 'ChatML', role: 'activation' },
+    { id: 'on', label: 'enable_thinking', sub: '<think> … </think>', role: 'op' },
+    { id: 'off', label: 'non-thinking', sub: 'answer tokens only', role: 'op' },
+    { id: 'ans', label: 'Assistant answer', sub: 'after </think> or immediately', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'prompt', to: 'on' },
+    { from: 'prompt', to: 'off', dashed: true },
+    { from: 'on', to: 'ans' },
+    { from: 'off', to: 'ans', dashed: true },
+  ]}
+/>
+
+Earlier Qwen releases split reasoning (QwQ) from the instruct model. Qwen3 puts both in one checkpoint: the template can emit a `<think>` span, or it can skip it, and `/think` / `/no_think` in the user text flip the choice mid-conversation <Cite id="qwen3-235b-a22b-card" where="Switching Between Thinking and Non-Thinking Mode" />. The specials live in [[qwen3-tokenizer]].
+
+Pre-training is 36T tokens across 119 languages, in three stages that grow the context from 4K to 32K <Cite id="qwen3-report" where="§3.1; §3.2" />.
+
+<Callout type="pitfall">
+The report's Table 2 lists this model's context as 128K <Cite id="qwen3-report" where="Table 2" />. The card says 32,768 natively and 131,072 with YaRN; the released config has `max_position_embeddings: 40960` and `rope_scaling: null` <Cite id="qwen3-235b-a22b-card" /> <Cite id="qwen3-235b-a22b-config" where="max_position_embeddings, rope_scaling" />. 40,960 is a margin (32K of output plus 8K of prompt) the card describes, not a longer native window. Enable YaRN only when the conversation actually needs more than 32K.
+</Callout>
+
+## What it reuses
+
+- [[gqa]] with 64 query heads and 4 key/value heads.
+- [[rope]] with $\theta = 10^6$.
+- A pre-norm [[transformer-block]] in every layer; only the feed-forward is [[moe]].
+
+## Tokenizer
+
+<Tokenizer model="qwen3-235b-a22b" />
+
+Same BPE table as [[qwen2-5-tokenizer]], with `<think>` and `<tool_response>` added. The split rules and the overlap numbers are in [[qwen3-tokenizer]].

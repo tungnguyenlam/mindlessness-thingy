@@ -1,0 +1,26 @@
+title: Qwen3-235B-A22B
+family: qwen
+params_total: { v: 235e9, source: qwen3-235b-a22b-card, where: "Number of Parameters: 235B in total" }
+params_active: { v: 22e9, source: qwen3-235b-a22b-card, where: "22B activated" }
+layers: { v: 94, source: qwen3-235b-a22b-config, where: num_hidden_layers }
+layer_pattern: { v: "AE*94", source: qwen3-235b-a22b-config, where: "mlp_only_layers: []; decoder_sparse_step: 1" }
+hidden_size: { v: 4096, source: qwen3-235b-a22b-config, where: hidden_size }
+vocab_size: { v: 151936, source: qwen3-235b-a22b-config, where: vocab_size }
+tie_embeddings: { v: false, source: qwen3-235b-a22b-config, where: tie_word_embeddings }
+norm: { v: "RMSNorm, before each sublayer, ε = 10⁻⁶", source: qwen3-moe-modeling, where: "Qwen3MoeRMSNorm; config rms_norm_eps" }
+attention: { v: gqa, source: qwen3-235b-a22b-card, where: "Number of Attention Heads (GQA)" }
+heads: { v: 64, source: qwen3-235b-a22b-config, where: num_attention_heads }
+kv_heads: { v: 4, source: qwen3-235b-a22b-config, where: num_key_value_heads }
+head_dim: { v: 128, source: qwen3-235b-a22b-config, where: head_dim }
+qk_norm: { v: true, source: qwen3-moe-modeling, where: "Qwen3MoeAttention (q_norm, k_norm)" }
+rope_theta: { v: 1000000, source: qwen3-235b-a22b-config, where: rope_theta }
+ffn: { v: moe, source: qwen3-235b-a22b-config, where: num_experts }
+ffn_activation: { v: SwiGLU, source: qwen3-moe-modeling, where: "Qwen3MoeMLP (gate_proj, up_proj, down_proj, SiLU)" }
+routed_experts: { v: 128, source: qwen3-235b-a22b-config, where: num_experts }
+active_experts: { v: 8, source: qwen3-235b-a22b-config, where: num_experts_per_tok }
+expert_hidden: { v: 1536, source: qwen3-235b-a22b-config, where: moe_intermediate_size }
+router_scoring: { v: softmax, source: qwen3-moe-modeling, where: "Qwen3MoeSparseMoeBlock (softmax top-k, no shared expert)" }
+routed_scaling: { v: 1.0, source: qwen3-235b-a22b-config, where: "norm_topk_prob: true" }
+context_length: { v: 32768, display: 32K, source: qwen3-235b-a22b-card, where: "Context Length: 32,768 natively" }
+training_tokens: { v: 36e12, source: qwen3-report, where: "Abstract; §3.1" }
+tokenizer: { v: qwen3, source: qwen3-tokenizer, where: tokenizer.json }

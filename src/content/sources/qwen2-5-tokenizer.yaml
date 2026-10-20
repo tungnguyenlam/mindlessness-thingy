@@ -1,0 +1,8 @@
+title: "Qwen2.5-72B tokenizer files (Hugging Face)"
+short: Qwen2.5 tokenizer
+authors: Qwen Team
+year: 2024
+url: https://huggingface.co/Qwen/Qwen2.5-72B/tree/main
+type: config
+accessed: 2026-10-21
+notes: "tokenizer.json and tokenizer_config.json: 151,643 BPE tokens plus 22 added tokens (ids 151643–151664). Qwen2Tokenizer, NFC, ByteLevel."

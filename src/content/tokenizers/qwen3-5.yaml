@@ -1,0 +1,34 @@
+title: Qwen3.5 tokenizer
+note: qwen3-5-tokenizer
+family: qwen
+file: qwen3-5-tokenizer
+algorithm: { v: Byte-level BPE, source: qwen3-5-397b-a17b-card, where: "Token Embedding: 248320 (Padded)" }
+base_vocab: { v: 248044, source: qwen3-5-tokenizer, where: "tokenizer.json model.vocab" }
+merges: { v: 247587, source: qwen3-5-tokenizer, where: "tokenizer.json model.merges" }
+added_tokens: { v: 26, source: qwen3-5-tokenizer, where: "tokenizer.json added_tokens (ids 248044–248069)" }
+max_id: { v: 248069, source: qwen3-5-tokenizer, where: "tokenizer.json added_tokens" }
+normalizer: { v: NFC, source: qwen3-5-tokenizer, where: "tokenizer.json normalizer.type" }
+digits: { v: one digit per token, source: qwen3-5-tokenizer, where: "pre_tokenizer Split \\p{N}" }
+add_bos: { v: "no", source: qwen3-5-tokenizer, where: "tokenizer_config.json bos_token: null; add_bos_token: false" }
+chat_format: { v: ChatML with <think> spans, source: qwen3-5-tokenizer, where: "tokenizer_config.json chat_template" }
+trained_for: { v: "the Qwen3.5 hybrid series, including vision and thinking tokens", source: qwen3-5-397b-a17b-card, where: "Token Embedding" }
+pretokenizer:
+  - { v: "English contractions ('s, 't, 're, 've, 'm, 'll, 'd) split off", regex: "(?i:'s|'t|'re|'ve|'m|'ll|'d)", source: qwen3-5-tokenizer, where: "pre_tokenizer Split, branch 1" }
+  - { v: "A word: letters and marks, with at most one space or symbol in front", regex: "[^\\r\\n\\p{L}\\p{N}]?[\\p{L}\\p{M}]+", source: qwen3-5-tokenizer, where: "pre_tokenizer Split, branch 2" }
+  - { v: "One digit at a time (never merged across digits)", regex: "\\p{N}", source: qwen3-5-tokenizer, where: "pre_tokenizer Split, branch 3" }
+  - { v: "Punctuation with an optional space in front and the line breaks after it", regex: " ?[^\\s\\p{L}\\p{M}\\p{N}]+[\\r\\n]*", source: qwen3-5-tokenizer, where: "pre_tokenizer Split, branch 4" }
+  - { v: "Whitespace that ends in line breaks, then any other whitespace", regex: "\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+", source: qwen3-5-tokenizer, where: "pre_tokenizer Split, last branches" }
+specials:
+  source: qwen3-5-tokenizer
+  where: tokenizer.json added_tokens
+  tokens:
+    - { token: "<|endoftext|>", id: 248044, use: end of document and padding }
+    - { token: "<|im_start|>", id: 248045, use: start of a chat turn }
+    - { token: "<|im_end|>", id: 248046, use: end of a chat turn (eos_token) }
+    - { token: "<|vision_start|>", id: 248053, use: "start of visual span (with <|vision_end|>, <|image_pad|>, <|video_pad|>)" }
+    - { token: "<|image_pad|>", id: 248056, use: placeholder replaced by visual patch embeddings }
+    - { token: "<tool_call>", id: 248058, use: "tool call span (with </tool_call>)" }
+    - { token: "<|fim_prefix|>", id: 248060, use: "fill-in-the-middle code completion" }
+    - { token: "<tool_response>", id: 248066, use: "tool response span" }
+    - { token: "<think>", id: 248068, use: "reasoning trace span (with </think>)" }
+    - { token: "</think>", id: 248069, use: end of reasoning trace }

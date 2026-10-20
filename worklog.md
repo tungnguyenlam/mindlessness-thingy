@@ -186,3 +186,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: new <NgramLookup> viz (real tokenizer tokens, example multiplicative-XOR hash, context-aware gate) on DeepSeek-V4.1-Flash; Engram concept note, generated overview tab, and engram_* model fields
 - files: src/components/viz/NgramLookup.astro src/lib/models/{fields,overview,params}.mjs src/content/notes/{concepts/engram,systems/deepseek-v4-1-flash,paths/deepseek-lineage}.mdx src/content/models/deepseek-v4-1-flash.yaml AGENTS.md
 - open: hash multipliers are an example of the paper's shape, not the trained tables; Engram params excluded from paramBreakdown so the 552B backbone still matches
+
+## 2026-10-21 · content(qwen): add open-weight flagships from 2.5 to 3.8
+- did: draft system notes and model data for Qwen2.5-72B, Qwen3-235B-A22B, Qwen3.5-397B-A17B, Qwen3.6-27B and Qwen3.8-2.4T-A95B, plus three shared tokenizers and a lineage path
+- files: src/content/{models,notes,sources,tokenizers}/qwen* research/qwen-facts.md scripts/tokenizer-samples.py src/data/tokenizer-samples.json
+- open: Qwen3.5/3.6/3.8 training-token counts unverified (omitted); Qwen3 context disagrees (report table 128K vs card 32K native / YaRN 131K vs config 40960); Qwen3.8-27B config matches Qwen3.6-27B so the 3.8 page is the 2.4T Max-class model; gated-deltanet remains a stub

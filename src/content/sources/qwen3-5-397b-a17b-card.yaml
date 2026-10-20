@@ -1,0 +1,8 @@
+title: "Qwen3.5-397B-A17B model card"
+short: Qwen3.5-397B-A17B card
+authors: Qwen Team
+year: 2026
+url: https://huggingface.co/Qwen/Qwen3.5-397B-A17B
+type: model-card
+accessed: 2026-10-21
+notes: "397B total / 17B active, native vision-language, 262,144 context extensible to 1,010,000. Hidden layout 15 × (3 × Gated DeltaNet→MoE then 1 × gated attention→MoE)."

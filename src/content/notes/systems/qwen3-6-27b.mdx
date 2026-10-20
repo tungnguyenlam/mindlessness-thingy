@@ -1,0 +1,61 @@
+---
+title: Qwen3.6-27B
+kind: system
+summary: The first open Qwen3.6 checkpoint. A 27B dense hybrid of Gated DeltaNet and gated GQA, native vision, sharing Qwen3.5's 248K tokenizer and 256K context.
+domains: [llm, ssm, attention, multimodal]
+prerequisites: [gated-deltanet, gqa]
+builds_on: []
+contrasts_with: [qwen3-5-397b-a17b]
+related: [qwen3-5-tokenizer, qwen3-8-2-4t-a95b, mtp]
+sources: [qwen3-6-27b-card, qwen3-6-27b-config, qwen3-6-blog, qwen3-5-modeling, qwen3-5-tokenizer]
+status: draft
+updated: 2026-10-21
+---
+
+Qwen3.6-27B is a dense hybrid on the same mixer recipe as [[qwen3-5-397b-a17b]], without the MoE. Sixty-four layers repeat three [[gated-deltanet]] blocks then one gated [[gqa]] block, each with a SwiGLU feed-forward <Cite id="qwen3-6-27b-card" where="Hidden Layout" />. The blog's emphasis is coding agents and keeping a think span across turns; the architecture is the Qwen3.5 dense stack at 27B <Cite id="qwen3-6-blog" />.
+
+## The whole model
+
+<ModelOverview model="qwen3-6-27b" />
+
+<LayerStrip model="qwen3-6-27b" />
+
+<ModelDiagram model="qwen3-6-27b" />
+
+<ModelSpec model="qwen3-6-27b" />
+
+<Compare
+  models={["qwen3-5-397b-a17b", "qwen3-6-27b"]}
+  fields={["params_total", "params_active", "layers", "hidden_size", "ffn", "routed_experts", "linear_v_heads", "heads", "kv_heads"]}
+  onlyDiff
+  caption="Qwen3.6-27B against the Qwen3.5 MoE flagship. Same 3-then-1 hybrid; the feed-forward is dense, the hidden size is 5,120, and there is no expert pool."
+/>
+
+## What is new
+
+### Dense FFN on the Qwen3.5 hybrid
+
+<Spec
+  title="Dense hybrid against Qwen3.5-397B-A17B"
+  rows={[
+    { label: 'Feed-forward', value: 'dense SwiGLU, width 17,408 (no experts)', source: 'qwen3-6-27b-config', where: 'text_config.intermediate_size' },
+    { label: 'Gated DeltaNet V heads', value: '48 (Qwen3.5 has 64)', source: 'qwen3-6-27b-config', where: 'text_config.linear_num_value_heads' },
+    { label: 'GQA grouping', value: '24 query / 4 KV heads, d_h = 256', source: 'qwen3-6-27b-config', where: 'text_config.num_attention_heads, num_key_value_heads, head_dim' },
+  ]}
+/>
+
+The 3-then-1 layout is unchanged: 48 linear-attention layers and 16 full-attention layers (`full_attention_interval: 4`) <Cite id="qwen3-6-27b-config" where="text_config.layer_types" />. What this size drops is the expert pool, so every token pays for the whole feed-forward. Attention still uses QK-Norm, an output gate, and 25% partial M-RoPE, as in Qwen3.5 <Cite id="qwen3-5-modeling" where="Qwen3_5Attention" /> <Cite id="qwen3-6-27b-config" where="text_config.attn_output_gate, rope_parameters" />. [[mtp]] is trained with one extra block.
+
+The checkpoint is also a vision-language model: a 27-layer ViT of width 1,152, the same tower shape as Qwen3.5, projects into hidden size 5,120 <Cite id="qwen3-6-27b-config" where="vision_config" />. Native context is 262,144 tokens, extensible to 1,010,000 <Cite id="qwen3-6-27b-card" where="Context Length" />.
+
+## What it reuses
+
+- [[gated-deltanet]] in 48 of 64 mixers, kernel 4.
+- [[gqa]] with an output gate in the other 16.
+- The [[qwen3-5-tokenizer]] 248K vocabulary, including vision and think specials.
+
+## Tokenizer
+
+<Tokenizer model="qwen3-6-27b" />
+
+Shared with Qwen3.5. The split rules are in [[qwen3-5-tokenizer]].

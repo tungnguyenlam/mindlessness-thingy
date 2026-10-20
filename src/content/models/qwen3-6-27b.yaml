@@ -1,0 +1,29 @@
+title: Qwen3.6-27B
+family: qwen
+params_total: { v: 27e9, source: qwen3-6-27b-card, where: "Number of Parameters: 27B" }
+layers: { v: 64, source: qwen3-6-27b-config, where: "text_config.num_hidden_layers" }
+layer_pattern: { v: "GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD GD*3 AD", source: qwen3-6-27b-config, where: "text_config.layer_types (full_attention_interval: 4)" }
+hidden_size: { v: 5120, source: qwen3-6-27b-config, where: "text_config.hidden_size" }
+vocab_size: { v: 248320, source: qwen3-6-27b-config, where: "text_config.vocab_size" }
+tie_embeddings: { v: false, source: qwen3-6-27b-config, where: "text_config.tie_word_embeddings" }
+norm: { v: "RMSNorm, before each sublayer, ε = 10⁻⁶", source: qwen3-5-modeling, where: "Qwen3_5RMSNorm; text_config.rms_norm_eps" }
+attention: { v: gqa, source: qwen3-6-27b-config, where: "text_config.num_attention_heads, num_key_value_heads" }
+heads: { v: 24, source: qwen3-6-27b-config, where: "text_config.num_attention_heads" }
+kv_heads: { v: 4, source: qwen3-6-27b-config, where: "text_config.num_key_value_heads" }
+head_dim: { v: 256, source: qwen3-6-27b-config, where: "text_config.head_dim" }
+qk_norm: { v: true, source: qwen3-5-modeling, where: "Qwen3_5Attention (q_norm, k_norm)" }
+attn_output_gate: { v: true, source: qwen3-6-27b-config, where: "text_config.attn_output_gate" }
+linear_layers: { v: 48, source: qwen3-6-27b-config, where: "text_config.layer_types (48 linear_attention)" }
+linear_k_heads: { v: 16, source: qwen3-6-27b-config, where: "text_config.linear_num_key_heads" }
+linear_v_heads: { v: 48, source: qwen3-6-27b-config, where: "text_config.linear_num_value_heads" }
+linear_k_dim: { v: 128, source: qwen3-6-27b-config, where: "text_config.linear_key_head_dim" }
+linear_v_dim: { v: 128, source: qwen3-6-27b-config, where: "text_config.linear_value_head_dim" }
+conv_window: { v: 4, source: qwen3-6-27b-config, where: "text_config.linear_conv_kernel_dim" }
+rope_theta: { v: 10000000, source: qwen3-6-27b-config, where: "text_config.rope_parameters.rope_theta" }
+rope_scaling: { v: "M-RoPE, 25% partial rotary (64 of 256 dims), interleaved [11, 11, 10]", source: qwen3-6-27b-config, where: "text_config.rope_parameters" }
+ffn: { v: dense, source: qwen3-6-27b-config, where: "text_config.intermediate_size (no experts)" }
+ffn_activation: { v: SwiGLU, source: qwen3-5-modeling, where: "Qwen3_5MLP (gate_proj, up_proj, down_proj, SiLU)" }
+ffn_hidden: { v: 17408, source: qwen3-6-27b-config, where: "text_config.intermediate_size" }
+mtp_depth: { v: 1, source: qwen3-6-27b-config, where: "text_config.mtp_num_hidden_layers" }
+context_length: { v: 262144, display: 256K, source: qwen3-6-27b-config, where: "text_config.max_position_embeddings" }
+tokenizer: { v: qwen3-5, source: qwen3-5-tokenizer, where: tokenizer.json }

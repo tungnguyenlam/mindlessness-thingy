@@ -1,0 +1,35 @@
+---
+title: Qwen3 tokenizer
+kind: system
+summary: Qwen2.5's 151,643 BPE vocabulary plus four extra specials, including think-span markers, so one Qwen3 checkpoint can switch thinking on or off.
+domains: [llm, tokenization]
+prerequisites: [byte-level-bpe]
+builds_on: [qwen2-5-tokenizer]
+contrasts_with: [qwen3-5-tokenizer]
+related: [qwen3-235b-a22b]
+sources: [qwen3-report, qwen3-tokenizer, qwen2-5-tokenizer, qwen3-235b-a22b-config]
+status: draft
+updated: 2026-10-21
+---
+
+[[qwen3-235b-a22b]] reads text through the [[qwen2-5-tokenizer]] vocabulary with extra specials. The report gives the size as 151,669, which is the 151,643 learned tokens plus 26 added ones <Cite id="qwen3-report" where="§2" /> <Cite id="qwen3-tokenizer" where="tokenizer.json added_tokens" />. The merge table did not change. What is new is the think-span and tool-response markers the chat template uses.
+
+## How it splits text
+
+<TokenizerFlow tokenizer="qwen3" />
+
+The pre-tokenizer is the same as Qwen2.5: NFC, letters-only words, one digit at a time, punctuation that keeps the line breaks after it <Cite id="qwen3-tokenizer" where="tokenizer.json pre_tokenizer" />. Ordinary text therefore tokenizes the same way. Switch to the chat sample on the card to see `<think>` and `</think>` appear as single specials.
+
+## At a glance
+
+<Tokenizer id="qwen3" full />
+
+## What changed from Qwen2.5
+
+<TokenizerCompare tokenizers={["qwen2-5", "qwen3"]} caption="The same samples through both tokenizers. Counts match because the BPE vocabulary and merges are the same; only the added specials differ." />
+
+Four added tokens sit past Qwen2.5's last id: `<tool_response>`, `</tool_response>`, `<think>` and `</think>` <Cite id="qwen3-tokenizer" where="tokenizer.json added_tokens (ids 151665–151668)" />. The chat template can wrap a reasoning trace in the think pair, or skip it, which is how one [[qwen3-235b-a22b]] checkpoint switches thinking mode without swapping models.
+
+## Ids and embedding rows
+
+The ids run from 0 to 151,668 <Cite id="qwen3-tokenizer" where="added_tokens" />. The model's embedding table has 151,936 rows <Cite id="qwen3-235b-a22b-config" where="vocab_size" />, so a few hundred rows are padding. [[qwen3-5-tokenizer]] does not extend this table: it is a new 248K vocabulary.

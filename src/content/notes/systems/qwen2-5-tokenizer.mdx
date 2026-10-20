@@ -1,0 +1,33 @@
+---
+title: Qwen2.5 tokenizer
+kind: system
+summary: The 151,643-token byte-level BPE tokenizer shared by Qwen2.5. NFC normalization, one digit per token, ChatML turn markers, and 22 added control tokens.
+domains: [llm, tokenization]
+prerequisites: [byte-level-bpe]
+builds_on: []
+contrasts_with: [qwen3-tokenizer, qwen3-5-tokenizer]
+related: [qwen2-5-72b]
+sources: [qwen2-5-report, qwen2-5-tokenizer, qwen2-5-72b-config]
+status: draft
+updated: 2026-10-21
+---
+
+[[qwen2-5-72b]] and the rest of Qwen2.5 read text through one [[byte-level-bpe]] tokenizer: 151,643 learned tokens plus 22 added control tokens <Cite id="qwen2-5-report" where="§2" />. This note shows how it splits text; the model notes link here.
+
+## How it splits text
+
+<TokenizerFlow tokenizer="qwen2-5" />
+
+Before any merge, Unicode is folded to NFC so equivalent characters share a byte sequence <Cite id="qwen2-5-tokenizer" where="tokenizer.json normalizer.type" />. The pre-tokenizer then cuts English contractions off, keeps at most one leading space on a word of letters, isolates every digit, and lets punctuation keep the line breaks after it. The Numbers tab is one token per digit because the split is `\p{N}`, never a run of digits.
+
+## At a glance
+
+<Tokenizer id="qwen2-5" full />
+
+The report calls this a unified vocabulary across Qwen2.5 sizes, with control tokens expanded from 3 to 22 against earlier Qwen versions, including tool-call and fill-in-the-middle markers <Cite id="qwen2-5-report" where="§2" />.
+
+## Ids and embedding rows
+
+The ids run from 0 to 151,664 <Cite id="qwen2-5-tokenizer" where="added_tokens" />. [[qwen2-5-72b]]'s embedding table has 152,064 rows <Cite id="qwen2-5-72b-config" where="vocab_size" />, so a few hundred rows are padding that no id reaches. The output head is not tied to that table <Cite id="qwen2-5-72b-config" where="tie_word_embeddings" />.
+
+[[qwen3-tokenizer]] keeps this BPE vocabulary and adds thinking and tool-response tokens. [[qwen3-5-tokenizer]] replaces it with a 248K vocabulary.

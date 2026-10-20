@@ -1,0 +1,8 @@
+title: "Qwen3.8-2.4T-A95B model card"
+short: Qwen3.8-2.4T-A95B card
+authors: Qwen Team
+year: 2026
+url: https://huggingface.co/Qwen/Qwen3.8-2.4T-A95B
+type: model-card
+accessed: 2026-10-21
+notes: "2.4T total / 95B active. First Qwen-Max-class open release. Text-only, thinking required. 23 × (3 × Gated DeltaNet→MoE then 1 × gated attention→MoE)."

@@ -1,0 +1,7 @@
+title: "Qwen3-235B-A22B config.json (Hugging Face)"
+short: Qwen3-235B-A22B config
+authors: Qwen Team
+year: 2025
+url: https://huggingface.co/Qwen/Qwen3-235B-A22B/blob/main/config.json
+type: config
+notes: "Qwen3MoeForCausalLM: 94 layers, hidden 4096, 64 query / 4 KV heads, head_dim 128, 128 experts top-8, moe_intermediate_size 1536, vocab_size 151936, max_position_embeddings 40960."

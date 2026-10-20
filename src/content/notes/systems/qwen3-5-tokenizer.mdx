@@ -1,0 +1,35 @@
+---
+title: Qwen3.5 tokenizer
+kind: system
+summary: A new 248K byte-level BPE tokenizer for Qwen3.5 and the open Qwen3.6 and Qwen3.8 checkpoints. Words include combining marks, and the specials cover vision, tools and thinking.
+domains: [llm, tokenization]
+prerequisites: [byte-level-bpe]
+builds_on: []
+contrasts_with: [qwen3-tokenizer, qwen2-5-tokenizer]
+related: [qwen3-5-397b-a17b, qwen3-6-27b, qwen3-8-2-4t-a95b, minicpm-v-4-7-tokenizer]
+sources: [qwen3-5-tokenizer, qwen3-5-397b-a17b-card, qwen3-5-397b-a17b-config]
+status: draft
+updated: 2026-10-21
+---
+
+[[qwen3-5-397b-a17b]], [[qwen3-6-27b]] and [[qwen3-8-2-4t-a95b]] share one [[byte-level-bpe]] tokenizer. The learned vocabulary is 248,044 tokens, almost twice Qwen3's, and the embedding table is padded to 248,320 rows <Cite id="qwen3-5-tokenizer" where="tokenizer.json model.vocab" /> <Cite id="qwen3-5-397b-a17b-card" where="Token Embedding: 248320 (Padded)" />. [[minicpm-v-4-7-tokenizer]] inherits this vocabulary and adds its own multimodal tags.
+
+## How it splits text
+
+<TokenizerFlow tokenizer="qwen3-5" />
+
+NFC still runs first. The word split is the change against [[qwen3-tokenizer]]: a word is letters *and* combining marks (`[\p{L}\p{M}]+`), so a Vietnamese or accented character stays in the letter piece instead of breaking into a mark token <Cite id="qwen3-5-tokenizer" where="pre_tokenizer Split, branch 2" />. Digits are still one token each.
+
+## At a glance
+
+<Tokenizer id="qwen3-5" full />
+
+## Against Qwen3
+
+<TokenizerCompare tokenizers={["qwen3", "qwen3-5"]} caption="The same samples through Qwen3's 151K vocabulary and Qwen3.5's 248K vocabulary. Chinese, Japanese and Vietnamese usually need fewer tokens on the new table." />
+
+The specials move to ids 248,044–248,069 and pick up vision span tokens (`<|vision_start|>`, `<|image_pad|>`, `<|video_pad|>`) beside the ChatML, tool and think markers Qwen3 already had <Cite id="qwen3-5-tokenizer" where="tokenizer.json added_tokens" />. [[qwen3-8-2-4t-a95b]] is text-only, so those vision ids sit in the table unused.
+
+## Ids and embedding rows
+
+The ids run from 0 to 248,069 <Cite id="qwen3-5-tokenizer" where="added_tokens" />. Each of the three models pads the embedding table to 248,320 rows <Cite id="qwen3-5-397b-a17b-config" where="text_config.vocab_size" />.

@@ -1,0 +1,35 @@
+title: Qwen3.8-2.4T-A95B
+family: qwen
+params_total: { v: 2.4e12, source: qwen3-8-2-4t-a95b-card, where: "Number of Parameters: 2.4T in total" }
+params_active: { v: 95e9, source: qwen3-8-2-4t-a95b-card, where: "95B activated" }
+layers: { v: 92, source: qwen3-8-2-4t-a95b-config, where: num_hidden_layers }
+layer_pattern: { v: "GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE GE*3 AE", source: qwen3-8-2-4t-a95b-config, where: "layer_types (full_attention_interval: 4)" }
+hidden_size: { v: 8192, source: qwen3-8-2-4t-a95b-config, where: hidden_size }
+vocab_size: { v: 248320, source: qwen3-8-2-4t-a95b-config, where: vocab_size }
+tie_embeddings: { v: false, source: qwen3-8-2-4t-a95b-config, where: tie_word_embeddings }
+norm: { v: "RMSNorm, before each sublayer, ε = 10⁻⁶", source: qwen3-5-moe-modeling, where: "Qwen3_5MoeRMSNorm; rms_norm_eps" }
+attention: { v: gqa, source: qwen3-8-2-4t-a95b-config, where: "num_attention_heads, num_key_value_heads" }
+heads: { v: 64, source: qwen3-8-2-4t-a95b-config, where: num_attention_heads }
+kv_heads: { v: 4, source: qwen3-8-2-4t-a95b-config, where: num_key_value_heads }
+head_dim: { v: 256, source: qwen3-8-2-4t-a95b-config, where: head_dim }
+qk_norm: { v: true, source: qwen3-5-moe-modeling, where: "Qwen3_5MoeAttention (q_norm, k_norm)" }
+attn_output_gate: { v: true, source: qwen3-8-2-4t-a95b-config, where: attn_output_gate }
+linear_layers: { v: 69, source: qwen3-8-2-4t-a95b-config, where: "layer_types (69 linear_attention)" }
+linear_k_heads: { v: 16, source: qwen3-8-2-4t-a95b-config, where: linear_num_key_heads }
+linear_v_heads: { v: 128, source: qwen3-8-2-4t-a95b-config, where: linear_num_value_heads }
+linear_k_dim: { v: 128, source: qwen3-8-2-4t-a95b-config, where: linear_key_head_dim }
+linear_v_dim: { v: 128, source: qwen3-8-2-4t-a95b-config, where: linear_value_head_dim }
+conv_window: { v: 4, source: qwen3-8-2-4t-a95b-config, where: linear_conv_kernel_dim }
+rope_theta: { v: 10000000, source: qwen3-8-2-4t-a95b-config, where: "rope_parameters.rope_theta" }
+rope_scaling: { v: "25% partial rotary (64 of 256 dims)", source: qwen3-8-2-4t-a95b-config, where: "rope_parameters.partial_rotary_factor" }
+ffn: { v: moe, source: qwen3-8-2-4t-a95b-config, where: num_experts }
+ffn_activation: { v: SwiGLU, source: qwen3-8-2-4t-a95b-config, where: "hidden_act: silu" }
+routed_experts: { v: 512, source: qwen3-8-2-4t-a95b-config, where: num_experts }
+active_experts: { v: 10, source: qwen3-8-2-4t-a95b-config, where: num_experts_per_tok }
+shared_experts: { v: 1, source: qwen3-5-moe-modeling, where: "Qwen3_5MoeSparseMoeBlock.shared_expert (gated by σ)" }
+expert_hidden: { v: 2048, source: qwen3-8-2-4t-a95b-config, where: "moe_intermediate_size, shared_expert_intermediate_size" }
+router_scoring: { v: softmax, source: qwen3-5-moe-modeling, where: "Qwen3_5MoeTopKRouter.forward" }
+routed_scaling: { v: 1.0, source: qwen3-5-moe-modeling, where: "Qwen3_5MoeTopKRouter (renormalized top-k softmax)" }
+mtp_depth: { v: 1, source: qwen3-8-2-4t-a95b-config, where: mtp_num_hidden_layers }
+context_length: { v: 262144, display: 256K, source: qwen3-8-2-4t-a95b-config, where: max_position_embeddings }
+tokenizer: { v: qwen3-5, source: qwen3-5-tokenizer, where: tokenizer.json }

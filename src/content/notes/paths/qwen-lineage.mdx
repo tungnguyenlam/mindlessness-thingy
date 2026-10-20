@@ -1,0 +1,25 @@
+---
+title: The Qwen lineage
+kind: path
+summary: From Qwen2.5's dense GQA flagship to Qwen3.8's 2.4T hybrid, one open-weight generation at a time.
+domains: [llm, attention, moe, ssm]
+steps:
+  - transformer-block
+  - gqa
+  - rope
+  - qwen2-5-72b
+  - moe
+  - qwen3-235b-a22b
+  - gated-deltanet
+  - qwen3-5-397b-a17b
+  - qwen3-6-27b
+  - qwen3-8-2-4t-a95b
+status: draft
+updated: 2026-10-21
+---
+
+Qwen's open-weight flagships are easiest to read as a chain of mixer choices. [[qwen2-5-72b]] is dense [[gqa]]: every layer writes a [[kv-cache]]. [[qwen3-235b-a22b]] keeps that attention and grows parameters with [[moe]] instead of width. [[qwen3-5-397b-a17b]] then spends most layers on [[gated-deltanet]], so the cache grows in only every fourth layer, and [[qwen3-8-2-4t-a95b]] scales that hybrid to a Max-class 2.4T model. [[qwen3-6-27b]] is the dense sibling on the same 3-then-1 layout.
+
+<Timeline path="qwen-lineage" />
+
+Notes marked with a dashed outline are still placeholders. The path order stays the same as they get written.

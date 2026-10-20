@@ -1,0 +1,81 @@
+---
+title: Qwen3.8-2.4T-A95B
+kind: system
+summary: The first Qwen-Max-class open model. Qwen3.5's Gated DeltaNet + gated GQA + MoE hybrid scaled to 2.4T parameters (95B active), text-only, with thinking always on.
+domains: [llm, moe, ssm, attention]
+prerequisites: [gated-deltanet, gqa, moe]
+builds_on: [qwen3-5-397b-a17b]
+contrasts_with: []
+related: [qwen3-5-tokenizer, qwen3-6-27b, mtp]
+sources: [qwen3-8-2-4t-a95b-card, qwen3-8-2-4t-a95b-config, qwen3-8-blog, qwen3-5-moe-modeling, qwen3-5-tokenizer]
+status: draft
+updated: 2026-10-21
+---
+
+Qwen3.8-2.4T-A95B is the first Qwen-Max-class model released as open weights. The mixer recipe is [[qwen3-5-397b-a17b]]'s: three [[gated-deltanet]] layers then one gated [[gqa]] layer, each with [[moe]], repeated 23 times <Cite id="qwen3-8-2-4t-a95b-card" where="Hidden Layout" />. What changed is the width, the expert hidden size, and that this checkpoint is text-only with thinking required.
+
+## The whole model
+
+Ninety-two layers, hidden size 8,192, 512 experts with 10 routed plus one shared, expert width 2,048 <Cite id="qwen3-8-2-4t-a95b-card" />.
+
+<ModelOverview model="qwen3-8-2-4t-a95b" />
+
+<LayerStrip model="qwen3-8-2-4t-a95b" />
+
+<ModelDiagram model="qwen3-8-2-4t-a95b" />
+
+<ModelSpec model="qwen3-8-2-4t-a95b" />
+
+<Compare
+  models={["qwen3-5-397b-a17b", "qwen3-8-2-4t-a95b"]}
+  fields={["params_total", "params_active", "layers", "hidden_size", "heads", "kv_heads", "linear_v_heads", "expert_hidden", "vocab_size", "context_length"]}
+  onlyDiff
+  caption="Same 3-then-1 hybrid and the same 248K tokenizer. Qwen3.8 is wider, deeper, and text-only: no M-RoPE canvas because there is no vision tower."
+/>
+
+## What is new
+
+### The same hybrid, scaled
+
+<Spec
+  title="What grew from Qwen3.5-397B-A17B"
+  rows={[
+    { label: 'Repeats of (3× DeltaNet → MoE) + (1× GQA → MoE)', value: '23 (was 15)', source: 'qwen3-8-2-4t-a95b-card', where: 'Hidden Layout' },
+    { label: 'Gated DeltaNet V heads', value: '128 (was 64)', source: 'qwen3-8-2-4t-a95b-config', where: 'linear_num_value_heads' },
+    { label: 'GQA grouping', value: '64 query / 4 KV heads, d_h = 256', source: 'qwen3-8-2-4t-a95b-config', where: 'num_attention_heads, num_key_value_heads, head_dim' },
+    { label: 'Expert width', value: '2,048 (was 1,024); still 512 experts, top-10 + 1 shared', source: 'qwen3-8-2-4t-a95b-config', where: 'moe_intermediate_size, num_experts, num_experts_per_tok' },
+  ]}
+/>
+
+The operator is unchanged: kernel-4 [[gated-deltanet]], gated [[gqa]] with QK-Norm, softmax top-k [[moe]] plus a sigmoid-gated shared expert, one [[mtp]] block <Cite id="qwen3-8-2-4t-a95b-config" /> <Cite id="qwen3-5-moe-modeling" />. Partial [[rope]] still rotates 64 of 256 head dims ($\theta = 10^7$), but there is no `mrope_section` because this config has no vision tower <Cite id="qwen3-8-2-4t-a95b-config" where="rope_parameters" />.
+
+### Text-only, thinking required
+
+<ArchDiagram
+  title="Open weights vs Qwen3.8-Max"
+  caption="The open checkpoint is a text-only thinking model. The hosted Max product on the same backbone adds vision, a non-thinking switch and 1M context by default."
+  blocks={[
+    { id: 'open', label: 'Open checkpoint', sub: 'text, think required', role: 'weight' },
+    { id: 'max', label: 'Qwen3.8-Max', sub: 'hosted product', role: 'op' },
+    { id: 'out', label: 'Next token', sub: 'after think span', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'open', to: 'out' },
+    { from: 'max', to: 'out', dashed: true },
+  ]}
+/>
+
+Every response from these weights starts with a think span; the card says thinking cannot be turned off and multimodal inputs are not supported <Cite id="qwen3-8-2-4t-a95b-card" where="API Usage" />. Native context is 262,144 tokens, extensible to 1,010,000, matching Qwen3.5 <Cite id="qwen3-8-2-4t-a95b-card" where="Context Length" />. Training-token counts for this generation are not on the card or in the config, so they are omitted.
+
+## What it reuses
+
+- [[gated-deltanet]] in 69 of 92 mixers.
+- [[gqa]] with an output gate in the other 23.
+- [[moe]] with 10-of-512 routed experts plus one shared expert.
+- The [[qwen3-5-tokenizer]] 248K vocabulary (vision specials unused).
+
+## Tokenizer
+
+<Tokenizer model="qwen3-8-2-4t-a95b" />
+
+Same files as Qwen3.5. How it splits text is in [[qwen3-5-tokenizer]].

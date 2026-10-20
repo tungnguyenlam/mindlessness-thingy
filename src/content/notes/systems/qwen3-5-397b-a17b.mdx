@@ -1,0 +1,96 @@
+---
+title: Qwen3.5-397B-A17B
+kind: system
+summary: Qwen3.5's open MoE flagship. A 60-layer hybrid of Gated DeltaNet and gated GQA, 512 experts with a shared one, native vision, and a new 248K tokenizer.
+domains: [llm, moe, ssm, attention, multimodal]
+prerequisites: [gated-deltanet, gqa, moe]
+builds_on: [qwen3-235b-a22b]
+contrasts_with: []
+related: [qwen3-5-tokenizer, qwen3-6-27b, qwen3-8-2-4t-a95b, mtp, minicpm-v-4-7-35b-a3b]
+sources:
+  - qwen3-5-397b-a17b-card
+  - qwen3-5-397b-a17b-config
+  - qwen3-5-blog
+  - qwen3-5-moe-modeling
+  - qwen3-5-tokenizer
+status: draft
+updated: 2026-10-21
+---
+
+Qwen3.5-397B-A17B rebuilds [[qwen3-235b-a22b]] around a cheaper long context: most mixers are [[gated-deltanet]], whose state does not grow with $T$, and [[gqa]] appears only every fourth layer as a global anchor. The feed-forward is still [[moe]], now 512 experts with a shared one, and the checkpoint is a native vision-language model <Cite id="qwen3-5-397b-a17b-card" />. This note is that hybrid. [[minicpm-v-4-7-35b-a3b]] reuses the same language block at a smaller size.
+
+## The whole model
+
+Sixty layers in fifteen repeats of three Gated DeltaNet blocks then one gated-attention block, each followed by MoE <Cite id="qwen3-5-397b-a17b-card" where="Hidden Layout" />.
+
+<ModelOverview model="qwen3-5-397b-a17b" />
+
+<LayerStrip model="qwen3-5-397b-a17b" />
+
+<ModelDiagram model="qwen3-5-397b-a17b" />
+
+<ModelSpec model="qwen3-5-397b-a17b" />
+
+## What is new
+
+### A Gated DeltaNet / GQA hybrid
+
+<Calc
+  title="State that grows, and state that does not"
+  caption="Fifteen GQA layers grow a KV cache with T. Forty-five Gated DeltaNet layers keep a fixed matrix state plus a length-4 conv window. Drag T to see when the cache dominates."
+  inputs={[
+    { id: 'T', label: 'Context length T (tokens)', min: 4096, max: 262144, step: 4096, default: 65536 },
+  ]}
+  bars={[
+    { label: '15 GQA layers, BF16 KV cache', role: 'cache', expr: '15 * 2 * 2 * 256 * 2 * T / (1024 * 1024)', unit: 'MiB' },
+    { label: '45 DeltaNet layers, FP32 state + BF16 conv', role: 'activation', expr: '45 * (64 * 128 * 128 * 4 + 12288 * 3 * 2) / (1024 * 1024)', unit: 'MiB' },
+    { label: 'If all 60 layers were GQA', role: 'op', expr: '60 * 2 * 2 * 256 * 2 * T / (1024 * 1024)', unit: 'MiB' },
+  ]}
+  outputs={[
+    { label: 'Hybrid total (15 GQA + 45 DeltaNet)', expr: '(15 * 2 * 2 * 256 * 2 * T + 45 * (64 * 128 * 128 * 4 + 12288 * 3 * 2)) / (1024 * 1024)', unit: 'MiB' },
+  ]}
+/>
+
+The 45 linear-attention layers bound decode memory: each keeps $S_t \in \mathbb{R}^{64 \times 128 \times 128}$ and a kernel-4 conv buffer, independent of context length <Cite id="qwen3-5-397b-a17b-config" where="text_config.linear_num_value_heads, linear_key_head_dim, linear_conv_kernel_dim" />. How that state updates is in [[gated-deltanet]]. The 15 [[gqa]] layers still write a [[kv-cache]], but only every fourth layer, with 2 key/value heads of width 256 <Cite id="qwen3-5-397b-a17b-config" where="text_config.num_key_value_heads, head_dim" />.
+
+Those attention layers also gate the output. `attn_output_gate: true` doubles the query projection so a sigmoid gate, conditioned on the current token, scales the attention output before $W_O$ <Cite id="qwen3-5-moe-modeling" where="Qwen3_5MoeAttention.forward" />. Partial [[rope]] rotates 64 of the 256 head dims ($\theta = 10^7$), interleaved as M-RoPE sections $[11, 11, 10]$ so image slices can share a canvas with text <Cite id="qwen3-5-397b-a17b-config" where="text_config.rope_parameters" />.
+
+### A shared expert comes back, and MTP
+
+<Spec
+  title="MoE and MTP against Qwen3-235B-A22B"
+  rows={[
+    { label: 'Against Qwen3-MoE', value: '512 experts, top-10, plus a shared expert (Qwen3 had 128, top-8, none shared)', source: 'qwen3-5-397b-a17b-card', where: 'Number of Experts; Number of Activated Experts' },
+    { label: 'Shared-expert gate', value: 'sigmoid on a linear of the token', source: 'qwen3-5-moe-modeling', where: 'Qwen3_5MoeSparseMoeBlock' },
+  ]}
+/>
+
+Qwen3 had dropped the shared expert. Qwen3.5 puts one back, gated by $\sigma(w^\top u_t)$, beside the ten routed experts <Cite id="qwen3-5-moe-modeling" where="Qwen3_5MoeSparseMoeBlock" />. Training also runs [[mtp]] with one extra block (`mtp_num_hidden_layers: 1`) <Cite id="qwen3-5-397b-a17b-config" where="text_config.mtp_num_hidden_layers" />.
+
+### Native vision, 256K context
+
+<Spec
+  title="Vision tower (not drawn in the language overview)"
+  rows={[
+    { label: 'Vision layers', value: 27, source: 'qwen3-5-397b-a17b-config', where: 'vision_config.depth' },
+    { label: 'Vision hidden size', value: 1152, source: 'qwen3-5-397b-a17b-config', where: 'vision_config.hidden_size' },
+    { label: 'Patch size', value: 16, source: 'qwen3-5-397b-a17b-config', where: 'vision_config.patch_size' },
+    { label: 'Spatial merge', value: 2, source: 'qwen3-5-397b-a17b-config', where: 'vision_config.spatial_merge_size' },
+    { label: 'Context', value: '262,144 native, extensible to 1,010,000', source: 'qwen3-5-397b-a17b-card', where: 'Context Length' },
+  ]}
+/>
+
+The 397B / 17B counts on the card are the language model <Cite id="qwen3-5-397b-a17b-card" where="Language Model" />. A 27-layer ViT feeds the same hidden size through a [[vision-language-connector]]; this page follows the language stack. Native context is 256K in the config; the card says it extends to about 1M <Cite id="qwen3-5-397b-a17b-card" />.
+
+## What it reuses
+
+- [[gated-deltanet]] in 45 of 60 mixers, kernel 4.
+- [[gqa]] with QK-Norm in the other 15, plus the output gate above.
+- [[moe]] with a softmax top-k router.
+- [[mtp]] as a one-block training head.
+
+## Tokenizer
+
+<Tokenizer model="qwen3-5-397b-a17b" />
+
+A new 248K vocabulary, not an extension of Qwen3. How it splits text, including the mark-aware word rule, is in [[qwen3-5-tokenizer]]. [[qwen3-6-27b]] and [[qwen3-8-2-4t-a95b]] share it.

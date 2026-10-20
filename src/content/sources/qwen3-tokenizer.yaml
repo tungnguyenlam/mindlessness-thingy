@@ -1,0 +1,8 @@
+title: "Qwen3-235B-A22B tokenizer files (Hugging Face)"
+short: Qwen3 tokenizer
+authors: Qwen Team
+year: 2025
+url: https://huggingface.co/Qwen/Qwen3-235B-A22B/tree/main
+type: config
+accessed: 2026-10-21
+notes: "Same 151,643 BPE tokens as Qwen2.5 plus 26 added tokens (ids 151643–151668), including <think> and <tool_response>. Config vocab_size 151936."

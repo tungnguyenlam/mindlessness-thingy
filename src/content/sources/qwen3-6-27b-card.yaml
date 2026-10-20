@@ -1,0 +1,8 @@
+title: "Qwen3.6-27B model card"
+short: Qwen3.6-27B card
+authors: Qwen Team
+year: 2026
+url: https://huggingface.co/Qwen/Qwen3.6-27B
+type: model-card
+accessed: 2026-10-21
+notes: "27B dense vision-language model. 16 × (3 × Gated DeltaNet→FFN then 1 × gated attention→FFN). Thinking preservation. 262,144 native context."

@@ -1,0 +1,8 @@
+title: "Qwen3.5-397B-A17B tokenizer files (Hugging Face)"
+short: Qwen3.5 tokenizer
+authors: Qwen Team
+year: 2026
+url: https://huggingface.co/Qwen/Qwen3.5-397B-A17B/tree/main
+type: config
+accessed: 2026-10-21
+notes: "tokenizer.json: 248,044 BPE tokens plus 26 added tokens (ids 248044–248069). Embedding table padded to 248,320. Shared by Qwen3.6 and Qwen3.8 open-weight checkpoints."
