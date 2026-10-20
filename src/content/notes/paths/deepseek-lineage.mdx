@@ -20,6 +20,7 @@ steps:
   - deepseek-v3
   - dsa
   - deepseek-v3-2
+  - mhc
   - deepseek-v4
   - engram
   - deepseek-v4-1-flash
@@ -35,6 +36,6 @@ The first half of the path follows attention. [[mha]] sets the baseline, [[mqa]]
 
 The second half follows the feed-forward layer. [[moe]] lets parameter count grow without growing per-token compute, [[deepseek-moe]] refines how experts are cut up, and [[aux-loss-free-balancing]] keeps them evenly used without hurting the main training objective. [[deepseek-v2]] combines the two halves, and [[deepseek-v3]] scales it up with [[mtp]] and [[fp8-training]].
 
-The last stretch returns to attention, now for million-token contexts. [[deepseek-v3-2]] adds learned sparse attention ([[dsa]]), [[deepseek-v4]] rebuilds attention around compressed sparse attention, and [[deepseek-v4-1-flash]] adds hashed n-gram memory ([[engram]]) beside a much smaller KV cache.
+The last stretch returns to attention, now for million-token contexts. [[deepseek-v3-2]] adds learned sparse attention ([[dsa]]), [[deepseek-v4]] rebuilds attention around compressed sparse attention and widens the residual with [[mhc]], and [[deepseek-v4-1-flash]] adds hashed n-gram memory ([[engram]]) beside a much smaller KV cache.
 
 Notes marked with a dashed outline are still placeholders. The path order stays the same as they get written.

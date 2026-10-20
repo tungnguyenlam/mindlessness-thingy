@@ -9,6 +9,8 @@ params_active: { v: 49e9, source: deepseek-v4-report, where: "Abstract; §4.2.1"
 layers: { v: 61, source: deepseek-v4-pro-config, where: num_hidden_layers }
 layer_pattern: { v: "AE*61", source: deepseek-v4-pro-config, where: "num_hidden_layers; compress_ratios (MoE in every block; no dense FFN layers)" }
 hidden_size: { v: 7168, source: deepseek-v4-pro-config, where: hidden_size }
+hc_streams: { v: 4, source: deepseek-v4-pro-config, where: hc_mult }
+hc_sinkhorn_iters: { v: 20, source: deepseek-v4-pro-config, where: hc_sinkhorn_iters }
 vocab_size: { v: 129280, source: deepseek-v4-pro-config, where: vocab_size }
 attention: { v: dsa, source: deepseek-v4-report, where: "§2.3 (Compressed Sparse Attention, an evolution of DSA over one shared KV head)" }
 heads: { v: 128, source: deepseek-v4-pro-config, where: num_attention_heads }

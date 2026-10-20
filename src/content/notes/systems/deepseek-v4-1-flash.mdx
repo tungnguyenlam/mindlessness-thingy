@@ -3,11 +3,11 @@ title: "DeepSeek-V4.1-Flash"
 kind: system
 summary: "A September 2026 redesign of V4-Flash: a causal encoder-decoder layout, cross-layer KV sharing, FP4 KV cache and hashed n-gram 'Engram' memory, with native image input."
 domains: []
-prerequisites: [engram]
+prerequisites: [engram, mhc]
 builds_on: [deepseek-v4]
 contrasts_with: []
-related: [engram]
-sources: [deepseek-v4-1-flash-report, deepseek-v4-1-flash-config, engram-paper]
+related: [engram, mhc]
+sources: [deepseek-v4-1-flash-report, deepseek-v4-1-flash-config, engram-paper, mhc-paper]
 status: draft
 updated: 2026-10-21
 ---
@@ -16,7 +16,7 @@ DeepSeek-V4.1-Flash (September 2026) rebuilds [[deepseek-v4]]'s Flash model arou
 
 ## The whole model
 
-Forty layers in two halves: a causal encoder that runs once per prompt, and a decoder whose global keys and values are projected from the encoder's final states <Cite id="deepseek-v4-1-flash-report" where="§2.2" />. Every block is a pre-norm [[transformer-block]] with sparse attention and a MoE feed-forward.
+Forty layers in two halves: a causal encoder that runs once per prompt, and a decoder whose global keys and values are projected from the encoder's final states <Cite id="deepseek-v4-1-flash-report" where="§2.2" />. Every block is a pre-norm [[transformer-block]] with sparse attention, a MoE feed-forward, and the [[mhc]] residual from V4.
 
 <ModelOverview model="deepseek-v4-1-flash" />
 
@@ -112,6 +112,40 @@ The indexer itself becomes hierarchical: unlike [[dsa|V3.2's indexer]], which sc
 
 Attention only looks back through keys and values computed for the current context. [[engram]] adds a second route: two modules, at layers 1 and 14, keep hashed tables of which short token runs followed which during training, and every token can look its own n-gram up <Cite id="deepseek-v4-1-flash-report" where="§2.4.2" />. The tables are hashed rather than embedded — no vocabulary-sized matrix, just fixed-width hash heads storing about 16M entries each in FP8 — 196B parameters of memory in two modules <Cite id="deepseek-v4-1-flash-report" where="§2.4.2; §4.2.2" />. The mechanism, including the vocabulary projection and the context-aware gate, is in [[engram]].
 
+### Single-Pass mHC
+
+<ArchDiagram
+  title="The current block reuses the previous input map"
+  caption="V4 computed A, B and C from X_l, then mixed. That made A_l depend on a reduction over all of X_l, so a later kernel had to read the residual again. Shifting A back one block removes the wait."
+  blocks={[
+    { id: 'x', label: 'Residual X', sub: 'T × n_hc × d', role: 'activation' },
+    { id: 'prev', label: 'Previous input map', sub: 'A of last block', role: 'weight' },
+    { id: 'h', label: 'Layer input', sub: 'T × d', role: 'activation' },
+    { id: 'f', label: 'Layer F', sub: 'attention or FFN', role: 'op', link: 'transformer-block' },
+    { id: 'maps', label: 'Maps from X', sub: 'A, B, C for next', role: 'weight', link: 'mhc' },
+    { id: 'xp', label: 'New residual', sub: 'T × n_hc × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'h' },
+    { from: 'prev', to: 'h' },
+    { from: 'h', to: 'f' },
+    { from: 'x', to: 'maps' },
+    { from: 'x', to: 'xp' },
+    { from: 'f', to: 'xp' },
+    { from: 'maps', to: 'xp', dashed: true },
+  ]}
+/>
+
+[[mhc]] is unchanged as a mapping: $n_{hc}$ residual copies, Sinkhorn on $B$, sigmoid on $A$ and $C$. What changes is *when* $A$ is used. V4's three kernels first wrote $X_l = B_{l-1} X_{l-1} + C_{l-1} Y_{l-1}$, then predicted $(A_l, B_l, C_l)$ from $X_l$, then mixed $\hat X_l = A_l X_l$. Predicting $A_l$ needs a reduction over the whole hidden width, so the mixing kernel had to read $X_l$ a second time <Cite id="deepseek-v4-1-flash-report" where="§2.4.1, eqs. 3–5" />.
+
+Single-Pass mHC feeds the current layer the previous block's $A_{l-1}$:
+
+$$
+X_{l+1} = B_l X_l + C_l\,\mathcal{F}_l(A_{l-1} X_l), \qquad (A_l, B_l, C_l) = \mathcal{H}(X_l)
+$$
+
+so each tile of $X_l$ can be mixed and used to predict the next coefficients without waiting <Cite id="deepseek-v4-1-flash-report" where="§2.4.1, eq. 6" />. Training keeps the original multi-kernel schedule. Serving fuses residual update, input mixing and coefficient prediction into Mega-mHC, which reads and writes the residual once and halves activation-memory traffic relative to the four-kernel implementation <Cite id="deepseek-v4-1-flash-report" where="§2.4.1" />.
+
 ### DSpark replaces MTP
 
 <Spec
@@ -155,7 +189,7 @@ V4.1-Flash reads images natively: the DeepSeek-ViT tower feeds a two-layer MLP p
 - [[dsa]] — the indexer-and-selection attention, now in its second generation, CSA2 <Cite id="deepseek-v4-1-flash-report" where="§2.3" />.
 - [[deepseek-moe]] — top-6 of 384 routed experts plus a shared one, in every block of both halves <Cite id="deepseek-v4-1-flash-config" where="text_config.n_routed_experts, num_experts_per_tok" />.
 - [[aux-loss-free-balancing]] — bias-based balancing, now applied separately to image and text tokens <Cite id="deepseek-v4-1-flash-report" where="§4.2.2" />.
-- The mHC residual from [[deepseek-v4]] — kept as Single-Pass mHC, with a fused kernel that halves activation-memory traffic <Cite id="deepseek-v4-1-flash-report" where="§2.4.1" />.
+- [[mhc]] — the same residual copies and Sinkhorn budget as V4, now Single-Pass at serving time <Cite id="deepseek-v4-1-flash-report" where="§2.4.1; §4.2.1" />.
 - [[fp8-training]] — FP8 weights, now in 32×32 blocks, with FP4 experts <Cite id="deepseek-v4-1-flash-config" where="text_config.quantization_config" />.
 - [[rope]] — partial RoPE plus YaRN, extended to a million tokens.
 

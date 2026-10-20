@@ -173,7 +173,7 @@ Shorthand used in source column: `[V2]` = arXiv 2405.04434 (HTML v-latest), `[V3
 | Aux-loss-free bias update speed | 0.001 | 0.001 | [V4] §4.2.2 |
 | Sequence-wise balance loss weight | 0.0001 | 0.0001 | [V4] §4.2.2 |
 | MTP | depth 1; "identical to that of DeepSeek-V3"; λ = 0.3 most of training, 0.1 from start of LR decay | same | [V4] §2.1 "Multi-Token Prediction"; §4.2.1; §4.2.2 |
-| mHC | residual stream widened n_hc = 4 (`hc_mult: 4`); residual matrix projected onto doubly stochastic matrices via Sinkhorn-Knopp, t_max = 20 (`hc_sinkhorn_iters: 20`); input/output maps via Sigmoid | same | [V4] §2.2; §4.2.1; configs |
+| mHC | residual stream widened n_hc = 4 (`hc_mult: 4`); residual matrix projected onto doubly stochastic matrices via Sinkhorn-Knopp, t_max = 20 (`hc_sinkhorn_iters: 20`); input/output maps via Sigmoid | same | [V4] §2.2; §4.2.1; configs; mHC paper (Xie et al. 2026, arXiv 2512.24880) §4.2–§4.3: same n and t_max, 6.7% extra training time after kernel fusion |
 | Optimizer | Muon for most params (momentum 0.95, wd 0.1, update RMS rescaled to 0.18, Nesterov); AdamW (β1 0.9, β2 0.95, ε 1e-20, wd 0.1) for embedding, head, RMSNorm weights, mHC static biases/gates | same | [V4] §2.4; §4.2.2 |
 | Hybrid Newton-Schulz | 10 iterations: 8 with (3.4445, −4.7750, 2.0315), then 2 with (2, −1.5, 0.5) | same | [V4] §2.4 "Hybrid Newton-Schulz Iterations" |
 | Training tokens | 33T | 32T | [V4] §1; §4.2.2 (Abstract/§4.1 say "more than 32T") |

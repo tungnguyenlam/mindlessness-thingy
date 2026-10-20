@@ -45,7 +45,9 @@ const z = (key: string, sym: string) => {
 };
 const CAPTIONS: Record<string, string> = {
   model: 'From text to the next token. The dashed arrow on the left is decoding: the sampled id is appended and the model runs again, and only the new token passes through the stack because the caches hold the earlier ones.',
-  layer: `One layer. Each sublayer reads a normalized copy of the residual stream and adds its result back (the arrows on the left), so the stream keeps shape T × ${z('hidden_size', 'd')} all the way up.`,
+  layer: m.values.hc_streams
+    ? `One layer. mHC keeps the residual as ${z('hc_streams', 'n_hc')} copies of width ${z('hidden_size', 'd')}. Input map A mixes them into the sublayer; the left arrows are the mHC add (B mixes the copies, C writes the sublayer output back).`
+    : `One layer. Each sublayer reads a normalized copy of the residual stream and adds its result back (the arrows on the left), so the stream keeps shape T × ${z('hidden_size', 'd')} all the way up.`,
   'mixer-A':
     attn === 'mla'
       ? 'Queries and keys/values pass through narrow latents. Only c^KV and the shared RoPE key k^R are cached; the full keys and values are rebuilt from c^KV, and the up-projections can be folded into the query and output projections at inference.'
@@ -58,6 +60,7 @@ const CAPTIONS: Record<string, string> = {
   'ffn-E': `The router scores all ${z('routed_experts', 'N_r')} routed experts and keeps ${z('active_experts', 'K_r')}; their outputs are mixed by the gate weights g.${m.values.shared_experts ? ' Shared experts run for every token.' : ''}`,
   mtp: 'Used in training: predicts one token further ahead, reusing the main model’s embedding table and output head.',
   engram: `Hashed suffix n-grams (orders 2 to ${z('engram_max_ngram', 'n')}) are looked up in ${z('engram_heads', 'K_e')} tables per order. The hidden state gates what comes back, so a colliding or off-topic entry can be ignored.`,
+  mhc: `The residual is ${z('hc_streams', 'n_hc')} copies of width ${z('hidden_size', 'd')}. A mixes them into the layer; B, projected onto doubly stochastic matrices by ${z('hc_sinkhorn_iters', 't_max')} Sinkhorn rounds, mixes the copies; C writes the layer output back.`,
 };
 if (pipeline) {
   const steps = m.values.sampling_steps ? ` and run ${z('sampling_steps', 'N')} times while sampling` : '';

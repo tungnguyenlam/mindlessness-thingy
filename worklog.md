@@ -191,3 +191,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: draft system notes and model data for Qwen2.5-72B, Qwen3-235B-A22B, Qwen3.5-397B-A17B, Qwen3.6-27B and Qwen3.8-2.4T-A95B, plus three shared tokenizers and a lineage path
 - files: src/content/{models,notes,sources,tokenizers}/qwen* research/qwen-facts.md scripts/tokenizer-samples.py src/data/tokenizer-samples.json
 - open: Qwen3.5/3.6/3.8 training-token counts unverified (omitted); Qwen3 context disagrees (report table 128K vs card 32K native / YaRN 131K vs config 40960); Qwen3.8-27B config matches Qwen3.6-27B so the 3.8 page is the 2.4T Max-class model; gated-deltanet remains a stub
+
+## 2026-10-21 · feat(mhc): show manifold-constrained residuals on V4
+- did: concept note for mHC; V4 model fields and generated overview/layer views; Single-Pass mHC on V4.1-Flash
+- files: src/content/notes/{concepts/mhc,systems/deepseek-v4,systems/deepseek-v4-1-flash,paths/deepseek-lineage}.mdx src/lib/models/{fields,overview}.mjs src/content/{models/deepseek-v4.yaml,sources/mhc-paper.yaml} ModelOverview.astro AGENTS.md
+- open: TokenTrace still draws the residual as T × d (the layer input after A, not the n_hc copies)

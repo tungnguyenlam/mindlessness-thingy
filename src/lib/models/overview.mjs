@@ -84,22 +84,30 @@ export function layerDiagram(m, ctx, { title, zoom = false } = {}) {
   const width = Math.max(mixers.length, ffns.length, 1) === 1 ? 1 : 3;
   const center = width === 1 ? 0 : 1;
   const spread = (k) => (k === 1 ? [center] : k === 2 ? [0, 2] : [0, 1, 2]);
-  const R = { in: 0, n1: 1, mix: 2, cache: 3, add1: 4 };
+  const hc = v('hc_streams') != null;
+  const stream = hc ? `${z('hc_streams', 'n_hc')} · ${z('hidden_size', 'd')}` : z('hidden_size', 'd');
+  const R = hc ? { in: 0, pre: 1, n1: 2, mix: 3, cache: 4, add1: 5 } : { in: 0, n1: 1, mix: 2, cache: 3, add1: 4 };
   const R2 = { n2: R.add1 + 1, ffn: R.add1 + 2, add2: R.add1 + 3 };
   const norm = normName(m);
+  const mhcRef = hc ? (zoom ? { open: 'mhc' } : { link: linkIf(ctx, 'mhc') }) : {};
   const blocks = [
-    { id: 'in', label: 'Hidden state', sub: `T × ${z('hidden_size', 'd')}`, role: 'activation', col: center, row: R.in },
+    { id: 'in', label: hc ? 'Residual X' : 'Hidden state', sub: `T × ${stream}`, role: 'activation', col: center, row: R.in, ...mhcRef },
     { id: 'n1', label: norm, role: 'op', col: center, row: R.n1 },
-    { id: 'add1', label: 'Add', role: 'op', col: center, row: R.add1 },
+    { id: 'add1', label: hc ? 'mHC add' : 'Add', sub: hc ? 'B X + C F' : undefined, role: 'op', col: center, row: R.add1, ...mhcRef },
     { id: 'n2', label: norm, role: 'op', col: center, row: R2.n2 },
-    { id: 'add2', label: 'Add', role: 'op', col: center, row: R2.add2 },
+    { id: 'add2', label: hc ? 'mHC add' : 'Add', sub: hc ? 'B X + C F' : undefined, role: 'op', col: center, row: R2.add2, ...mhcRef },
   ];
   const edges = [
-    { from: 'in', to: 'n1' },
     { from: 'in', to: 'add1', side: 'left' },
     { from: 'add1', to: 'n2' },
     { from: 'add1', to: 'add2', side: 'left' },
   ];
+  if (hc) {
+    blocks.push({ id: 'pre', label: 'Input map A', sub: `${stream} → ${z('hidden_size', 'd')}`, role: 'weight', col: center, row: R.pre, ...mhcRef });
+    edges.push({ from: 'in', to: 'pre' }, { from: 'pre', to: 'n1' });
+  } else {
+    edges.push({ from: 'in', to: 'n1' });
+  }
   const attn = String(v('attention') ?? '');
   mixers.forEach((c, i) => {
     const info = mixerInfo(m, ctx, c);
@@ -235,7 +243,13 @@ function wholeModel(m, ctx) {
   add({ id: 'tok', label: 'Tokenizer', sub: String(tok?.algorithm ?? 'splits text into ids'), role: 'op', link: tok?.note && ctx.has(tok.note) ? tok.note : undefined });
   add({ id: 'ids', label: 'Token ids', sub: 'T integers', role: 'activation' });
   add({ id: 'emb', label: 'Embedding table', sub: `${V} × ${d}`, role: 'weight' });
-  add({ id: 'h0', label: 'Hidden states', sub: `T × ${d}`, role: 'activation' });
+  add({
+    id: 'h0',
+    label: v('hc_streams') ? 'mHC residual' : 'Hidden states',
+    sub: v('hc_streams') ? `T × ${z('hc_streams', 'n_hc')} · ${d}` : `T × ${d}`,
+    role: 'activation',
+    ...(v('hc_streams') ? { open: 'mhc' } : {}),
+  });
   chain('text', 'tok', 'ids', 'emb', 'h0');
 
   const stack = [];
@@ -512,6 +526,37 @@ function moeDetail(m, ctx) {
   return { title: `${m.title}: inside the MoE FFN`, blocks, edges };
 }
 
+/** mHC: n_hc residual copies; A reads one mix for the layer, Sinkhorn-projected B mixes the copies, C writes back. */
+function mhcDetail(m, ctx) {
+  const { z } = access(m);
+  const [d, nhc] = [z('hidden_size', 'd'), z('hc_streams', 'n_hc')];
+  const tMax = z('hc_sinkhorn_iters', 't_max');
+  const blocks = [
+    { id: 'x', label: 'Residual X', sub: `T × ${nhc} × ${d}`, role: 'activation', col: 1, row: 0 },
+    { id: 'flat', label: 'Flatten, RMSNorm', sub: `T × ${nhc}·${d}`, role: 'op', col: 1, row: 1 },
+    { id: 'a', label: 'Input map A', sub: `σ, 1 × ${nhc}`, role: 'weight', col: 0, row: 2 },
+    { id: 'b', label: 'Residual map B', sub: `${nhc} × ${nhc}, ${tMax} rounds`, role: 'weight', col: 1, row: 2, link: linkIf(ctx, 'mhc') },
+    { id: 'c', label: 'Output map C', sub: `2σ, ${nhc} × 1`, role: 'weight', col: 2, row: 2 },
+    { id: 'h', label: 'Layer input A X', sub: `T × ${d}`, role: 'activation', col: 0, row: 3 },
+    { id: 'f', label: 'Layer F', sub: 'attention or FFN', role: 'op', col: 0, row: 4 },
+    { id: 'xp', label: 'New residual X′', sub: `T × ${nhc} × ${d}`, role: 'activation', col: 1, row: 5 },
+  ];
+  const edges = [
+    { from: 'x', to: 'flat' },
+    { from: 'flat', to: 'a' },
+    { from: 'flat', to: 'b' },
+    { from: 'flat', to: 'c' },
+    { from: 'a', to: 'h' },
+    { from: 'x', to: 'h', dashed: true },
+    { from: 'h', to: 'f' },
+    { from: 'b', to: 'xp' },
+    { from: 'c', to: 'f', dashed: true },
+    { from: 'f', to: 'xp' },
+    { from: 'x', to: 'xp', side: 'right' },
+  ];
+  return { title: `${m.title}: mHC residual`, blocks, edges };
+}
+
 /** Engram: hashed suffix n-grams looked up in static tables, then gated by the hidden state. */
 function engramDetail(m, ctx) {
   const { z } = access(m);
@@ -592,6 +637,7 @@ export function overviewParts(m, ctx) {
     if (c === 'D') parts.push({ id: 'ffn-D', tab: 'Dense FFN', props: denseDetail(m, ctx) });
     else parts.push({ id: 'ffn-E', tab: 'MoE FFN', props: moeDetail(m, ctx) });
   }
+  if (v('hc_streams')) parts.push({ id: 'mhc', tab: 'mHC residual', props: mhcDetail(m, ctx) });
   if (v('engram_modules')) parts.push({ id: 'engram', tab: 'Engram', props: engramDetail(m, ctx) });
   if (v('mtp_depth')) parts.push({ id: 'mtp', tab: 'MTP', props: mtpDetail(m, ctx) });
   return parts;
@@ -604,6 +650,8 @@ const SYMBOLS = [
   ['n_tok', 'tokens per step', 'tokens_per_step'],
   ['V', 'vocabulary, embedding rows', 'vocab_size'],
   ['d', 'hidden size', 'hidden_size'],
+  ['n_hc', 'mHC residual streams', 'hc_streams'],
+  ['t_max', 'mHC Sinkhorn iterations', 'hc_sinkhorn_iters'],
   ['L', 'layers', 'layers'],
   ['n_h', 'query heads', 'heads'],
   ['n_kv', 'key/value heads', 'kv_heads'],

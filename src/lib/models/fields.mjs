@@ -40,6 +40,8 @@ export const FIELDS = [
   { key: 'layers', label: 'Layers', group: 'shape', kind: 'count' },
   { key: 'layer_pattern', label: 'Layer pattern', group: 'shape', kind: 'pattern' },
   { key: 'hidden_size', label: 'Hidden size', group: 'shape', kind: 'count' },
+  { key: 'hc_streams', label: 'mHC residual streams', group: 'shape', kind: 'count', concept: 'mhc' },
+  { key: 'hc_sinkhorn_iters', label: 'mHC Sinkhorn iterations', group: 'shape', kind: 'count', concept: 'mhc' },
   { key: 'norm', label: 'Normalization', group: 'shape', kind: 'text', concept: 'transformer-block' },
 
   { key: 'attention', label: 'Attention type', group: 'mixer', kind: 'slug' },

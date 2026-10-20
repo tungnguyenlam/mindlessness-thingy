@@ -3,20 +3,20 @@ title: "DeepSeek-V4"
 kind: system
 summary: "DeepSeek's 2026 million-token-context models (V4-Pro 1.6T, V4-Flash 284B). They replace MLA with compressed sparse attention over a single shared KV head and drop node-limited routing."
 domains: []
-prerequisites: []
+prerequisites: [mhc]
 builds_on: [deepseek-v3-2]
 contrasts_with: []
-related: []
-sources: [deepseek-v4-report, deepseek-v4-pro-config, deepseek-v4-flash-config]
+related: [mhc]
+sources: [deepseek-v4-report, deepseek-v4-pro-config, deepseek-v4-flash-config, mhc-paper]
 status: draft
-updated: 2026-10-17
+updated: 2026-10-21
 ---
 
-DeepSeek-V4 is the April 2026 family: V4-Pro, with 1.6T parameters and 49B active per token, and V4-Flash, with 284B and 13B <Cite id="deepseek-v4-report" where="Abstract" />. It rebuilds the parts of [[deepseek-v3-2]] that grew expensive at million-token context: attention becomes Compressed Sparse Attention over a single shared key-value head, the residual stream is widened by mHC, and the MoE router loses its node limits.
+DeepSeek-V4 is the April 2026 family: V4-Pro, with 1.6T parameters and 49B active per token, and V4-Flash, with 284B and 13B <Cite id="deepseek-v4-report" where="Abstract" />. It rebuilds the parts of [[deepseek-v3-2]] that grew expensive at million-token context: attention becomes Compressed Sparse Attention over a single shared key-value head, the residual stream is widened by [[mhc]], and the MoE router loses its node limits.
 
 ## The whole model
 
-Each of the 61 layers is still a pre-norm [[transformer-block]]: sparse attention, then a [[deepseek-moe]] feed-forward — MoE in every block, no dense layers <Cite id="deepseek-v4-report" where="§4.2.1" />. The tabs open each part down to its projections.
+Each of the 61 layers is still a pre-norm [[transformer-block]]: sparse attention, then a [[deepseek-moe]] feed-forward — MoE in every block, no dense layers <Cite id="deepseek-v4-report" where="§4.2.1" />. [[mhc]] wraps the residual those sub-layers share. The tabs open each part down to its projections, including the mHC maps.
 
 <ModelOverview model="deepseek-v4" />
 
@@ -70,33 +70,11 @@ The report's abstract and §4.1 say training used "more than 32T" tokens. §1 an
 
 V3.2's [[dsa]] kept MLA and had a lightning indexer pick which cached latent keys each query reads. V4 keeps the indexer idea and throws the latent away. Each layer has one shared key-value head that all query heads read, the indexer picks the top tokens per query, and a sliding window of recent tokens is always attended <Cite id="deepseek-v4-report" where="§2.3.1–§2.3.4" />.
 
-Queries are squeezed through a low-rank map, and the head outputs go through a grouped output projection that maps heads back to the residual width in groups <Cite id="deepseek-v4-report" where="§2.3.1" />. RoPE touches only the last 64 dims of each head <Cite id="deepseek-v4-report" where="§2.3.3" />; a compressed variant of RoPE, at its own base frequency, handles the compressed sequence <Cite id="deepseek-v4-pro-config" where="compress_rope_theta" />.
-
-Interleaved with the sparse layers, Heavily Compressed Attention attends over a token sequence compressed by a much larger factor, giving every position a cheap view of the whole prompt <Cite id="deepseek-v4-report" where="§2.3, §4.2.1" />. The table above carries the report's headline claims: at a one-million-token prompt, one token costs 27% of V3.2's FLOPs in Pro, and the cache is about 2% of what a BF16 GQA model would keep.
+Queries are squeezed through a low-rank map, and the head outputs go through a grouped output projection that maps heads back to the residual width in groups <Cite id="deepseek-v4-report" where="§2.3.1" />. RoPE touches only the last 64 dims of each head <Cite id="deepseek-v4-report" where="§2.3.3" />; a compressed variant of RoPE, at its own base frequency, handles the compressed sequence <Cite id="deepseek-v4-pro-config" where="compress_rope_theta" />. Interleaved with the sparse layers, Heavily Compressed Attention attends over a sequence compressed by a much larger factor, giving every position a cheap view of the whole prompt <Cite id="deepseek-v4-report" where="§2.3, §4.2.1" />.
 
 ### A wider residual stream: mHC
 
-<ArchDiagram
-  title="mHC: the residual stream in n_hc copies"
-  caption="The stream is widened n_hc-fold; each layer's update is mixed across the copies by a matrix constrained to be doubly stochastic, and the output map reads back one stream."
-  blocks={[
-    { id: 'h', label: 'Residual h', sub: 'T × d', role: 'activation' },
-    { id: 'in', label: 'Input map (Sigmoid)', sub: 'd → n_hc·d', role: 'weight' },
-    { id: 'wide', label: 'Widened stream', sub: 'T × n_hc·d', role: 'activation' },
-    { id: 'mix', label: 'Mixing matrix M', sub: 'n_hc → n_hc', role: 'weight' },
-    { id: 'out', label: 'Output map', sub: 'n_hc·d → d', role: 'weight' },
-    { id: 'h2', label: 'Residual h again', sub: 'T × d', role: 'activation' },
-  ]}
-  edges={[
-    { from: 'h', to: 'in' },
-    { from: 'in', to: 'wide' },
-    { from: 'wide', to: 'mix' },
-    { from: 'mix', to: 'out' },
-    { from: 'out', to: 'h2' },
-  ]}
-/>
-
-The residual stream is widened into $n_{hc} = 4$ copies for every layer, so different layers can write into and read from different copies <Cite id="deepseek-v4-report" where="§2.2; §4.2.1" />. The learned mixing matrix is projected onto the doubly stochastic matrices with Sinkhorn-Knopp, run for 20 iterations, which keeps the update from growing or shrinking across the copies; the input and output maps pass through a Sigmoid <Cite id="deepseek-v4-report" where="§2.2; §4.2.1" />. Everything else in the block — pre-norm, attention, feed-forward — is unchanged; mHC only reshapes the residual path they share.
+The residual that every sub-layer shares is no longer one vector of width $d$. [[mhc]] keeps $n_{hc}$ copies of it, mixes those copies with a matrix forced onto doubly stochastic matrices, and still feeds attention and the feed-forward network a single $d$-vector, so their FLOPs do not grow <Cite id="deepseek-v4-report" where="§2.2; §4.2.1" />. The overview's mHC tab draws the three maps $A$, $B$ and $C$ with this model's sizes; both Pro and Flash use the same expansion and the same Sinkhorn budget, which the spec table above records.
 
 ### Routing without node limits, with hashes
 
@@ -135,6 +113,7 @@ The released instruct checkpoints carry FP4 mixture-of-experts weights quantized
 - [[aux-loss-free-balancing]] — bias-based balancing, unchanged; the bias step is 0.001 <Cite id="deepseek-v4-report" where="§4.2.2" />.
 - [[mtp]] — kept identical to V3 at depth 1 <Cite id="deepseek-v4-report" where="§2.1" />.
 - [[fp8-training]] — FP8 training with UE8M0 scales and 128×128 weight blocks <Cite id="deepseek-v4-pro-config" where="quantization_config" />.
+- [[mhc]] — residual copies around every sub-layer, Sinkhorn-projected mixing <Cite id="deepseek-v4-report" where="§2.2; §4.2.1" />.
 - [[transformer-block]] — the pre-norm block, with mHC wrapped around its residual path.
 
 ## Tokenizer

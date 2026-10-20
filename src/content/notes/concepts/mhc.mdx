@@ -1,0 +1,107 @@
+---
+title: "Manifold-constrained hyper-connections"
+kind: concept
+summary: "Widens the residual stream into several copies and mixes them with a matrix forced onto doubly stochastic matrices, so layers can share a richer residual without the signal exploding."
+domains: [llm]
+prerequisites: [transformer-block]
+builds_on: []
+contrasts_with: []
+related: [deepseek-v4, deepseek-v4-1-flash]
+sources: [mhc-paper, deepseek-v4-report, deepseek-v4-pro-config]
+status: draft
+updated: 2026-10-21
+---
+
+A [[transformer-block]] keeps one residual stream of width $d$. Each sub-layer reads that stream, computes an update, and adds it back. Hyper-Connections copy the stream $n_{hc}$ times so different layers can write into different copies, but the mixing matrix between copies is unconstrained, and a stack of those matrices can grow or shrink the signal <Cite id="mhc-paper" where="§1, eq. 3–4" />. Manifold-constrained hyper-connections (mHC) keep the copies and project the mixing matrix onto doubly stochastic matrices, which restores the conservation the residual was for.
+
+## The idea in one picture
+
+<ArchDiagram
+  title="n_hc residual copies around an unchanged layer"
+  caption="The layer F still sees width d. A mixes the n_hc copies into that input, B mixes the copies with each other, and C writes F's output back onto the stream."
+  blocks={[
+    { id: 'x', label: 'Residual X', sub: 'T × n_hc × d', role: 'activation' },
+    { id: 'a', label: 'Input map A', sub: 'n_hc copies → d, σ', role: 'weight' },
+    { id: 'h', label: 'Layer input', sub: 'T × d', role: 'activation' },
+    { id: 'f', label: 'Layer F', sub: 'attention or FFN', role: 'op', link: 'transformer-block' },
+    { id: 'b', label: 'Residual map B', sub: 'n_hc → n_hc, Sinkhorn', role: 'weight' },
+    { id: 'c', label: 'Output map C', sub: 'd → n_hc copies, σ', role: 'weight' },
+    { id: 'xp', label: 'New residual X′', sub: 'T × n_hc × d', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'a' },
+    { from: 'a', to: 'h' },
+    { from: 'h', to: 'f' },
+    { from: 'x', to: 'b' },
+    { from: 'f', to: 'c' },
+    { from: 'b', to: 'xp' },
+    { from: 'c', to: 'xp' },
+  ]}
+/>
+
+$X_l$ is $n_{hc}$ vectors of width $d$, not one. Attention and the feed-forward network never see that extra width: they still take and return a single $d$-vector, so their FLOPs do not grow with $n_{hc}$ <Cite id="deepseek-v4-report" where="§2.2, eq. 1" />.
+
+## How it works
+
+<ShapeFlow
+  title="The layer still runs at width d"
+  steps={[
+    { label: 'Residual X', shape: ['n_hc', 'd'], role: 'activation' },
+    { label: 'Layer input A X', shape: ['d'], role: 'activation', op: 'A' },
+    { label: 'Layer output F', shape: ['d'], role: 'activation', op: 'F' },
+    { label: 'New residual X′', shape: ['n_hc', 'd'], role: 'activation', op: 'B X + C F' },
+  ]}
+  caption="Only the residual path is n_hc copies wide. The maps A, B and C are tiny compared with the layer, because n_hc is much smaller than d."
+/>
+
+The update is
+
+$$
+X_{l+1} = B_l X_l + C_l\,\mathcal{F}_l(A_l X_l)
+$$
+
+with $A_l \in \mathbb{R}^{1\times n_{hc}}$, $B_l \in \mathbb{R}^{n_{hc}\times n_{hc}}$ and $C_l \in \mathbb{R}^{n_{hc}\times 1}$ <Cite id="deepseek-v4-report" where="§2.2, eq. 1" />. $A_l$ and $C_l$ are produced from the current residual (a dynamic linear map plus a static bias), then passed through a sigmoid so every entry is positive and at most one; $C_l$ is scaled by two so a layer can write a stronger update than one copy would take <Cite id="mhc-paper" where="§4.2, eq. 8" />.
+
+$B_l$ is the map that would break identity mapping if it were left free. mHC forces it onto the Birkhoff polytope: non-negative entries, every row and every column summing to 1 <Cite id="mhc-paper" where="§4.1, eq. 6" />. A matrix like that is a convex combination of permutations. Its spectral norm is at most 1, so it cannot expand the signal, and the product of many such matrices is still doubly stochastic, so the same bound holds across the whole depth <Cite id="mhc-paper" where="§4.1" />.
+
+<Stepper>
+  <Step title="Flatten the residual and propose A, B, C">
+    $X_l$ is flattened to width $n_{hc}\,d$, RMS-normalized, and linearly mapped to a raw $A$, a raw $n_{hc}\times n_{hc}$ matrix $B$, and a raw $C$, each plus a learned static bias and a small learned gate <Cite id="deepseek-v4-report" where="§2.2, eqs. 3–5" />.
+  </Step>
+  <Step title="Keep A and C non-negative">
+    $A_l = \sigma(\tilde A_l)$ and $C_l = 2\sigma(\tilde C_l)$. Negative mix weights would let copies cancel, which is another way for the residual to vanish <Cite id="mhc-paper" where="§4.1–§4.2" />.
+  </Step>
+  <Step title="Project B with Sinkhorn-Knopp">
+    Exponentiate $\tilde B_l$ so every entry is positive, then alternately rescale columns and rows to sum to 1. After $t_{\max}$ rounds the matrix is (approximately) doubly stochastic <Cite id="mhc-paper" where="§4.2, eqs. 8–9" />. [[deepseek-v4]] and [[deepseek-v4-1-flash]] both run 20 rounds <Cite id="deepseek-v4-pro-config" where="hc_sinkhorn_iters" />.
+  </Step>
+  <Step title="Read, run the layer, write back">
+    The layer sees $A_l X_l$. Its output is scattered onto the $n_{hc}$ copies by $C_l$, while $B_l$ remixes the copies among themselves. The next residual is their sum.
+  </Step>
+</Stepper>
+
+When $n_{hc} = 1$ the doubly stochastic constraint collapses to the scalar 1, and the update is the ordinary residual $x + \mathcal{F}(x)$ <Cite id="mhc-paper" where="§4.1" />.
+
+## What it costs
+
+The residual activations are $n_{hc}$ times wider, which is extra memory traffic, not extra attention or expert FLOPs. The three maps themselves are cheap because they act on $n_{hc}$, not on $d$. At expansion $n_{hc} = 4$, the mHC paper's large-scale runs spent 6.7% extra training time after kernel fusion <Cite id="mhc-paper" where="§1; §4.3" />.
+
+<Calc
+  title="Residual activations per token, one layer"
+  inputs={[
+    { id: 'nhc', label: 'Residual copies n_hc', min: 1, max: 8, value: 4 },
+    { id: 'd', label: 'Hidden size d', min: 512, max: 8192, step: 256, value: 4096 },
+    { id: 'bytes', label: 'Bytes per element', min: 1, max: 4, value: 2 },
+  ]}
+  outputs={[
+    { label: 'Ordinary residual', expr: 'd * bytes', format: 'bytes', role: 'activation' },
+    { label: 'mHC residual', expr: 'nhc * d * bytes', format: 'bytes', role: 'activation' },
+  ]}
+  bars
+  note="The layer F still reads and writes width d. Only the residual path that wraps it grows with n_hc."
+/>
+
+[[deepseek-v4]] is the first production model in this notebook that ships mHC, with four copies. [[deepseek-v4-1-flash]] keeps the same expansion and fuses the maps into a single-pass kernel so the extra residual is read once per block.
+
+<Callout type="pitfall">
+Unconstrained Hyper-Connections use the same three maps. Without the Sinkhorn projection, the product of the $B$ matrices can explode: the mHC paper's 27B ablation saw composite gain magnitudes in the thousands, and a loss spike around step 12k <Cite id="mhc-paper" where="§3.1, Fig. 2–3" />. The picture looks the same; the manifold constraint is what keeps training stable.
+</Callout>

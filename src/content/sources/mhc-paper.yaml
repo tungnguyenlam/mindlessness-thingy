@@ -1,0 +1,7 @@
+title: "mHC: Manifold-Constrained Hyper-Connections"
+short: mHC paper
+authors: Zhenda Xie, Yixuan Wei, Huanqi Cao, Chenggang Zhao et al. (DeepSeek-AI)
+year: 2026
+url: https://arxiv.org/abs/2512.24880
+type: paper
+notes: "Projects Hyper-Connections' residual mixing matrix onto the Birkhoff polytope (doubly stochastic matrices) with Sinkhorn-Knopp, t_max = 20. Expansion n = 4 in the large-scale runs; 6.7% extra training time. V4 and V4.1-Flash cite this as Xie et al. 2026."

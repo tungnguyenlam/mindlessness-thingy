@@ -196,7 +196,7 @@ Shared symbols (the generated symbol table, `SYMBOLS` in `src/lib/models/overvie
 
 | Symbol | Meaning | Symbol | Meaning |
 | --- | --- | --- | --- |
-| `T` | tokens in the sequence (frames in a pipeline's sample) | `d` | hidden size (residual width) |
+| `T` | tokens in the sequence (frames in a pipeline's sample) | `d` | hidden size (residual width of one stream) |
 | `V` | vocabulary / embedding rows | `L` | layers |
 | `n_h` | query heads | `n_kv` | key/value heads (`n_g` groups in GQA) |
 | `d_h` | head dimension | `d_v` | value head dimension |
@@ -208,5 +208,6 @@ Shared symbols (the generated symbol table, `SYMBOLS` in `src/lib/models/overvie
 | `n_tok` | tokens per step of a pipeline's input (per video frame) | `t` | position of the token being computed; under a causal mask it reads `t` tokens |
 | `n` | n-gram order (suffix of n tokens) | `K_e` | Engram hash heads |
 | `d_mem` | Engram hash-head width | `M_e` | Engram table entries per head |
+| `n_hc` | mHC residual streams (copies of width `d`) | `t_max` | mHC Sinkhorn iterations |
 
 A new symbol goes in this table and in `SYMBOLS` in the same commit.
