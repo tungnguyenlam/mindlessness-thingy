@@ -268,6 +268,21 @@ function wholeModel(m, ctx) {
   chain(stack.at(-1), 'fnorm', 'head', 'logits', 'sample');
   // Decoding loops: the sampled id is appended and the model runs again on one more token.
   edges.push({ from: 'sample', to: 'ids', side: 'left', dashed: true });
+  if (v('engram_modules')) {
+    // Opposite the KV cache: lookup is from token ids, fused into the stack at selected layers.
+    const row = blocks.find((b) => b.id === stack[0]).row;
+    const free = !blocks.some((b) => b.col === 0 && b.row === row);
+    blocks.push({
+      id: 'engram',
+      label: 'Engram memory',
+      sub: `${z('engram_modules', '2')} hashed n-gram tables`,
+      role: 'weight',
+      col: free ? 0 : 2,
+      row,
+      open: 'engram',
+    });
+    edges.push({ from: 'ids', to: 'engram', dashed: true }, { from: 'engram', to: stack[0] });
+  }
   if (v('mtp_depth')) {
     // Beside the last layer it reads from, so the arrow stays clear of the group label.
     const row = blocks.find((b) => b.id === stack.at(-1)).row;
@@ -497,6 +512,36 @@ function moeDetail(m, ctx) {
   return { title: `${m.title}: inside the MoE FFN`, blocks, edges };
 }
 
+/** Engram: hashed suffix n-grams looked up in static tables, then gated by the hidden state. */
+function engramDetail(m, ctx) {
+  const { z } = access(m);
+  const [d, Ke, dmem, Me, nmax] = [z('hidden_size', 'd'), z('engram_heads', 'K_e'), z('engram_head_dim', 'd_mem'), z('engram_entries', 'M_e'), z('engram_max_ngram', 'n')];
+  const blocks = [
+    { id: 'ids', label: 'Token ids', sub: 'T integers', role: 'activation', col: 0, row: 0 },
+    { id: 'p', label: 'Vocab projection P', sub: 'NFKC, lowercase', role: 'op', col: 0, row: 1 },
+    { id: 'g', label: 'Suffix n-grams', sub: `orders 2 … ${nmax}`, role: 'activation', col: 0, row: 2 },
+    { id: 'hash', label: 'Multi-head hash', sub: `${Ke} heads per order`, role: 'op', col: 1, row: 2, link: linkIf(ctx, 'engram') },
+    { id: 'tab', label: 'Embedding tables', sub: `${Me} × ${dmem} per head`, role: 'weight', col: 2, row: 2 },
+    { id: 'e', label: 'Memory vector e', sub: `concat, T × ${Ke}·${dmem} per order`, role: 'activation', col: 1, row: 3 },
+    { id: 'h', label: 'Hidden h', sub: `T × ${d}`, role: 'activation', col: 0, row: 3 },
+    { id: 'gate', label: 'Context-aware gate α', sub: 'σ( h · k / √d )', role: 'op', col: 1, row: 4 },
+    { id: 'conv', label: 'Dilated causal conv', sub: 'short kernel, then residual', role: 'op', col: 1, row: 5 },
+    { id: 'y', label: 'Engram output Y', sub: `T × ${d}, added to h`, role: 'activation', col: 1, row: 6 },
+  ];
+  const edges = [
+    { from: 'ids', to: 'p' },
+    { from: 'p', to: 'g' },
+    { from: 'g', to: 'hash' },
+    { from: 'hash', to: 'tab', dashed: true },
+    { from: 'tab', to: 'e' },
+    { from: 'h', to: 'gate' },
+    { from: 'e', to: 'gate', label: 'W_K, W_V' },
+    { from: 'gate', to: 'conv' },
+    { from: 'conv', to: 'y' },
+  ];
+  return { title: `${m.title}: hashed n-gram memory`, blocks, edges };
+}
+
 /** DeepSeek-V3's multi-token prediction module (one per depth k). */
 function mtpDetail(m, ctx) {
   const norm = normName(m);
@@ -547,6 +592,7 @@ export function overviewParts(m, ctx) {
     if (c === 'D') parts.push({ id: 'ffn-D', tab: 'Dense FFN', props: denseDetail(m, ctx) });
     else parts.push({ id: 'ffn-E', tab: 'MoE FFN', props: moeDetail(m, ctx) });
   }
+  if (v('engram_modules')) parts.push({ id: 'engram', tab: 'Engram', props: engramDetail(m, ctx) });
   if (v('mtp_depth')) parts.push({ id: 'mtp', tab: 'MTP', props: mtpDetail(m, ctx) });
   return parts;
 }
@@ -581,6 +627,9 @@ const SYMBOLS = [
   ['G', 'expert groups', 'expert_groups'],
   ['M', 'groups a token may use', 'expert_groups_active'],
   ['D', 'MTP depth', 'mtp_depth'],
+  ['K_e', 'Engram hash heads', 'engram_heads'],
+  ['d_mem', 'Engram hash-head width', 'engram_head_dim'],
+  ['M_e', 'Engram table entries per head', 'engram_entries'],
 ];
 
 export function symbolRows(m) {

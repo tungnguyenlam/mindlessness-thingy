@@ -67,6 +67,11 @@ export const FIELDS = [
   { key: 'linear_v_heads', label: 'DeltaNet value heads', group: 'mixer', kind: 'count', concept: 'gated-deltanet' },
   { key: 'linear_k_dim', label: 'DeltaNet key head dim', group: 'mixer', kind: 'count', concept: 'gated-deltanet' },
   { key: 'linear_v_dim', label: 'DeltaNet value head dim', group: 'mixer', kind: 'count', concept: 'gated-deltanet' },
+  { key: 'engram_modules', label: 'Engram modules', group: 'mixer', kind: 'count', concept: 'engram' },
+  { key: 'engram_heads', label: 'Engram hash heads', group: 'mixer', kind: 'count', concept: 'engram' },
+  { key: 'engram_head_dim', label: 'Engram hash-head width', group: 'mixer', kind: 'count', concept: 'engram' },
+  { key: 'engram_max_ngram', label: 'Longest n-gram', group: 'mixer', kind: 'count', concept: 'engram' },
+  { key: 'engram_entries', label: 'Engram entries per head', group: 'mixer', kind: 'count', concept: 'engram' },
 
   { key: 'ffn', label: 'FFN type', group: 'ffn', kind: 'slug' },
   { key: 'ffn_activation', label: 'FFN activation', group: 'ffn', kind: 'text' },

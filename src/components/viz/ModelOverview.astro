@@ -57,6 +57,7 @@ const CAPTIONS: Record<string, string> = {
   'ffn-D': 'A gated FFN: the gate path goes through the activation and multiplies the up path element by element, then the down projection returns to width d.',
   'ffn-E': `The router scores all ${z('routed_experts', 'N_r')} routed experts and keeps ${z('active_experts', 'K_r')}; their outputs are mixed by the gate weights g.${m.values.shared_experts ? ' Shared experts run for every token.' : ''}`,
   mtp: 'Used in training: predicts one token further ahead, reusing the main model’s embedding table and output head.',
+  engram: `Hashed suffix n-grams (orders 2 to ${z('engram_max_ngram', 'n')}) are looked up in ${z('engram_heads', 'K_e')} tables per order. The hidden state gates what comes back, so a colliding or off-topic entry can be ignored.`,
 };
 if (pipeline) {
   const steps = m.values.sampling_steps ? ` and run ${z('sampling_steps', 'N')} times while sampling` : '';

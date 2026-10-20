@@ -13,6 +13,7 @@ import MaskGrid from './MaskGrid.astro';
 import ModelDiagram from './ModelDiagram.astro';
 import ModelOverview from './ModelOverview.astro';
 import ModelSpec from './ModelSpec.astro';
+import NgramLookup from './NgramLookup.astro';
 import ShapeFlow from './ShapeFlow.astro';
 import Spec from './Spec.astro';
 import Step from './Step.astro';
@@ -22,4 +23,4 @@ import Tokenizer from './Tokenizer.astro';
 import TokenizerCompare from './TokenizerCompare.astro';
 import TokenizerFlow from './TokenizerFlow.astro';
 
-export const vizComponents = { ArchDiagram, BiasVariance, Calc, Callout, Cite, Compare, ConvTokens, Figure, LayerStrip, MaskGrid, ModelDiagram, ModelOverview, ModelSpec, ShapeFlow, Spec, Step, Stepper, Timeline, Tokenizer, TokenizerCompare, TokenizerFlow };
+export const vizComponents = { ArchDiagram, BiasVariance, Calc, Callout, Cite, Compare, ConvTokens, Figure, LayerStrip, MaskGrid, ModelDiagram, ModelOverview, ModelSpec, NgramLookup, ShapeFlow, Spec, Step, Stepper, Timeline, Tokenizer, TokenizerCompare, TokenizerFlow };

@@ -29,5 +29,10 @@ routed_scaling: { v: 1.5, source: deepseek-v4-1-flash-config, where: "text_confi
 # No MTP: the report omits it (§2.1). The config's num_nextn_predict_layers: 3 describes the
 # three DSpark drafter blocks instead (§2.4.3); the overview draws no MTP module for depth 0.
 mtp_depth: { v: 0, display: "none — DSpark drafter instead", source: deepseek-v4-1-flash-report, where: "§2.1; §2.4.3" }
+engram_modules: { v: 2, source: deepseek-v4-1-flash-report, where: "§2.4.2" }
+engram_heads: { v: 8, source: deepseek-v4-1-flash-config, where: "text_config.engram_n_heads" }
+engram_head_dim: { v: 256, source: deepseek-v4-1-flash-config, where: "text_config.engram_head_dim" }
+engram_max_ngram: { v: 4, source: deepseek-v4-1-flash-config, where: "text_config.engram_max_ngram_size" }
+engram_entries: { v: 16000000, display: "≈16M", source: deepseek-v4-1-flash-config, where: "text_config.engram_vocab_size" }
 context_length: { v: 1048576, display: 1M, source: deepseek-v4-1-flash-config, where: "text_config.max_position_embeddings" }
 training_tokens: { v: 45e12, source: deepseek-v4-1-flash-report, where: "Abstract; §4.2.2" }

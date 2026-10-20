@@ -3,13 +3,13 @@ title: "DeepSeek-V4.1-Flash"
 kind: system
 summary: "A September 2026 redesign of V4-Flash: a causal encoder-decoder layout, cross-layer KV sharing, FP4 KV cache and hashed n-gram 'Engram' memory, with native image input."
 domains: []
-prerequisites: []
+prerequisites: [engram]
 builds_on: [deepseek-v4]
 contrasts_with: []
-related: []
-sources: [deepseek-v4-1-flash-report, deepseek-v4-1-flash-config]
+related: [engram]
+sources: [deepseek-v4-1-flash-report, deepseek-v4-1-flash-config, engram-paper]
 status: draft
-updated: 2026-10-17
+updated: 2026-10-21
 ---
 
 DeepSeek-V4.1-Flash (September 2026) rebuilds [[deepseek-v4]]'s Flash model around a cheaper million-token path: a causal encoder-decoder split, cross-layer sharing of the sparse-attention state, hashed n-gram memory, an FP4 KV cache, and native image input. It trains on 45T multimodal tokens and replaces [[mtp]] with a separately trained drafting module <Cite id="deepseek-v4-1-flash-report" where="Abstract, §2.1" />.
@@ -92,6 +92,11 @@ The indexer itself becomes hierarchical: unlike [[dsa|V3.2's indexer]], which sc
 
 ### Engram: hashed n-gram memory
 
+<NgramLookup
+  model="deepseek-v4-1-flash"
+  caption="Pick a token and an n-gram order. The highlighted window is the suffix that hashes into eight tables. Slot numbers are an example of the paper's multiplicative-XOR hash, not the trained multipliers."
+/>
+
 <Spec
   title="Engram modules"
   rows={[
@@ -105,7 +110,7 @@ The indexer itself becomes hierarchical: unlike [[dsa|V3.2's indexer]], which sc
   ]}
 />
 
-Attention only looks back through keys and values computed for the current context. Engram adds a second route: two modules, at layers 1 and 14, keep hashed tables of which short token runs followed which during training, and every token can look its own n-gram up <Cite id="deepseek-v4-1-flash-report" where="§2.4.2" />. The tables are hashed rather than embedded — no vocabulary-sized matrix, just fixed-width hash heads storing about 16M entries each in FP8 — 196B parameters of memory in two modules <Cite id="deepseek-v4-1-flash-report" where="§2.4.2; §4.2.2" />.
+Attention only looks back through keys and values computed for the current context. [[engram]] adds a second route: two modules, at layers 1 and 14, keep hashed tables of which short token runs followed which during training, and every token can look its own n-gram up <Cite id="deepseek-v4-1-flash-report" where="§2.4.2" />. The tables are hashed rather than embedded — no vocabulary-sized matrix, just fixed-width hash heads storing about 16M entries each in FP8 — 196B parameters of memory in two modules <Cite id="deepseek-v4-1-flash-report" where="§2.4.2; §4.2.2" />. The mechanism, including the vocabulary projection and the context-aware gate, is in [[engram]].
 
 ### DSpark replaces MTP
 

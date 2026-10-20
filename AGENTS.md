@@ -125,6 +125,7 @@ Available in every note without imports. Full props are in each file under `src/
 | `<BiasVariance>` | Bias and variance measured live: many noisy training sets, one model family fit to each in the browser (`src/lib/fitlab.mjs`), the fits on the left (spread = variance, gap to the truth = bias), bias², variance, test and train error across the model's knob on the right. `models={['poly', 'knn', ...]}` gives one tab each; `controls` adds noise, n and λ sliders. |
 | `<Calc>` | Sliders plus formulas, e.g. cache size as context length grows. |
 | `<ConvTokens>` | A gated short convolution in token space, from a model's data and tokenizer: real tokens as columns, one row per stage of the block, a chosen token's output tracing back to the k tokens it reads (the only row that crosses tokens), one channel's own kernel, prefill vs decode (the window cache), and how far stacked conv layers reach. `model=` needs `conv_window`, `hidden_size` and a tokenizer; `samples=[...]` gives one tab per sample text. |
+| `<NgramLookup>` | Hashed n-gram memory (Engram) on real tokenizer tokens: a chosen position's suffix n-gram, K hash heads mapping it into table slots, then a context-aware gate from the hidden state. `model=` needs `engram_heads`, `engram_head_dim`, `engram_max_ngram`, `engram_entries` and a tokenizer; `samples={[...]}` gives one tab per sample text. The hash is an example of the paper's multiplicative-XOR shape, not the trained tables. |
 | `<MaskGrid>` | Which keys each query may read (`causal`, `window`, `topk`, `full`), several masks compared with tabs; the reader picks a query row. |
 | `<ShapeFlow>` | Tensor shapes step by step, the dimension that changed highlighted. Symbols, not numbers. |
 | `<Timeline>` | In a path note: the models along the path, what each adds, their layer strips and headline numbers from model data. |
@@ -205,5 +206,7 @@ Shared symbols (the generated symbol table, `SYMBOLS` in `src/lib/models/overvie
 | `N_r`, `K_r`, `N_s` | routed experts, routed per token, shared | `k` | conv kernel size |
 | `n_qk`, `n_v` | DeltaNet Q/K and value heads | `d_qk` | DeltaNet Q/K head dimension |
 | `n_tok` | tokens per step of a pipeline's input (per video frame) | `t` | position of the token being computed; under a causal mask it reads `t` tokens |
+| `n` | n-gram order (suffix of n tokens) | `K_e` | Engram hash heads |
+| `d_mem` | Engram hash-head width | `M_e` | Engram table entries per head |
 
 A new symbol goes in this table and in `SYMBOLS` in the same commit.

@@ -1,0 +1,413 @@
+---
+// Hashed n-gram memory (Engram) in token space: real tokens from the model's tokenizer, a chosen
+// position's suffix n-gram, K hash heads mapping that n-gram into table slots, then a context-aware
+// gate from the hidden state. Sizes come from model data. The hash is the paper's multiplicative-XOR
+// shape with made-up odd multipliers, labelled as an example so collisions are visible without the
+// trained tables.
+//   <NgramLookup model="deepseek-v4-1-flash" />
+//   <NgramLookup model="deepseek-v4-1-flash" samples={['english', 'code']} />
+import { requireModel, requireTokenizer } from '../../lib/models/load';
+import { samplesFor, SAMPLES } from '../../lib/tokenizers/samples';
+
+interface Props {
+  model: string;
+  samples?: string[];
+  caption?: string;
+}
+const { model: modelId, samples: sampleIds = ['english', 'code', 'chinese'], caption } = Astro.props;
+const m = await requireModel(modelId, '<NgramLookup>');
+const num = (key: string) => {
+  const v = m.values[key]?.v;
+  if (typeof v !== 'number') throw new Error(`<NgramLookup model="${modelId}">: the model needs a numeric ${key}`);
+  return v;
+};
+const K = num('engram_heads');
+const dh = num('engram_head_dim');
+const nMax = num('engram_max_ngram');
+const M = num('engram_entries');
+const modules = typeof m.values.engram_modules?.v === 'number' ? m.values.engram_modules.v : null;
+const tokId = m.values.tokenizer?.v as string | undefined;
+if (!tokId) throw new Error(`<NgramLookup model="${modelId}">: the model has no tokenizer field`);
+const tok = await requireTokenizer(tokId, '<NgramLookup>');
+const gen = samplesFor(tokId, '<NgramLookup>');
+const MAXTOK = 9;
+const bos = tok.specials?.tokens.find((t) => /begin of sequence/i.test(t.use));
+const sets = sampleIds.map((id) => {
+  const s = SAMPLES.find((x) => x.id === id);
+  if (!s) throw new Error(`<NgramLookup>: unknown sample "${id}" (one of ${SAMPLES.map((x) => x.id).join(', ')})`);
+  const chips = gen.samples[id].chips.slice(0, MAXTOK);
+  const body = chips.map((c) => ({ text: c.text, id: c.ids[0], special: false }));
+  const tokens = bos ? [{ text: bos.token, id: bos.id, special: true }, ...body] : body;
+  return { id, label: s.label, tokens };
+});
+const orders = Array.from({ length: nMax - 1 }, (_, i) => i + 2);
+const config = JSON.stringify({ K, dh, nMax, M, modules, orders, sets, title: m.title });
+---
+
+<x-ngramlookup class="ng ui" data-restorable>
+  <script type="application/json" set:html={config} />
+  <p class="title">{m.title}: hashed n-gram lookup, token by token</p>
+
+  <div class="bar">
+    {
+      sets.length > 1 && (
+        <div class="tabs" role="tablist" aria-label="Sample text">
+          {sets.map((s, i) => (
+            <button type="button" role="tab" data-set={i} aria-selected={i === 0 ? 'true' : 'false'}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )
+    }
+    <div class="tabs" role="tablist" aria-label="N-gram order">
+      {orders.map((n, i) => (
+        <button type="button" role="tab" data-order={n} aria-selected={i === 0 ? 'true' : 'false'}>
+          {n}-gram
+        </button>
+      ))}
+    </div>
+  </div>
+
+  <section>
+    <h4>1. The suffix n-gram ending here</h4>
+    <div class="scroll" data-keep-scroll>
+      <div class="cells" data-cells="tok"></div>
+    </div>
+    <p class="readout" data-out="gram" aria-live="polite"></p>
+    <p class="hint">Click a token. The n-gram is the last n tokens, including this one. Tokens before the start are padding, as in the paper.</p>
+  </section>
+
+  <section>
+    <h4>2. Each hash head looks the n-gram up in its own table</h4>
+    <div class="scroll" data-keep-scroll>
+      <table class="heads" data-out="heads"></table>
+    </div>
+    <p class="readout" data-out="hash" aria-live="polite"></p>
+    <p class="hint">
+      Slot indices use a multiplicative-XOR hash of the same shape as the paper, with made-up odd multipliers. They are not the trained tables.
+    </p>
+  </section>
+
+  <section>
+    <h4>3. The hidden state decides whether to keep what was found</h4>
+    <div class="flow" data-out="gate"></div>
+    <p class="readout" data-out="gateread" aria-live="polite"></p>
+  </section>
+
+  {caption && <p class="caption">{caption}</p>}
+</x-ngramlookup>
+
+<script>
+  // Restorable (src/scripts/trail.ts): sample, n-gram order and chosen token come back.
+  interface Tok { text: string; id: number; special: boolean }
+  interface Cfg {
+    K: number; dh: number; nMax: number; M: number; modules: number | null;
+    orders: number[];
+    sets: { id: string; label: string; tokens: Tok[] }[];
+    title: string;
+  }
+  const ws = (t: string) => t.replace(/ /g, '·').replace(/\n/g, '↵').replace(/\t/g, '→');
+  const fmt = (x: number) => x.toLocaleString('en-US');
+
+  // Multiplicative-XOR of the paper's shape (Cheng et al. 2026, §2.2): mix = ⊕_i (id_i · m_i), then
+  // mod M. The odd multipliers here are made up so the picture can show collisions; they are not
+  // the model's.
+  const ODD = [0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2d, 0x165667b1, 0xd3a2646c, 0xfd7046c5, 0xb55a4f09];
+  const slot = (ids: number[], head: number, order: number, M: number) => {
+    let h = (Math.imul(head + 1, ODD[0]) ^ Math.imul(order, ODD[1])) >>> 0;
+    ids.forEach((id, i) => {
+      const m = ODD[(i + head + 2) % ODD.length] | 1;
+      h = (h ^ Math.imul(id + 1, m)) >>> 0;
+    });
+    return h % M;
+  };
+
+  class XNgramLookup extends HTMLElement {
+    st = { set: 0, order: 2, t: 4 };
+    ready = true;
+    snapshot() {
+      const s = this.st;
+      return s.set || s.order !== 2 || s.t !== 4 ? { ...s } : null;
+    }
+    restore(state: unknown) {
+      const s = state as Partial<XNgramLookup['st']>;
+      if (s && typeof s === 'object') this.apply({ ...this.st, ...s });
+    }
+    apply(s: XNgramLookup['st']) {}
+    connectedCallback() {
+      const cfg: Cfg = JSON.parse(this.querySelector('script[type="application/json"]')!.textContent!);
+      const q = <T extends Element>(sel: string) => this.querySelector<T>(sel)!;
+      const out = (name: string) => q<HTMLElement>(`[data-out="${name}"]`);
+
+      this.apply = (s) => {
+        const set = cfg.sets[Math.max(0, Math.min(cfg.sets.length - 1, s.set))];
+        const toks = set.tokens;
+        const nTok = toks.length;
+        const order = cfg.orders.includes(s.order) ? s.order : cfg.orders[0];
+        const t = Math.max(0, Math.min(nTok - 1, s.t));
+        this.st = { set: cfg.sets.indexOf(set), order, t };
+        this.querySelectorAll('[data-set]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.set === String(this.st.set))));
+        this.querySelectorAll('[data-order]').forEach((b) => b.setAttribute('aria-selected', String(Number((b as HTMLElement).dataset.order) === order)));
+
+        const start = t - order + 1;
+        const win = Array.from({ length: order }, (_, i) => start + i);
+        const ids = win.map((j) => (j < 0 ? 0 : toks[j].id));
+        const name = (j: number) => (j < 0 ? 'pad' : `“${ws(toks[j].text).trim() || ws(toks[j].text)}”`);
+
+        const header = q<HTMLElement>('[data-cells="tok"]');
+        header.style.setProperty('--n', String(nTok));
+        header.textContent = '';
+        toks.forEach((tk, j) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = `tok${tk.special ? ' special' : ''}${j === t ? ' cur' : ''}${j > t ? ' future' : ''}${j >= start && j <= t ? ' in' : ''}`;
+          b.dataset.j = String(j);
+          b.setAttribute('aria-pressed', String(j === t));
+          b.innerHTML = `<span class="tt"></span><span class="ti">${tk.id}</span>`;
+          b.querySelector('.tt')!.textContent = ws(tk.text);
+          header.append(b);
+        });
+
+        const pad = win.filter((j) => j < 0).length;
+        const pieces = win.map((j) => (j < 0 ? 'pad' : name(j))).join(' , ');
+        out('gram').innerHTML =
+          `The ${order}-gram ending at token ${t + 1} is (${pieces}).` +
+          (pad ? ` ${pad} slot${pad > 1 ? 's' : ''} before the first token ${pad > 1 ? 'are' : 'is'} padding (id 0).` : '') +
+          ` The paper first maps each id through a vocabulary projection <i>P</i> (NFKC, lowercasing) so “Apple” and “␣apple” share a compressed id; this picture uses the raw tokenizer ids.`;
+
+        const slots = Array.from({ length: cfg.K }, (_, k) => slot(ids, k, order, cfg.M));
+        const tbl = out('heads');
+        tbl.textContent = '';
+        const hr = tbl.createTHead().insertRow();
+        hr.insertCell().outerHTML = '<th>Hash head</th>';
+        hr.insertCell().outerHTML = '<th>Slot in that head’s table</th>';
+        hr.insertCell().outerHTML = `<th>Entry, width ${fmt(cfg.dh)}</th>`;
+        const body = tbl.createTBody();
+        const seen = new Map<number, number>();
+        slots.forEach((z, k) => {
+          const r = body.insertRow();
+          r.insertCell().textContent = k === 0 ? 'First head' : k === cfg.K - 1 ? `Head K = ${cfg.K}` : `Head ${k + 1}`;
+          const sc = r.insertCell();
+          sc.className = 'slot';
+          sc.textContent = fmt(z);
+          const prev = seen.get(z);
+          if (prev != null) {
+            r.className = 'collide';
+            sc.title = `same slot as head ${prev + 1} in this example hash`;
+          } else seen.set(z, k);
+          const ec = r.insertCell();
+          ec.className = 'emb';
+          ec.textContent = `e${k + 1}`;
+        });
+        const collide = slots.length - seen.size;
+        out('hash').innerHTML =
+          `${cfg.K} heads each map the same ${order}-gram into a table of ${fmt(cfg.M)} entries of width ${fmt(cfg.dh)}.` +
+          ` Concatenating them gives the memory vector e of width ${fmt(cfg.K * cfg.dh)} for this order.` +
+          (cfg.orders.length > 1 ? ` The module concatenates every order from 2 to ${cfg.nMax}, so the full e is ${fmt(cfg.K * cfg.dh * cfg.orders.length)} wide.` : '') +
+          (collide ? ` In this example hash, ${collide} head${collide > 1 ? 's share' : ' shares'} a slot with another (highlighted). The trained multipliers are chosen to spread collisions.` : ' In this example hash the heads landed in different slots.');
+
+        const flow = out('gate');
+        flow.innerHTML = `
+          <div class="box act"><b>h</b><span>hidden at this token, width d</span></div>
+          <span class="arr">query</span>
+          <div class="box op"><b>α = σ( h · k / √d )</b><span>k, v from e</span></div>
+          <span class="arr">α · v</span>
+          <div class="box act"><b>Ỹ</b><span>gated memory</span></div>
+          <span class="arr">+ dilated conv</span>
+          <div class="box act"><b>Y</b><span>added back to h</span></div>
+        `;
+        out('gateread').innerHTML =
+          `h is the current hidden state, which has already mixed earlier tokens through attention, so it knows the whole prompt so far. e is only this n-gram. The gate α is a number in (0, 1): if e disagrees with h, α goes toward zero and the memory is ignored.` +
+          (cfg.modules ? ` This model has ${cfg.modules} Engram module${cfg.modules > 1 ? 's' : ''}, each with its own tables.` : '');
+      };
+
+      this.addEventListener('click', (e) => {
+        const el = e.target as HTMLElement;
+        const tok = el.closest<HTMLElement>('.tok[data-j]');
+        const set = el.closest<HTMLElement>('[data-set]');
+        const order = el.closest<HTMLElement>('[data-order]');
+        if (tok) this.apply({ ...this.st, t: Number(tok.dataset.j) });
+        else if (set) this.apply({ ...this.st, set: Number(set.dataset.set), t: Math.min(this.st.t, cfg.sets[Number(set.dataset.set)].tokens.length - 1) });
+        else if (order) this.apply({ ...this.st, order: Number(order.dataset.order) });
+      });
+      this.apply(this.st);
+    }
+  }
+  customElements.define('x-ngramlookup', XNgramLookup);
+</script>
+
+<style is:global>
+  .ng {
+    display: block;
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .ng .title {
+    margin: 0 0 0.7rem;
+    font-weight: 600;
+  }
+  .ng h4 {
+    margin: 1.2rem 0 0.5rem;
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--ink-soft);
+  }
+  .ng .bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.2rem;
+  }
+  .ng .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .ng .tabs button {
+    font: inherit;
+    font-size: var(--step--1);
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .ng .tabs button[aria-selected='true'] {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper-raised);
+  }
+  .ng .scroll {
+    overflow-x: auto;
+  }
+  .ng .cells {
+    display: grid;
+    grid-template-columns: repeat(var(--n), minmax(3.2rem, 1fr));
+    gap: 4px;
+    min-width: 28rem;
+  }
+  .ng .tok {
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.2;
+    min-height: 2.4rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 0.2rem 0.15rem;
+    border-radius: var(--radius-block);
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .ng .tok .ti {
+    font-size: 0.62rem;
+    color: var(--ink-faint);
+  }
+  .ng .tok .tt {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ng .tok.special .tt {
+    font-size: 0.6rem;
+  }
+  .ng .tok.cur {
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
+  }
+  .ng .tok.in {
+    color: var(--ink);
+    background: var(--role-activation-wash);
+    border-color: var(--role-activation);
+  }
+  .ng .tok.future {
+    opacity: 0.35;
+  }
+  .ng .readout {
+    margin: 0.45rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink);
+  }
+  .ng .hint {
+    margin: 0.25rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink-faint);
+  }
+  .ng .heads {
+    border-collapse: collapse;
+    font-size: var(--step--1);
+    min-width: 28rem;
+  }
+  .ng .heads th,
+  .ng .heads td {
+    text-align: left;
+    padding: 0.28rem 0.7rem 0.28rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .ng .heads th {
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+  .ng .heads .slot {
+    font-family: var(--font-mono);
+  }
+  .ng .heads .emb {
+    font-family: var(--font-mono);
+    color: var(--role-weight);
+  }
+  .ng .heads tr.collide td {
+    background: var(--role-route-wash);
+  }
+  .ng .flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.6rem;
+    margin-top: 0.2rem;
+  }
+  .ng .flow .box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: 0.4rem 0.65rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-block);
+    min-width: 7.5rem;
+  }
+  .ng .flow .box b {
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+  .ng .flow .box span {
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+  }
+  .ng .flow .box.act {
+    background: var(--role-activation-wash);
+    border-color: var(--role-activation);
+  }
+  .ng .flow .box.op {
+    background: var(--role-op-wash);
+    border-color: var(--role-op);
+  }
+  .ng .flow .arr {
+    font-size: var(--step--1);
+    color: var(--ink-faint);
+  }
+  .ng .caption {
+    margin: 0.8rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+</style>

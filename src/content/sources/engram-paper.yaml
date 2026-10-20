@@ -1,0 +1,7 @@
+title: "Conditional Memory via Scalable Lookup: A New Axis of Sparsity for Large Language Models"
+short: Engram paper
+authors: Xin Cheng, Rui Tian, Wangding Zeng, Damai Dai et al. (Peking University, DeepSeek-AI)
+year: 2026
+url: https://arxiv.org/abs/2601.07372
+type: paper
+notes: "Introduces Engram: hashed suffix n-gram embeddings with tokenizer compression, multi-head hashing, context-aware gating and a dilated local convolution. V4.1-Flash cites this as Cheng et al. 2026."

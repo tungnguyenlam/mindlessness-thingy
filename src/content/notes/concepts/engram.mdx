@@ -1,0 +1,79 @@
+---
+title: "Engram (hashed n-gram memory)"
+kind: concept
+summary: "A static lookup table addressed by hashed suffix n-grams. Each token retrieves a memory vector in constant time and a gate from the hidden state decides whether to keep it."
+domains: [llm, sparsity]
+prerequisites: [kv-cache, moe]
+builds_on: []
+contrasts_with: [moe]
+related: [deepseek-v4-1-flash]
+sources: [engram-paper, deepseek-v4-1-flash-report, deepseek-v4-1-flash-config]
+status: draft
+updated: 2026-10-21
+---
+
+A [[moe]] layer grows capacity by running only a few experts per token. That is conditional *computation*. Transformers still have no native way to *look up* a local pattern: a name, a formula, a short phrase the training data saw many times. Attention and the feed-forward network have to reconstruct those patterns from weights, which costs early-layer depth that could have gone to reasoning <Cite id="engram-paper" where="§1" />.
+
+Engram is conditional *memory*: the last few tokens address a huge embedding table in constant time, and the current hidden state decides whether the retrieved vector belongs here.
+
+## The idea in one picture
+
+<ArchDiagram
+  title="One Engram lookup"
+  caption="Suffix n-grams of the compressed token ids hash into static tables. The retrieved vector is gated by the current hidden state, mixed by a short dilated convolution, and added back. The tables are parameters, not a growing cache."
+  blocks={[
+    { id: 'ids', label: 'Token ids', sub: 'T integers', role: 'activation' },
+    { id: 'p', label: 'Vocab projection P', sub: 'V → V′', role: 'op' },
+    { id: 'g', label: 'Suffix n-grams', sub: 'g_t,n : n-tuples', role: 'activation' },
+    { id: 'hash', label: 'Hash heads', sub: 'K maps into M slots', role: 'op' },
+    { id: 'tab', label: 'Embedding tables E', sub: 'M × d_mem per head', role: 'weight' },
+    { id: 'e', label: 'Memory vector e', sub: 'concat, T × d_mem', role: 'activation' },
+    { id: 'h', label: 'Hidden state h', sub: 'T × d', role: 'activation' },
+    { id: 'gate', label: 'Context-aware gate', sub: 'α from h and e', role: 'op' },
+    { id: 'y', label: 'Engram output Y', sub: 'T × d, residual', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'ids', to: 'p' },
+    { from: 'p', to: 'g' },
+    { from: 'g', to: 'hash' },
+    { from: 'hash', to: 'tab', dashed: true },
+    { from: 'tab', to: 'e' },
+    { from: 'h', to: 'gate' },
+    { from: 'e', to: 'gate' },
+    { from: 'gate', to: 'y' },
+  ]}
+/>
+
+The tables do not grow with context. Addressing is a function of the last $n$ token ids, so the host can prefetch the rows while earlier layers run <Cite id="engram-paper" where="§2.5" />. That is the opposite of a [[kv-cache]], whose size tracks every token so far.
+
+## How it works
+
+<Stepper>
+  <Step title="Compress the ids">
+    Subword tokenizers give “Apple” and “␣apple” different ids. A fixed map $P$ folds them together with NFKC normalisation and lowercasing, so the n-gram key is a canonical identifier $x'_t = P(x_t)$ <Cite id="engram-paper" where="§2.2" />.
+  </Step>
+  <Step title="Form suffix n-grams">
+    At position $t$, each order $n$ (from 2 up to a maximum $N$) takes the last $n$ compressed ids: $g_{t,n} = (x'_{t-n+1},\dots,x'_t)$. Positions before the first token are padding.
+  </Step>
+  <Step title="Hash into K tables">
+    Storing every possible n-gram is impossible, so each order has $K$ hash heads. Head $k$ maps $g_{t,n}$ to a slot $z_{t,n,k} = \varphi_{n,k}(g_{t,n})$ in a table of prime size $M$ and reads $\mathbf{e}_{t,n,k} = \mathbf{E}_{n,k}[z_{t,n,k}]$ <Cite id="engram-paper" where="§2.2, eq. 1" />. $\varphi$ is a multiplicative-XOR mix of the ids. Concatenating every head and every order gives the memory vector $\mathbf{e}_t$.
+  </Step>
+  <Step title="Gate with the hidden state">
+    $\mathbf{e}_t$ does not know the rest of the prompt, and two n-grams can share a slot. The current hidden state $\mathbf{h}_t$ has already mixed earlier tokens, so it acts as a query against a key and value projected from $\mathbf{e}_t$:
+    $$\alpha_t = \sigma\!\left(\frac{\mathrm{RMSNorm}(\mathbf{h}_t)^\top \mathrm{RMSNorm}(\mathbf{W}_K \mathbf{e}_t)}{\sqrt{d}}\right)$$
+    If the retrieved memory disagrees with context, $\alpha_t$ goes toward zero and the entry is ignored <Cite id="engram-paper" where="§2.3, eq. 4" />.
+  </Step>
+  <Step title="A short dilated convolution, then a residual">
+    The gated values pass through a depthwise causal convolution (kernel 4, dilation equal to the longest n-gram) with a SiLU residual, and $Y$ is added back to the hidden stream <Cite id="engram-paper" where="§2.3, eq. 5" />. Engram is not in every layer: it sits at a few depths chosen so prefetch from host memory hides behind compute <Cite id="engram-paper" where="§2.5" />.
+  </Step>
+</Stepper>
+
+[[deepseek-v4-1-flash]] is the first production model in this notebook that ships Engram. Its note walks a real prompt through the hash, token by token.
+
+## What it costs
+
+The tables are extra parameters that barely add FLOPs: one lookup per head per order, a gate, and a convolution whose window does not grow with $T$. The paper's scaling law is U-shaped: too little memory and the backbone still reconstructs static patterns; too much and you starve the MoE of experts <Cite id="engram-paper" where="Abstract, §3" />. Because the address is deterministic, a 100B-parameter table can live in host RAM and be prefetched with under 3% overhead <Cite id="engram-paper" where="Abstract, §2.5" />.
+
+<Callout type="pitfall">
+Hashing collides. Two different n-grams can land in the same slot, and the retrieved vector is then a mixture. The gate is there to drop a colliding or off-topic entry; without it the table would inject noise into every token.
+</Callout>

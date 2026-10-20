@@ -129,6 +129,7 @@ export function paramBreakdown(m) {
     if (m.values.tie_embeddings?.v === true) parts.push({ id: 'head', label: 'Output head', note: 'tied to the embedding', layers: 1, total: 0, active: 0, rows: [] });
     else parts.push({ id: 'head', label: 'Output head', layers: 1, total: d * V, active: d * V, rows: [mat('W_out', 'logits', [d, 'd'], [V, 'V'])] });
   } else missing.push('embedding');
+  if (g('engram_heads')) missing.push('Engram memory tables');
   if (layers) {
     for (const code of ['A', 'X', 'C', 'M', 'G', 'D', 'E']) {
       const count = layers.filter((l) => l.includes(code)).length;

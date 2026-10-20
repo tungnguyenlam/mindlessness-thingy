@@ -181,3 +181,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: the token tab's shape labels use t (tokens read = position); added to the shared symbol table in AGENTS.md and to SYMBOLS (language models only), as the rule requires
 - files: AGENTS.md src/lib/models/overview.mjs
 - open: none
+
+## 2026-10-21 · feat(engram): show hashed n-gram lookup on V4.1-Flash
+- did: new <NgramLookup> viz (real tokenizer tokens, example multiplicative-XOR hash, context-aware gate) on DeepSeek-V4.1-Flash; Engram concept note, generated overview tab, and engram_* model fields
+- files: src/components/viz/NgramLookup.astro src/lib/models/{fields,overview,params}.mjs src/content/notes/{concepts/engram,systems/deepseek-v4-1-flash,paths/deepseek-lineage}.mdx src/content/models/deepseek-v4-1-flash.yaml AGENTS.md
+- open: hash multipliers are an example of the paper's shape, not the trained tables; Engram params excluded from paramBreakdown so the 552B backbone still matches
