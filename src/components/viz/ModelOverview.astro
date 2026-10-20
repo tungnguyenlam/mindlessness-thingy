@@ -5,6 +5,8 @@
 // FFN kind, MTP) drawn down to the projections and tensor shapes. Sizes are drawn as this model's
 // numbers, read from its data (only T, the sequence length, stays a symbol); the table under them
 // maps each number to the symbol the concept notes use, with its source, so nothing is retyped.
+// A language model also gets a "Follow a token" tab (../overview/TokenTrace.astro): one real token
+// of a sample text followed through the same model, stage by stage.
 //   <ModelOverview model="deepseek-v3" />
 // Generators: src/lib/models/overview.mjs (also linted by scripts/checks/models.mjs).
 import ArchDiagram from './ArchDiagram.astro';
@@ -15,6 +17,8 @@ import { FIELD, formatValue } from '../../lib/models/fields.mjs';
 import { DERIVED, formatDerived } from '../../lib/models/data.mjs';
 import { noteUrl } from '../../lib/url';
 import { paramBreakdown, sublayerWeights, fmtParams } from '../../lib/models/params.mjs';
+import TokenTrace from '../overview/TokenTrace.astro';
+import { samplesFor } from '../../lib/tokenizers/samples';
 
 interface Props {
   model: string;
@@ -110,6 +114,17 @@ const offTotal = pb.complete ? off(pb.total, pb.reported.total) : null;
 const offActive = pb.complete && moe ? off(pb.active, pb.reported.active) : null;
 const pctText = (x: number) => `${x > 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
 if (bars.length) parts.push({ id: 'params', tab: 'Parameters', props: null } as any);
+// Token level: a language model with a layer pattern and generated tokenizer samples gets a
+// "Follow a token" tab right after the whole-model view (src/components/overview/TokenTrace.astro).
+const hasSamples = (() => {
+  try {
+    return !!(m.values.tokenizer?.v && samplesFor(String(m.values.tokenizer.v), ''));
+  } catch {
+    return false;
+  }
+})();
+const tokenTab = !pipeline && !!m.values.layer_pattern && !!tok && hasSamples;
+if (tokenTab) parts.splice(1, 0, { id: 'token', tab: 'Follow a token', props: null } as any);
 
 // The matrices behind one tab: mixer-A → A, ffn-E → E; the layer tab sums each sublayer kind.
 const TAB_CODE: Record<string, string> = { 'mixer-A': 'A', 'mixer-X': 'X', 'mixer-C': 'C', 'mixer-G': 'G', 'ffn-D': 'D', 'ffn-E': 'E' };
@@ -144,6 +159,7 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
       <div class="panel" role="tabpanel" data-panel={p.id} hidden={i !== 0} data-test-reveal>
         {p.id === 'model' && <p class="hint">Blocks with a <span class="plus" aria-hidden="true">+</span> zoom in: {pipeline ? 'the backbone opens one block, and inside it each sublayer opens its projections and weights.' : 'the layer stack opens one layer, and inside it each mixer and FFN opens its projections and weights.'}</p>}
         {p.props && <ArchDiagram {...p.props} caption={CAPTIONS[p.id]} />}
+        {p.id === 'token' && <TokenTrace model={m} tokenizer={tok} has={ctx.has} />}
         {wt && (
           <div class="wscroll" data-keep-scroll>
             <p class="tcap">Weights in this view, sized from the data. Hover a shape for its symbols.</p>

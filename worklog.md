@@ -156,3 +156,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: new <ConvTokens> viz: real tokenizer tokens as columns, a chosen token's output traced to the k tokens it reads, per-channel kernel, prefill vs decode window cache, reach of stacked conv layers; added to lfm2-5-350m, linked from gated-short-conv
 - files: src/components/viz/{ConvTokens.astro,index.ts} AGENTS.md src/content/notes/{systems/lfm2-5-350m,concepts/gated-short-conv}.mdx
 - open: zero padding before the first token is the standard causal-conv assumption, not checked against the modeling code; only the 350M note embeds it so far
+
+## 2026-10-21 · feat(overview): add a Follow a token tab to every model overview
+- did: new token-level tab in <ModelOverview> (second, after the layer-wise Whole model view): one real sample token followed through 7 stages (tokens/ids, embedding row lookup, which positions each mixer and FFN reads, one attention head's q·k/softmax/weighted sum with the model's head sizes, what the token leaves in each cache and how it grows, dense FFN or MoE expert grid with group-limited routing, output head and next-token loss); generated from model + tokenizer data for every language model with tokenizer samples
+- files: src/components/overview/TokenTrace.astro src/components/viz/ModelOverview.astro
+- open: attention scores, embedding values and expert picks are deterministic made-up examples (labelled in the UI); DSA indexer key cache not counted; no keep-place test case specific to this tab (it uses the same snapshot/restore contract)
