@@ -204,6 +204,6 @@ Shared symbols (the generated symbol table, `SYMBOLS` in `src/lib/models/overvie
 | `d_ff` | dense FFN hidden size | `d_e` | expert hidden size |
 | `N_r`, `K_r`, `N_s` | routed experts, routed per token, shared | `k` | conv kernel size |
 | `n_qk`, `n_v` | DeltaNet Q/K and value heads | `d_qk` | DeltaNet Q/K head dimension |
-| `n_tok` | tokens per step of a pipeline's input (per video frame) | | |
+| `n_tok` | tokens per step of a pipeline's input (per video frame) | `t` | position of the token being computed; under a causal mask it reads `t` tokens |
 
 A new symbol goes in this table and in `SYMBOLS` in the same commit.

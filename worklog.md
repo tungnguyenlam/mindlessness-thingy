@@ -176,3 +176,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: owner asked where the shapes were: every vector now shows 1 × n (with head split), every matrix rows × cols in numbers plus its row count along the right edge, and the symbol shape after each name (d × d_c, 1 × n_h·d_h, (d_h + d_h^R) × t); sequence matrices show T × d; t defined in the Scores text
 - files: src/components/overview/{TokenTrace.astro,tensorpics.ts}
 - open: t (tokens read = position) is a local symbol in this tab, not added to the shared symbol table
+
+## 2026-10-21 · docs(symbols): add t, the position of the token being computed
+- did: the token tab's shape labels use t (tokens read = position); added to the shared symbol table in AGENTS.md and to SYMBOLS (language models only), as the rule requires
+- files: AGENTS.md src/lib/models/overview.mjs
+- open: none

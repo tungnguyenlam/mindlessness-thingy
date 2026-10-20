@@ -554,6 +554,7 @@ export function overviewParts(m, ctx) {
 // Symbols used in the diagrams, and the model field (or derived value) that gives each one.
 const SYMBOLS = [
   ['T', 'tokens in the sequence', null],
+  ['t', 'position of the token being computed (it reads t tokens)', null],
   ['n_tok', 'tokens per step', 'tokens_per_step'],
   ['V', 'vocabulary, embedding rows', 'vocab_size'],
   ['d', 'hidden size', 'hidden_size'],
@@ -587,7 +588,7 @@ export function symbolRows(m) {
     // T counts steps of the input (video frames), and each step may become several tokens.
     const unit = String(m.values.seq_unit?.v ?? 'step');
     const own = { T: [`${unit}s in a sample`, m.values.seq_length ? 'seq_length' : null], n_tok: [`tokens per ${unit}`, 'tokens_per_step'] };
-    const rows = SYMBOLS.filter(([sym]) => sym !== 'V').map(([sym, meaning, key]) => (own[sym] ? [sym, ...own[sym]] : [sym, meaning, key]));
+    const rows = SYMBOLS.filter(([sym]) => sym !== 'V' && sym !== 't').map(([sym, meaning, key]) => (own[sym] ? [sym, ...own[sym]] : [sym, meaning, key]));
     return rows.filter(([, , key]) => key == null || m.values[key] != null || m.derived?.[key] != null).map(([sym, meaning, key]) => ({ sym, meaning, key }));
   }
   return SYMBOLS.filter(([, , key]) => key == null || m.values[key] != null || m.derived?.[key] != null).map(([sym, meaning, key]) => ({ sym, meaning, key }));
