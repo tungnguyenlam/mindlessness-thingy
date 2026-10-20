@@ -171,3 +171,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: owner did not want to switch stage tabs: the Follow a token tab now stacks all stages as numbered sections; sample tabs and tokens are sticky at the top; switching token keeps the stage being read at the same screen height; snapshot is now {set, t}
 - files: src/components/overview/TokenTrace.astro
 - open: no keep-place test case for the sticky bar or the scroll anchoring (checked by hand with a scratch browser script)
+
+## 2026-10-21 · feat(overview): label every tensor picture with its shape
+- did: owner asked where the shapes were: every vector now shows 1 × n (with head split), every matrix rows × cols in numbers plus its row count along the right edge, and the symbol shape after each name (d × d_c, 1 × n_h·d_h, (d_h + d_h^R) × t); sequence matrices show T × d; t defined in the Scores text
+- files: src/components/overview/{TokenTrace.astro,tensorpics.ts}
+- open: t (tokens read = position) is a local symbol in this tab, not added to the shared symbol table

@@ -31,6 +31,9 @@ export interface Bar {
   /** A token-axis row: one cell per token (scores, attention weights). */
   cells?: Cell[];
   name: string;
+  /** Shape in symbols, shown after the name: '1 × d'. */
+  sym?: string;
+  /** Shape in numbers, under the name: '1 × 7,168'. */
   size?: string;
   cached?: boolean;
   /** Draw this many equal slices (heads) with thin dividers. */
@@ -41,7 +44,12 @@ export interface Bar {
 }
 export interface Matrix {
   name: string;
+  /** Shape in symbols, after the name: 'd × d_{c}'. */
+  sym?: string;
+  /** Shape in numbers, under the name: '7,168 × 512'. */
   sub?: string;
+  /** Row count, printed along the right edge (the input width). */
+  rows?: string;
   /** Weight grid (default) or a stack of token vectors drawn as columns or rows. */
   tokens?: { dir: 'cols' | 'rows'; parts: Part[][] };
   /** One row of a weight matrix picked out (an embedding lookup), at a fraction of its height. */
@@ -152,7 +160,7 @@ function drawBar(b: Bar, x: number) {
 }
 
 const tagsH = (b: Bar) => (b.cells?.some((c) => c.tag) ? 13 : 0);
-const barLabW = (b: Bar) => Math.max(labW(b.name), b.size ? labW(b.size, 6) : 0);
+const barLabW = (b: Bar) => Math.max(labW(b.name) + (b.sym ? 8 + labW(b.sym, 6.2) : 0), b.size ? labW(b.size, 6.2) : 0);
 
 /** One row of the picture: bars on a baseline, matrices above the bars they produce. */
 export class Track {
@@ -176,9 +184,9 @@ export class Track {
       b.cells!.forEach((c, i) => {
         if (c.tag) out += `<text class="tp-tag" x="${x + i * CELL + CELL / 2}" y="${H + 11}" text-anchor="middle">${esc(c.tag)}</text>`;
       });
-    out += `<text class="tp-name" x="${x}" y="${H + 14 + t}">${lab(b.name)}${b.cached ? '<tspan class="tp-cachetag" dx="5">cached</tspan>' : ''}</text>`;
-    if (b.size) out += `<text class="tp-size" x="${x}" y="${H + 27 + t}">${esc(b.size)}</text>`;
-    this.bottom = Math.max(this.bottom, H + 32 + t);
+    out += `<text class="tp-name" x="${x}" y="${H + 17 + t}">${lab(b.name)}${b.sym ? `<tspan class="tp-sym" dx="6">${lab(b.sym)}</tspan>` : ''}${b.cached ? '<tspan class="tp-cachetag" dx="6">cached</tspan>' : ''}</text>`;
+    if (b.size) out += `<text class="tp-size" x="${x}" y="${H + 30 + t}">${esc(b.size)}</text>`;
+    this.bottom = Math.max(this.bottom, H + 35 + t);
     return out;
   }
   private place(b: Bar, x: number) {
@@ -213,7 +221,7 @@ export class Track {
       lane = ++this.depth;
       this.lanes.set(from, lane);
     }
-    const yc = H + 38 + lane * 8;
+    const yc = H + 41 + lane * 8;
     const dx = s.x0 + s.adv + 8 + lane * 3;
     this.parts.push(`<path class="tp-arrow" d="M${s.x1 + 3} ${H / 2} H${dx} V${yc} H${x - 12} V${H / 2} H${x - 4}" marker-end="url(#tp-head)"/>`);
     this.bottom = Math.max(this.bottom, yc + 4);
@@ -249,13 +257,15 @@ export class Track {
     // The input, turned to run down the matrix's left edge: its length is the matrix's height.
     const gw = 5;
     g += `<g class="tp-ghost">${s.b.cells ? drawCells(x - gw - 3, y0, s.b.cells, gw, true, false) : drawParts(x - gw - 3, y0, hgt, gw, s.b.parts ?? [], true)}</g>`;
-    g += `<text class="tp-mname" x="${x}" y="${y0 - (m.sub ? 18 : 6)}">${lab(m.name)}</text>`;
+    g += `<text class="tp-mname" x="${x}" y="${y0 - (m.sub ? 18 : 6)}">${lab(m.name)}${m.sym ? `<tspan class="tp-sym" dx="6">${lab(m.sym)}</tspan>` : ''}</text>`;
+    // The height (rows = the input's width) written along the right edge; the width is the bar below.
+    if (m.rows && labW(m.rows, 6.2) < hgt - 4) g += `<text class="tp-size" transform="translate(${x + wid + 4},${y0 + hgt / 2}) rotate(90)" text-anchor="middle">${esc(m.rows)}</text>`;
     if (m.sub) g += `<text class="tp-size" x="${x}" y="${y0 - 6}">${esc(m.sub)}</text>`;
     g += '</g>';
     this.top = Math.min(this.top, y0 - (m.sub ? 32 : 20) - (this.title ? 22 : 0));
     this.parts.push(g);
     this.arrowTo(x, src);
-    const adv = Math.max(labW(m.name), m.sub ? labW(m.sub, 6) : 0);
+    const adv = Math.max(labW(m.name) + (m.sym ? 8 + labW(m.sym, 6.2) : 0), m.sub ? labW(m.sub, 6.2) : 0) + (m.rows ? 14 : 0);
     this.place(b, x);
     this.x = Math.max(this.x, x + adv + GAP);
   }
@@ -285,7 +295,7 @@ export function sequence(title: string, rows: { mix: Mix; tag: string; cur?: boo
   const tagW = 46;
   const h = 18 + rows.length * (th + gap);
   return {
-    width: x0 + tagW + len + 10,
+    width: x0 + Math.max(tagW + len, title.length * 6.8) + 10,
     height: h + 4,
     render(y: number) {
       let out = `<g transform="translate(${10 + x0},${y})"><text class="tp-title" x="0" y="11">${esc(title)}</text>`;

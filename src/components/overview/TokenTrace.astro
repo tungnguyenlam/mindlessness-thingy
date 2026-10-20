@@ -263,6 +263,10 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
       const kZ = 100 / Math.sqrt(Math.max(P.dh ? P.dh + (P.dr ?? 0) : 1, P.dv ?? 1));
       const Lz = (n: number) => Math.max(10, Math.round(kZ * Math.sqrt(n)));
       const colOf = (toks: Tok[], j: number) => tokColor(j, toks[j].special);
+      // Shapes: a vector is one row, 1 × n; a matrix is rows × columns, its input width × output width.
+      const one = (n: number, split?: string) => `1 × ${fmt(n)}${split ? ` (${split})` : ''}`;
+      const mat = (name: string, din: number, dout: number, sym: string) => ({ name, sym, sub: `${fmt(din)} × ${fmt(dout)}`, rows: fmt(din) });
+      const DV = P.dv === P.dh ? 'd_{h}' : 'd_{v}';
       const short = (x: Tok) => (x.special ? 'BOS' : ws(x.text).slice(0, 4) || '·');
       // Example attention of position t in one head: deterministic per token, position and head.
       const attend = (toks: Tok[], t: number, head: number) => {
@@ -307,8 +311,8 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
           const pre = Math.max(0, Math.min(1 - tick, at - tick / 2));
           const GREY = '#e6e9ee';
           const tr = new Track();
-          tr.vec({ id: 'id', len: lenV, parts: [{ f: pre, mix: pure(GREY) }, { f: tick, mix: pure(c) }, { f: 1 - pre - tick, mix: pure(GREY) }], name: `one-hot id ${fmt(tk.id)}`, size: `${fmt(V)} (drawn shorter)` });
-          tr.mul('id', { name: 'Embedding table', sub: `${fmt(V)} × ${fmt(cfg.d)}`, hot: { at, color: c } }, { id: 'h', len: Lp(cfg.d), parts: [{ f: 1, mix: pure(c) }], name: `h_{${t + 1}}`, size: fmt(cfg.d) });
+          tr.vec({ id: 'id', len: lenV, parts: [{ f: pre, mix: pure(GREY) }, { f: tick, mix: pure(c) }, { f: 1 - pre - tick, mix: pure(GREY) }], name: `one-hot id ${fmt(tk.id)}`, sym: '1 × V', size: `1 × ${fmt(V)} (drawn shorter)` });
+          tr.mul('id', { ...mat('Embedding table', V, cfg.d, 'V × d'), hot: { at, color: c } }, { id: 'h', len: Lp(cfg.d), parts: [{ f: 1, mix: pure(c) }], name: `h_{${t + 1}}`, sym: '1 × d', size: one(cfg.d) });
           return `
             ${legend(['vec', 'weight'], c, colOf(toks, Math.max(0, t - 1)))}
             ${figure([tr], `Embedding lookup for ${tk.text}`)}
@@ -349,7 +353,7 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
         'Q, K, V': (toks, t) => {
           const own = pure(colOf(toks, t));
           const T1 = t + 1;
-          const hBar = (id = 'h') => ({ id, len: Lp(cfg.d), parts: [{ f: 1, mix: own }], name: `h_{${T1}}`, size: `${fmt(cfg.d)}, normalized` });
+          const hBar = (id = 'h') => ({ id, len: Lp(cfg.d), parts: [{ f: 1, mix: own }], name: `h_{${T1}}`, sym: '1 × d', size: `${one(cfg.d)}, normalized` });
           const solid = [{ f: 1, mix: own }];
           const rope = [{ f: 1, mix: own, rope: true }];
           const tracks: Track[] = [];
@@ -359,18 +363,18 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
             tq.vec(hBar());
             let qs = 'h';
             if (P.dq) {
-              tq.mul('h', { name: 'W^{DQ}', sub: `${fmt(cfg.d)} → ${fmt(P.dq)}` }, { id: 'cq', len: Lp(P.dq), parts: solid, name: 'c^{Q}', size: fmt(P.dq) });
+              tq.mul('h', mat('W^{DQ}', cfg.d, P.dq, 'd × d_{q}'), { id: 'cq', len: Lp(P.dq), parts: solid, name: 'c^{Q}', sym: '1 × d_{q}', size: one(P.dq) });
               qs = 'cq';
             }
             const qin = P.dq ?? cfg.d;
-            tq.mul(qs, { name: P.dq ? 'W^{UQ}' : 'W^{Q}', sub: `${fmt(qin)} → ${fmt(nh * P.dh)}` }, { id: 'qc', len: Lp(nh * P.dh), parts: solid, name: 'q^{C}, no position', size: `${fmt(nh * P.dh)} = ${nh} × ${P.dh}` });
-            tq.mul(qs, { name: 'W^{QR}', sub: `${fmt(qin)} → ${fmt(nh * P.dr)}` }, { id: 'qr', len: Lp(nh * P.dr), parts: rope, name: 'q^{R}, RoPE', size: `${fmt(nh * P.dr)} = ${nh} × ${P.dr}` });
+            tq.mul(qs, mat(P.dq ? 'W^{UQ}' : 'W^{Q}', qin, nh * P.dh, `${P.dq ? 'd_{q}' : 'd'} × n_{h}·d_{h}`), { id: 'qc', len: Lp(nh * P.dh), parts: solid, name: 'q^{C}, no position', sym: '1 × n_{h}·d_{h}', size: one(nh * P.dh, `${nh} × ${P.dh}`) });
+            tq.mul(qs, mat('W^{QR}', qin, nh * P.dr, `${P.dq ? 'd_{q}' : 'd'} × n_{h}·d_{h}^{R}`), { id: 'qr', len: Lp(nh * P.dr), parts: rope, name: 'q^{R}, RoPE', sym: '1 × n_{h}·d_{h}^{R}', size: one(nh * P.dr, `${nh} × ${P.dr}`) });
             const tk = new Track('Keys and values');
             tk.vec(hBar());
-            tk.mul('h', { name: 'W^{DKV}', sub: `${fmt(cfg.d)} → ${fmt(P.dc)}` }, { id: 'ckv', len: Lp(P.dc), parts: solid, name: 'c^{KV}', size: fmt(P.dc), cached: true });
-            tk.mul('ckv', { name: 'W^{UK}', sub: `${fmt(P.dc)} → ${fmt(nh * P.dh)}` }, { id: 'kc', len: Lp(nh * P.dh), parts: solid, name: 'k^{C}', size: `${fmt(nh * P.dh)} = ${nh} × ${P.dh}` });
-            tk.mul('ckv', { name: 'W^{UV}', sub: `${fmt(P.dc)} → ${fmt(nh * P.dv)}` }, { id: 'v', len: Lp(nh * P.dv), parts: solid, name: 'v', size: `${fmt(nh * P.dv)} = ${nh} × ${P.dv}` });
-            tk.mul('h', { name: 'W^{KR}', sub: `${fmt(cfg.d)} → ${fmt(P.dr)}` }, { id: 'kr', len: Lp(P.dr), parts: rope, name: 'k^{R}', size: fmt(P.dr), cached: true });
+            tk.mul('h', mat('W^{DKV}', cfg.d, P.dc, 'd × d_{c}'), { id: 'ckv', len: Lp(P.dc), parts: solid, name: 'c^{KV}', sym: '1 × d_{c}', size: one(P.dc), cached: true });
+            tk.mul('ckv', mat('W^{UK}', P.dc, nh * P.dh, 'd_{c} × n_{h}·d_{h}'), { id: 'kc', len: Lp(nh * P.dh), parts: solid, name: 'k^{C}', sym: '1 × n_{h}·d_{h}', size: one(nh * P.dh, `${nh} × ${P.dh}`) });
+            tk.mul('ckv', mat('W^{UV}', P.dc, nh * P.dv, `d_{c} × n_{h}·${DV}`), { id: 'v', len: Lp(nh * P.dv), parts: solid, name: 'v', sym: `1 × n_{h}·${DV}`, size: one(nh * P.dv, `${nh} × ${P.dv}`) });
+            tk.mul('h', mat('W^{KR}', cfg.d, P.dr, 'd × d_{h}^{R}'), { id: 'kr', len: Lp(P.dr), parts: rope, name: 'k^{R}', sym: '1 × d_{h}^{R}', size: one(P.dr), cached: true });
             tracks.push(tq, tk);
             text = `Each matrix is drawn as tall as its input is long and as wide as its output, so you can read every projection as “this bar goes in down the left edge, that bar comes out below”. Queries and keys come in two parts: a large part with no position (q<sup>C</sup>, k<sup>C</sup>) and a small RoPE part rotated by the token’s position (q<sup>R</sup>, k<sup>R</sup>, hatched). Only the small latent c<sup>KV</sup>, ${fmt(P.dc)} numbers, and k<sup>R</sup>, ${fmt(P.dr)}, go into the ${a(cfg.links.kv, 'cache')}; k<sup>C</sup> and v are rebuilt from c<sup>KV</sup> when needed, which is the point of ${a(cfg.head.link, 'latent attention')}.`;
           } else {
@@ -379,12 +383,12 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
             tr.vec(hBar());
             let qs = 'h';
             if (P.dq) {
-              tr.mul('h', { name: 'W^{DQ}', sub: `${fmt(cfg.d)} → ${fmt(P.dq)}` }, { id: 'cq', len: Lp(P.dq), parts: solid, name: 'c^{Q}', size: fmt(P.dq) });
+              tr.mul('h', mat('W^{DQ}', cfg.d, P.dq, 'd × d_{q}'), { id: 'cq', len: Lp(P.dq), parts: solid, name: 'c^{Q}', sym: '1 × d_{q}', size: one(P.dq) });
               qs = 'cq';
             }
-            tr.mul(qs, { name: P.dq ? 'W^{UQ}' : 'W^{Q}', sub: `${fmt(P.dq ?? cfg.d)} → ${fmt(nh * P.dh)}` }, { id: 'q', len: Lp(nh * P.dh), parts: solid, name: `q_{${T1}}`, size: `${fmt(nh * P.dh)} = ${nh} × ${P.dh}` });
-            tr.mul('h', { name: 'W^{K}', sub: `${fmt(cfg.d)} → ${fmt(kvh * P.dh)}` }, { id: 'k', len: Lp(kvh * P.dh), parts: solid, name: `k_{${T1}}`, size: `${fmt(kvh * P.dh)} = ${kvh} × ${P.dh}`, cached: true });
-            tr.mul('h', { name: 'W^{V}', sub: `${fmt(cfg.d)} → ${fmt(kvh * P.dv)}` }, { id: 'v', len: Lp(kvh * P.dv), parts: solid, name: `v_{${T1}}`, size: `${fmt(kvh * P.dv)} = ${kvh} × ${P.dv}`, cached: true });
+            tr.mul(qs, mat(P.dq ? 'W^{UQ}' : 'W^{Q}', P.dq ?? cfg.d, nh * P.dh, `${P.dq ? 'd_{q}' : 'd'} × n_{h}·d_{h}`), { id: 'q', len: Lp(nh * P.dh), parts: solid, name: `q_{${T1}}`, sym: '1 × n_{h}·d_{h}', size: one(nh * P.dh, `${nh} × ${P.dh}`) });
+            tr.mul('h', mat('W^{K}', cfg.d, kvh * P.dh, 'd × n_{kv}·d_{h}'), { id: 'k', len: Lp(kvh * P.dh), parts: solid, name: `k_{${T1}}`, sym: '1 × n_{kv}·d_{h}', size: one(kvh * P.dh, `${kvh} × ${P.dh}`), cached: true });
+            tr.mul('h', mat('W^{V}', cfg.d, kvh * P.dv, `d × n_{kv}·${DV}`), { id: 'v', len: Lp(kvh * P.dv), parts: solid, name: `v_{${T1}}`, sym: `1 × n_{kv}·${DV}`, size: one(kvh * P.dv, `${kvh} × ${P.dv}`), cached: true });
             tracks.push(tr);
             text = `Each matrix is drawn as tall as its input is long and as wide as its output, so you can read every projection as “this bar goes in down the left edge, that bar comes out below”. ${kvh < nh ? `The key and value bars are shorter than the query because there are only ${kvh} key/value head${kvh > 1 ? 's' : ''} for ${nh} query heads.` : ''} k<sub>${T1}</sub> and v<sub>${T1}</sub> go into the ${a(cfg.links.kv, 'cache')}, so later tokens can read them without running your token again.`;
           }
@@ -392,7 +396,8 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
             ${legend(P.latent ? ['vec', 'weight', 'rope', 'cache'] : ['vec', 'weight', 'cache'], colOf(toks, t), colOf(toks, Math.max(0, t - 1)))}
             ${figure(tracks, 'Query, key and value projections')}
             <p class="tk-read">One attention layer, position ${T1}. ${text}</p>
-            <p class="tk-read">Every bar here still has your token’s colour only: a projection mixes the numbers of one vector, never the tokens. Lengths are on a square-root scale; the real sizes are under each shape.</p>`;
+            <p class="tk-read">Every shape carries its size twice: in symbols after its name and in ${esc(cfg.title)}’s numbers under it, always rows × columns. A vector is one row, 1 × n. A matrix is input width × output width, and its row count is also written along its right edge.</p>
+            <p class="tk-read">Every bar here still has your token’s colour only: a projection mixes the numbers of one vector, never the tokens. Lengths are on a square-root scale, so read the sizes from the labels.</p>`;
         },
         Heads: (toks, t) => {
           const c = colOf(toks, t);
@@ -408,32 +413,32 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
             const dqk = P.dh + P.dr;
             const two = (r: boolean): Part[] => [{ f: P.dh / dqk, mix: own }, ...(r ? [{ f: P.dr / dqk, mix: own, rope: true }] : [])];
             const tq = new Track();
-            tq.vec({ id: 'qc', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'q^{C}', size: `${nh} × ${P.dh}` });
-            tq.vec({ id: 'qr', len: Lp(nh * P.dr), parts: [{ f: 1, mix: own, rope: true }], split: nh, pick: { strong: [0] }, name: 'q^{R}', size: `${nh} × ${P.dr}` });
+            tq.vec({ id: 'qc', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'q^{C}', sym: 'n_{h} × d_{h}', size: `${nh} heads × ${P.dh}` });
+            tq.vec({ id: 'qr', len: Lp(nh * P.dr), parts: [{ f: 1, mix: own, rope: true }], split: nh, pick: { strong: [0] }, name: 'q^{R}', sym: 'n_{h} × d_{h}^{R}', size: `${nh} heads × ${P.dr}` });
             const tk = new Track();
-            tk.vec({ id: 'kc', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'k^{C}', size: `${nh} × ${P.dh}` });
-            tk.vec({ id: 'kr', len: Lp(P.dr), parts: [{ f: 1, mix: own, rope: true }], name: 'k^{R}, shared', size: fmt(P.dr) });
+            tk.vec({ id: 'kc', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'k^{C}', sym: 'n_{h} × d_{h}', size: `${nh} heads × ${P.dh}` });
+            tk.vec({ id: 'kr', len: Lp(P.dr), parts: [{ f: 1, mix: own, rope: true }], name: 'k^{R}, shared', sym: '1 × d_{h}^{R}', size: one(P.dr) });
             const tv = new Track();
-            tv.vec({ id: 'v', len: Lp(nh * P.dv), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'v', size: `${nh} × ${P.dv}` });
+            tv.vec({ id: 'v', len: Lp(nh * P.dv), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'v', sym: `n_{h} × ${DV}`, size: `${nh} heads × ${P.dv}` });
             zoomAt([tq, tk, tv]);
-            tq.op('→ head 1, zoomed').vec({ id: 'q1', len: Lz(dqk), parts: two(true), name: 'q_{1} = [q^{C}_{1}, q^{R}_{1}]', size: `${fmt(dqk)} = ${P.dh} + ${P.dr}` });
-            tk.op('→ head 1, zoomed').vec({ id: 'k1', len: Lz(dqk), parts: two(true), name: 'k_{1} = [k^{C}_{1}, k^{R}]', size: `${fmt(dqk)} = ${P.dh} + ${P.dr}` });
-            tv.op('→ head 1, zoomed').vec({ id: 'v1', len: Lz(P.dv), parts: [{ f: 1, mix: own }], name: 'v_{1}', size: fmt(P.dv) });
+            tq.op('→ head 1, zoomed').vec({ id: 'q1', len: Lz(dqk), parts: two(true), name: 'q_{1} = [q^{C}_{1}, q^{R}_{1}]', sym: '1 × (d_{h} + d_{h}^{R})', size: one(dqk, `${P.dh} + ${P.dr}`) });
+            tk.op('→ head 1, zoomed').vec({ id: 'k1', len: Lz(dqk), parts: two(true), name: 'k_{1} = [k^{C}_{1}, k^{R}]', sym: '1 × (d_{h} + d_{h}^{R})', size: one(dqk, `${P.dh} + ${P.dr}`) });
+            tv.op('→ head 1, zoomed').vec({ id: 'v1', len: Lz(P.dv), parts: [{ f: 1, mix: own }], name: 'v_{1}', sym: `1 × ${DV}`, size: one(P.dv) });
             tracks.push(tq, tk, tv);
             text = `The long bars are cut into ${nh} heads of ${P.dh} (the thin lines; head 1 is outlined). Head 1’s query is two pieces joined end to end: its slice of q<sup>C</sup> and its slice of q<sup>R</sup>, ${P.dh} + ${P.dr} = ${fmt(dqk)} numbers. Its key is built the same way, except that the RoPE piece k<sup>R</sup> is one ${P.dr}-wide vector shared by all ${nh} heads. That is why the joined bars have two colours: a plain part that carries content and a hatched part that carries position.`;
           } else {
             const kvh = P.kvh;
             const gs = Math.max(1, Math.round(nh / kvh));
             const tq = new Track();
-            tq.vec({ id: 'q', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0], light: Array.from({ length: gs - 1 }, (_, i) => i + 1) }, name: `q_{${T1}}`, size: `${nh} heads × ${P.dh}` });
+            tq.vec({ id: 'q', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0], light: Array.from({ length: gs - 1 }, (_, i) => i + 1) }, name: `q_{${T1}}`, sym: 'n_{h} × d_{h}', size: `${nh} heads × ${P.dh}` });
             const tk = new Track();
-            tk.vec({ id: 'k', len: Lp(kvh * P.dh), parts: [{ f: 1, mix: own }], split: kvh, pick: { strong: [0] }, name: `k_{${T1}}`, size: `${kvh} head${kvh > 1 ? 's' : ''} × ${P.dh}` });
+            tk.vec({ id: 'k', len: Lp(kvh * P.dh), parts: [{ f: 1, mix: own }], split: kvh, pick: { strong: [0] }, name: `k_{${T1}}`, sym: 'n_{kv} × d_{h}', size: `${kvh} head${kvh > 1 ? 's' : ''} × ${P.dh}` });
             const tv = new Track();
-            tv.vec({ id: 'v', len: Lp(kvh * P.dv), parts: [{ f: 1, mix: own }], split: kvh, pick: { strong: [0] }, name: `v_{${T1}}`, size: `${kvh} head${kvh > 1 ? 's' : ''} × ${P.dv}` });
+            tv.vec({ id: 'v', len: Lp(kvh * P.dv), parts: [{ f: 1, mix: own }], split: kvh, pick: { strong: [0] }, name: `v_{${T1}}`, sym: `n_{kv} × ${DV}`, size: `${kvh} head${kvh > 1 ? 's' : ''} × ${P.dv}` });
             zoomAt([tq, tk, tv]);
-            tq.op('→ head 1, zoomed').vec({ id: 'q1', len: Lz(P.dh), parts: [{ f: 1, mix: own }], name: 'q_{1}', size: fmt(P.dh) });
-            tk.op('→ head 1, zoomed').vec({ id: 'k1', len: Lz(P.dh), parts: [{ f: 1, mix: own }], name: 'k_{1}', size: fmt(P.dh) });
-            tv.op('→ head 1, zoomed').vec({ id: 'v1', len: Lz(P.dv), parts: [{ f: 1, mix: own }], name: 'v_{1}', size: fmt(P.dv) });
+            tq.op('→ head 1, zoomed').vec({ id: 'q1', len: Lz(P.dh), parts: [{ f: 1, mix: own }], name: 'q_{1}', sym: '1 × d_{h}', size: one(P.dh) });
+            tk.op('→ head 1, zoomed').vec({ id: 'k1', len: Lz(P.dh), parts: [{ f: 1, mix: own }], name: 'k_{1}', sym: '1 × d_{h}', size: one(P.dh) });
+            tv.op('→ head 1, zoomed').vec({ id: 'v1', len: Lz(P.dv), parts: [{ f: 1, mix: own }], name: 'v_{1}', sym: `1 × ${DV}`, size: one(P.dv) });
             tracks.push(tq, tk, tv);
             text =
               kvh < nh
@@ -449,34 +454,35 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
           const T1 = t + 1;
           const { scores, w } = attend(toks, t, 0);
           const dqk = P.latent ? P.dh + P.dr : P.dh;
+          const QK = P.latent ? '(d_{h} + d_{h}^{R})' : 'd_{h}';
           const parts = (j: number): Part[] => (P.latent ? [{ f: P.dh / dqk, mix: pure(colOf(toks, j)) }, { f: P.dr / dqk, mix: pure(colOf(toks, j)), rope: true }] : [{ f: 1, mix: pure(colOf(toks, j)) }]);
           const lo = Math.min(...scores);
           const hi = Math.max(...scores);
           const tr = new Track();
-          tr.vec({ id: 'q', len: Lz(dqk), parts: parts(t), name: `q_{${T1},1}`, size: fmt(dqk) });
+          tr.vec({ id: 'q', len: Lz(dqk), parts: parts(t), name: `q_{${T1},1}`, sym: `1 × ${QK}`, size: one(dqk) });
           tr.mul(
             'q',
-            { name: 'K^{T}, head 1', sub: `${fmt(dqk)} × ${T1} token${T1 > 1 ? 's' : ''}`, tokens: { dir: 'cols', parts: w.map((_, j) => parts(j)) } },
-            { id: 's', len: T1 * CELL, cells: scores.map((s, j) => ({ fill: '#8a94a6', opacity: 0.15 + (0.75 * (s - lo)) / (hi - lo || 1), text: s.toFixed(1), tag: short(toks[j]) })), name: 'scores', size: `${T1}, one per token` },
+            { name: 'K^{T}, head 1', sym: `${QK} × t`, sub: `${fmt(dqk)} × ${T1}`, rows: fmt(dqk), tokens: { dir: 'cols', parts: w.map((_, j) => parts(j)) } },
+            { id: 's', len: T1 * CELL, cells: scores.map((s, j) => ({ fill: '#8a94a6', opacity: 0.15 + (0.75 * (s - lo)) / (hi - lo || 1), text: s.toFixed(1), tag: short(toks[j]) })), name: 'scores', sym: '1 × t', size: `1 × ${T1}, one per token` },
           );
           tr.op('softmax');
-          tr.vec({ id: 'w', len: T1 * CELL, cells: w.map((x, j) => ({ fill: colOf(toks, j), opacity: 0.15 + 0.85 * x, text: `${Math.round(x * 100)}`, tag: short(toks[j]) })), name: 'weights, %', size: 'sum to 100' });
+          tr.vec({ id: 'w', len: T1 * CELL, cells: w.map((x, j) => ({ fill: colOf(toks, j), opacity: 0.15 + 0.85 * x, text: `${Math.round(x * 100)}`, tag: short(toks[j]) })), name: 'weights, %', sym: '1 × t', size: `1 × ${T1}, sum to 100` });
           return `
             ${legend(P.latent ? ['vec', 'rope', 'weight'] : ['vec'], colOf(toks, t), colOf(toks, Math.max(0, t - 1)))}
             ${figure([tr], 'Attention scores for head 1')}
-            <p class="tk-read">Here the matrix is not learned: it is the keys of the tokens your token may read, one column each, in their own colours${P.latent ? ' (with the shared RoPE part at the bottom)' : ''}. They were computed when those tokens passed and come from the cache; the last column is your own key. Your query runs down the left edge and is compared with each column: a dot product over ${fmt(dqk)} numbers, divided by √${fmt(dqk)}. That gives ${T1} score${T1 > 1 ? 's' : ''}, and ${a(cfg.links.softmax, 'softmax')} turns them into weights that sum to 1.</p>
+            <p class="tk-read">Here the matrix is not learned: it is the keys of the tokens your token may read, one column each, in their own colours${P.latent ? ' (with the shared RoPE part at the bottom)' : ''}. They were computed when those tokens passed and come from the cache; the last column is your own key. Your query runs down the left edge and is compared with each column: a dot product over ${fmt(dqk)} numbers, divided by √${fmt(dqk)}. That gives ${T1} score${T1 > 1 ? 's' : ''}, one per token read. In the shapes, t is that count, which is your position (here ${T1}). Then ${a(cfg.links.softmax, 'softmax')} turns them into weights that sum to 1.</p>
             <p class="tk-read">One head’s vectors are drawn larger here than in the Q, K, V step. Tokens to the right of yours have no column: they don’t exist yet when your token is computed. The scores and weights are made up ${EX}, because the real ones depend on the trained weights.</p>`;
         },
         'Mix values': (toks, t) => {
           const T1 = t + 1;
           const { w } = attend(toks, t, 0);
           const tr = new Track();
-          tr.vec({ id: 'w', len: T1 * CELL, cells: w.map((x, j) => ({ fill: colOf(toks, j), opacity: 0.15 + 0.85 * x, text: `${Math.round(x * 100)}`, tag: short(toks[j]) })), name: 'weights, %', size: `${T1}` });
-          tr.mul('w', { name: 'V, head 1', sub: `${T1} token${T1 > 1 ? 's' : ''} × ${fmt(P.dv)}`, tokens: { dir: 'rows', parts: w.map((_, j) => [{ f: 1, mix: pure(colOf(toks, j)) }]) } }, { id: 'o', len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, w) }], name: `o_{${T1},1}`, size: fmt(P.dv) });
+          tr.vec({ id: 'w', len: T1 * CELL, cells: w.map((x, j) => ({ fill: colOf(toks, j), opacity: 0.15 + 0.85 * x, text: `${Math.round(x * 100)}`, tag: short(toks[j]) })), name: 'weights, %', sym: '1 × t', size: `1 × ${T1}` });
+          tr.mul('w', { name: 'V, head 1', sym: `t × ${DV}`, sub: `${T1} × ${fmt(P.dv)}`, rows: String(T1), tokens: { dir: 'rows', parts: w.map((_, j) => [{ f: 1, mix: pure(colOf(toks, j)) }]) } }, { id: 'o', len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, w) }], name: `o_{${T1},1}`, sym: `1 × ${DV}`, size: one(P.dv) });
           const others = new Track('Other heads, same tokens, their own weights');
           const nShow = Math.min(nh, 5);
-          for (let i = 1; i < nShow; i++) others.vec({ id: `o${i}`, len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, attend(toks, t, i).w) }], name: `o_{${T1},${i + 1}}`, size: fmt(P.dv) });
-          if (nh > nShow) others.op('…', 'tp-op dots').vec({ id: 'on', len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, attend(toks, t, nh - 1).w) }], name: `o_{${T1},${nh}}`, size: fmt(P.dv) });
+          for (let i = 1; i < nShow; i++) others.vec({ id: `o${i}`, len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, attend(toks, t, i).w) }], name: `o_{${T1},${i + 1}}`, size: one(P.dv) });
+          if (nh > nShow) others.op('…', 'tp-op dots').vec({ id: 'on', len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, attend(toks, t, nh - 1).w) }], name: `o_{${T1},${nh}}`, size: one(P.dv) });
           return `
             ${legend(['vec', 'mix'], colOf(toks, t), colOf(toks, Math.max(0, t - 1)))}
             ${figure(nh > 1 ? [tr, others] : [tr], 'Weighted sum of values for head 1')}
@@ -488,15 +494,15 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
           const c = colOf(toks, t);
           const heads = Array.from({ length: nh }, (_, i) => attend(toks, t, i).w);
           const tr = new Track();
-          tr.vec({ id: 'o', len: Lp(nh * P.dv), parts: heads.map((w) => ({ f: 1 / nh, mix: blendOf(toks, w) })), split: nh, name: `o_{${T1}} = [o_{1}, …, o_{${nh}}]`, size: `${fmt(nh * P.dv)} = ${nh} × ${P.dv}` });
-          tr.mul('o', { name: 'W^{O}', sub: `${fmt(nh * P.dv)} → ${fmt(cfg.d)}` }, { id: 'a', len: Lp(cfg.d), parts: [{ f: 1, mix: blendOf(toks, meanW(heads)) }], name: 'attention out', size: fmt(cfg.d) });
-          tr.op('+').vec({ id: 'h', len: Lp(cfg.d), parts: [{ f: 1, mix: pure(c) }], name: `h_{${T1}}`, size: fmt(cfg.d) });
-          tr.op('=').vec({ id: 'h2', len: Lp(cfg.d), parts: [{ f: 1, mix: residual(toks, t, heads) }], name: `new h_{${T1}}`, size: fmt(cfg.d) });
+          tr.vec({ id: 'o', len: Lp(nh * P.dv), parts: heads.map((w) => ({ f: 1 / nh, mix: blendOf(toks, w) })), split: nh, name: `o_{${T1}} = [o_{1}, …, o_{${nh}}]`, sym: `1 × n_{h}·${DV}`, size: one(nh * P.dv, `${nh} × ${P.dv}`) });
+          tr.mul('o', mat('W^{O}', nh * P.dv, cfg.d, `n_{h}·${DV} × d`), { id: 'a', len: Lp(cfg.d), parts: [{ f: 1, mix: blendOf(toks, meanW(heads)) }], name: 'attention out', sym: '1 × d', size: one(cfg.d) });
+          tr.op('+').vec({ id: 'h', len: Lp(cfg.d), parts: [{ f: 1, mix: pure(c) }], name: `h_{${T1}}`, sym: '1 × d', size: one(cfg.d) });
+          tr.op('=').vec({ id: 'h2', len: Lp(cfg.d), parts: [{ f: 1, mix: residual(toks, t, heads) }], name: `new h_{${T1}}`, sym: '1 × d', size: one(cfg.d) });
           const len = Math.min(Lp(cfg.d), 220);
           const tag = (j: number) => short(toks[j]);
           const seq = row([
-            sequence('Before this layer', toks.map((_, j) => ({ mix: pure(colOf(toks, j)), tag: tag(j), cur: j === t })), len),
-            sequence('After it', toks.map((_, j) => ({ mix: residual(toks, j, Array.from({ length: Math.min(nh, 16) }, (_, i) => attend(toks, j, i).w)), tag: tag(j), cur: j === t })), len),
+            sequence(`Before this layer: T × d = ${toks.length} × ${fmt(cfg.d)}`, toks.map((_, j) => ({ mix: pure(colOf(toks, j)), tag: tag(j), cur: j === t })), len),
+            sequence(`After it: T × d, same shape`, toks.map((_, j) => ({ mix: residual(toks, j, Array.from({ length: Math.min(nh, 16) }, (_, i) => attend(toks, j, i).w)), tag: tag(j), cur: j === t })), len),
           ]);
           return `
             ${legend(['vec', 'mix', 'weight', 'heads'], c, colOf(toks, Math.max(0, t - 1)))}
@@ -894,6 +900,12 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && he
   .trace .tp .tp-title {
     font-size: 12px;
     font-weight: 600;
+    fill: var(--ink-soft);
+  }
+  .trace .tp .tp-sym {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
     fill: var(--ink-soft);
   }
   .trace .tp .tp-cachetag {
