@@ -83,6 +83,8 @@ if (count('A')) {
   const mla = attnKind === 'mla';
   const dqk = mla && dh && num('rope_head_dim') ? dh + num('rope_head_dim')! : dh;
   const kvh = attnKind === 'mqa' ? 1 : attnKind === 'mha' ? nh : num('kv_heads');
+  // A latent KV path (MLA, and DSA built on it) is drawn whenever the data has a KV latent and a RoPE part.
+  const latent = !!(num('kv_lora_rank') && num('rope_head_dim') && dh);
   head = {
     kind: attnKind,
     nh,
@@ -93,6 +95,16 @@ if (count('A')) {
     dr: mla ? num('rope_head_dim') : null,
     topk,
     link: link(attnKind) ?? link('attention'),
+    // For the tensor pictures (overview/tensorpics.ts).
+    pic: {
+      latent,
+      dh,
+      dr: latent ? num('rope_head_dim') : null,
+      dc: latent ? num('kv_lora_rank') : null,
+      dq: num('q_lora_rank'),
+      dv: num('v_head_dim') ?? dh,
+      kvh: latent ? null : (kvh ?? nh),
+    },
   };
 }
 
@@ -156,7 +168,7 @@ const config = JSON.stringify({
   tokTitle: tok?.title ?? 'the tokenizer',
   hasBos: !!bos,
 });
-const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head ? ['One head'] : []), 'Cache', ffn.moe ? 'Experts' : 'FFN', 'Output'];
+const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head && head.nh && head.pic.dh ? ['Q, K, V', 'Heads', 'Scores', 'Mix values', 'Join heads'] : []), 'Cache', ffn.moe ? 'Experts' : 'FFN', 'Output'];
 ---
 
 <x-tokentrace class="trace" data-restorable>
@@ -200,6 +212,7 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head ? ['One head'] :
 
 <script>
   // Restorable (src/scripts/trail.ts): sample, chosen token and stage come back on return.
+  import { Track, figure, legend, tokColor, pure, norm, row, sequence, CELL, type Mix, type Part } from './tensorpics';
   interface Tok { text: string; id: number; special: boolean }
   type Link = { href: string; slug: string } | null;
   const fmt = (x: number) => x.toLocaleString('en-US');
@@ -246,6 +259,33 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head ? ['One head'] :
       this.def = Math.min(4, cfg.sets[0].tokens.length - 1);
       if (this.st.t < 0) this.st.t = this.def;
 
+      // Tensor pictures (./tensorpics.ts): one square-root length scale per model, fitted to its widest vector.
+      const P = cfg.head?.pic ?? {};
+      const nh: number = cfg.head?.nh ?? 1;
+      const maxDim = Math.max(cfg.d, P.dh ? nh * (P.dh + (P.dr ?? 0)) : 0, P.dv ? nh * P.dv : 0);
+      const kS = 210 / Math.sqrt(maxDim);
+      const Lp = (n: number) => Math.max(10, Math.round(kS * Math.sqrt(n)));
+      // One head's vectors, zoomed: the widest of them is drawn 100 px long.
+      const kZ = 100 / Math.sqrt(Math.max(P.dh ? P.dh + (P.dr ?? 0) : 1, P.dv ?? 1));
+      const Lz = (n: number) => Math.max(10, Math.round(kZ * Math.sqrt(n)));
+      const colOf = (toks: Tok[], j: number) => tokColor(j, toks[j].special);
+      const short = (x: Tok) => (x.special ? 'BOS' : ws(x.text).slice(0, 4) || '·');
+      // Example attention of position t in one head: deterministic per token, position and head.
+      const attend = (toks: Tok[], t: number, head: number) => {
+        const scores = toks.slice(0, t + 1).map((x, j) => +(hash(toks[t].id, x.id, j, head) * 5 - 1.5).toFixed(1));
+        const mx = Math.max(...scores);
+        const ex = scores.map((s) => Math.exp(s - mx));
+        const sum = ex.reduce((p, q) => p + q, 0);
+        return { scores, w: ex.map((x) => x / sum) };
+      };
+      const blendOf = (toks: Tok[], w: number[]): Mix => norm(w.map((x, j) => ({ c: colOf(toks, j), w: x })));
+      const meanW = (all: number[][]) => all[0].map((_, j) => all.reduce((s, w) => s + w[j], 0) / all.length);
+      // After the residual add: half the token's own vector, half the attention output (an illustration).
+      const residual = (toks: Tok[], t: number, heads: number[][]): Mix => {
+        const m = meanW(heads);
+        return norm(m.map((x, j) => ({ c: colOf(toks, j), w: 0.5 * x + (j === t ? 0.5 : 0) })));
+      };
+
       const render: Record<string, (toks: Tok[], t: number) => string> = {
         Tokens: (toks, t) => {
           const tk = toks[t];
@@ -265,25 +305,21 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head ? ['One head'] :
         Embedding: (toks, t) => {
           const tk = toks[t];
           const V = cfg.V;
-          const rows = [0, null, tk.id, null, V - 1].filter((x, i, arr) => x === null || arr.indexOf(x) === i);
-          const cells = (hot: boolean, seed: number) =>
-            Array.from({ length: 16 }, (_, i) => `<i style="--s:${hot ? (0.25 + 0.75 * hash(seed, i)).toFixed(2) : 0}"></i>`).join('');
+          const c = colOf(toks, t);
+          // The id as a one-hot row of length V, times the V × d table, is row id: the picture of a lookup.
+          const lenV = Math.min(Lp(V), 2 * Lp(cfg.d), 300);
+          const at = tk.id / Math.max(1, V - 1);
+          const tick = Math.max(3 / lenV, 0.004);
+          const pre = Math.max(0, Math.min(1 - tick, at - tick / 2));
+          const GREY = '#e6e9ee';
+          const tr = new Track();
+          tr.vec({ id: 'id', len: lenV, parts: [{ f: pre, mix: pure(GREY) }, { f: tick, mix: pure(c) }, { f: 1 - pre - tick, mix: pure(GREY) }], name: `one-hot id ${fmt(tk.id)}`, size: `${fmt(V)} (drawn shorter)` });
+          tr.mul('id', { name: 'Embedding table', sub: `${fmt(V)} × ${fmt(cfg.d)}`, hot: { at, color: c } }, { id: 'h', len: Lp(cfg.d), parts: [{ f: 1, mix: pure(c) }], name: `h_{${t + 1}}`, size: fmt(cfg.d) });
           return `
-            <div class="tk-emb">
-              <div class="tk-table">
-                <p class="tk-cap">Embedding table, ${fmt(V)} rows × ${fmt(cfg.d)}</p>
-                ${rows
-                  .map((r) =>
-                    r === null
-                      ? '<div class="tk-erow gap">⋮</div>'
-                      : `<div class="tk-erow${r === tk.id ? ' hot' : ''}"><span>row ${fmt(r)}</span><span class="tk-vec">${cells(r === tk.id, tk.id)}</span></div>`,
-                  )
-                  .join('')}
-              </div>
-              <span class="tk-arrow">→</span>
-              <div class="tk-box act"><b>h<sub>${t + 1}</sub></b><small>${fmt(cfg.d)} numbers</small><span class="tk-vec">${cells(true, tk.id)}</span></div>
-            </div>
-            <p class="tk-read">The id picks row ${fmt(tk.id)} of the ${a(cfg.links.embedding, 'embedding table')}: no arithmetic, only a lookup. That row, ${fmt(cfg.d)} learned numbers, is the token’s hidden state h<sub>${t + 1}</sub>. Every token does this on its own, so the ${toks.length} tokens become a ${toks.length} × ${fmt(cfg.d)} matrix, one row per token. The numbers drawn in the rows are made up ${EX}.</p>`;
+            ${legend(['vec', 'weight'], c, colOf(toks, Math.max(0, t - 1)))}
+            ${figure([tr], `Embedding lookup for ${tk.text}`)}
+            <p class="tk-read">The id picks row ${fmt(tk.id)} of the ${a(cfg.links.embedding, 'embedding table')}. Written as a product, the id is a row of ${fmt(V)} zeros with a single 1, and multiplying it by the table keeps only that row, so in practice no arithmetic happens. The row, ${fmt(cfg.d)} learned numbers, is the token’s hidden state h<sub>${t + 1}</sub>.</p>
+            <p class="tk-read">From here on, the colour of a bar says whose information it holds. h<sub>${t + 1}</sub> has your token’s colour only: nothing has been mixed in yet. Every token does this on its own, so the ${toks.length} tokens become ${toks.length} bars of ${fmt(cfg.d)}, one per token, each in its own colour.</p>`;
         },
         'Which tokens': (toks, t) => {
           const rows: string[] = [];
@@ -316,51 +352,163 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head ? ['One head'] :
             <p class="tk-read">h<sub>${t + 1}</sub> goes up through all ${cfg.L} layers in order and stays ${fmt(cfg.d)} numbers wide: each sublayer reads a normalized copy and adds its result back. The rows show which positions each kind of sublayer reads when it computes position ${t + 1}.</p>
             <ul class="tk-notes">${notes.map((x) => `<li>${x}</li>`).join('')}</ul>`;
         },
-        'One head': (toks, t) => {
-          const h = cfg.head;
-          const reads = toks.map((_, j) => j).filter((j) => j <= t);
-          const scores = reads.map((j) => +(hash(toks[t].id, toks[j].id, j) * 5 - 1.5).toFixed(1));
-          const mx = Math.max(...scores);
-          const ex = scores.map((s) => Math.exp(s - mx));
-          const sum = ex.reduce((x, y) => x + y, 0);
-          const w = ex.map((x) => x / sum);
-          const dqk = h.dqk ? fmt(h.dqk) : 'd_h';
-          const dv = h.dv ? fmt(h.dv) : 'd_v';
-          const kvFrom =
-            h.kind === 'mla'
-              ? `k<sub>j</sub> and v<sub>j</sub> are rebuilt from token j’s cached latent c<sup>KV</sup> (${fmt(h.dc)}) and its RoPE key k<sup>R</sup> (${fmt(h.dr)})`
-              : h.kvh && h.nh && h.kvh < h.nh
-                ? `k<sub>j</sub> and v<sub>j</sub> come from the cache; ${fmt(h.nh / h.kvh)} query heads share each of the ${fmt(h.kvh)} key/value heads`
-                : `k<sub>j</sub> and v<sub>j</sub> come from the cache`;
-          const cols = reads
-            .map(
-              (j, i) => `
-              <div class="tk-hc${j === t ? ' cur' : ''}">
-                <span class="tk-ht">${show(toks[j])}</span>
-                <span class="tk-c cache"><span>k<sub>${j + 1}</sub></span></span>
-                <span class="tk-sc">${scores[i].toFixed(1)}</span>
-                <span class="tk-wbar"><i style="height:${(w[i] * 100).toFixed(1)}%"></i></span>
-                <span class="tk-sc">${Math.round(w[i] * 100)}%</span>
-                <span class="tk-c cache"><span>v<sub>${j + 1}</sub></span></span>
-              </div>`,
-            )
-            .join('');
+        'Q, K, V': (toks, t) => {
+          const own = pure(colOf(toks, t));
+          const T1 = t + 1;
+          const hBar = (id = 'h') => ({ id, len: Lp(cfg.d), parts: [{ f: 1, mix: own }], name: `h_{${T1}}`, size: `${fmt(cfg.d)}, normalized` });
+          const solid = [{ f: 1, mix: own }];
+          const rope = [{ f: 1, mix: own, rope: true }];
+          const tracks: Track[] = [];
+          let text: string;
+          if (P.latent) {
+            const tq = new Track('Queries');
+            tq.vec(hBar());
+            let qs = 'h';
+            if (P.dq) {
+              tq.mul('h', { name: 'W^{DQ}', sub: `${fmt(cfg.d)} → ${fmt(P.dq)}` }, { id: 'cq', len: Lp(P.dq), parts: solid, name: 'c^{Q}', size: fmt(P.dq) });
+              qs = 'cq';
+            }
+            const qin = P.dq ?? cfg.d;
+            tq.mul(qs, { name: P.dq ? 'W^{UQ}' : 'W^{Q}', sub: `${fmt(qin)} → ${fmt(nh * P.dh)}` }, { id: 'qc', len: Lp(nh * P.dh), parts: solid, name: 'q^{C}, no position', size: `${fmt(nh * P.dh)} = ${nh} × ${P.dh}` });
+            tq.mul(qs, { name: 'W^{QR}', sub: `${fmt(qin)} → ${fmt(nh * P.dr)}` }, { id: 'qr', len: Lp(nh * P.dr), parts: rope, name: 'q^{R}, RoPE', size: `${fmt(nh * P.dr)} = ${nh} × ${P.dr}` });
+            const tk = new Track('Keys and values');
+            tk.vec(hBar());
+            tk.mul('h', { name: 'W^{DKV}', sub: `${fmt(cfg.d)} → ${fmt(P.dc)}` }, { id: 'ckv', len: Lp(P.dc), parts: solid, name: 'c^{KV}', size: fmt(P.dc), cached: true });
+            tk.mul('ckv', { name: 'W^{UK}', sub: `${fmt(P.dc)} → ${fmt(nh * P.dh)}` }, { id: 'kc', len: Lp(nh * P.dh), parts: solid, name: 'k^{C}', size: `${fmt(nh * P.dh)} = ${nh} × ${P.dh}` });
+            tk.mul('ckv', { name: 'W^{UV}', sub: `${fmt(P.dc)} → ${fmt(nh * P.dv)}` }, { id: 'v', len: Lp(nh * P.dv), parts: solid, name: 'v', size: `${fmt(nh * P.dv)} = ${nh} × ${P.dv}` });
+            tk.mul('h', { name: 'W^{KR}', sub: `${fmt(cfg.d)} → ${fmt(P.dr)}` }, { id: 'kr', len: Lp(P.dr), parts: rope, name: 'k^{R}', size: fmt(P.dr), cached: true });
+            tracks.push(tq, tk);
+            text = `Each matrix is drawn as tall as its input is long and as wide as its output, so you can read every projection as “this bar goes in down the left edge, that bar comes out below”. Queries and keys come in two parts: a large part with no position (q<sup>C</sup>, k<sup>C</sup>) and a small RoPE part rotated by the token’s position (q<sup>R</sup>, k<sup>R</sup>, hatched). Only the small latent c<sup>KV</sup>, ${fmt(P.dc)} numbers, and k<sup>R</sup>, ${fmt(P.dr)}, go into the ${a(cfg.links.kv, 'cache')}; k<sup>C</sup> and v are rebuilt from c<sup>KV</sup> when needed, which is the point of ${a(cfg.head.link, 'latent attention')}.`;
+          } else {
+            const kvh = P.kvh;
+            const tr = new Track();
+            tr.vec(hBar());
+            let qs = 'h';
+            if (P.dq) {
+              tr.mul('h', { name: 'W^{DQ}', sub: `${fmt(cfg.d)} → ${fmt(P.dq)}` }, { id: 'cq', len: Lp(P.dq), parts: solid, name: 'c^{Q}', size: fmt(P.dq) });
+              qs = 'cq';
+            }
+            tr.mul(qs, { name: P.dq ? 'W^{UQ}' : 'W^{Q}', sub: `${fmt(P.dq ?? cfg.d)} → ${fmt(nh * P.dh)}` }, { id: 'q', len: Lp(nh * P.dh), parts: solid, name: `q_{${T1}}`, size: `${fmt(nh * P.dh)} = ${nh} × ${P.dh}` });
+            tr.mul('h', { name: 'W^{K}', sub: `${fmt(cfg.d)} → ${fmt(kvh * P.dh)}` }, { id: 'k', len: Lp(kvh * P.dh), parts: solid, name: `k_{${T1}}`, size: `${fmt(kvh * P.dh)} = ${kvh} × ${P.dh}`, cached: true });
+            tr.mul('h', { name: 'W^{V}', sub: `${fmt(cfg.d)} → ${fmt(kvh * P.dv)}` }, { id: 'v', len: Lp(kvh * P.dv), parts: solid, name: `v_{${T1}}`, size: `${fmt(kvh * P.dv)} = ${kvh} × ${P.dv}`, cached: true });
+            tracks.push(tr);
+            text = `Each matrix is drawn as tall as its input is long and as wide as its output, so you can read every projection as “this bar goes in down the left edge, that bar comes out below”. ${kvh < nh ? `The key and value bars are shorter than the query because there are only ${kvh} key/value head${kvh > 1 ? 's' : ''} for ${nh} query heads.` : ''} k<sub>${T1}</sub> and v<sub>${T1}</sub> go into the ${a(cfg.links.kv, 'cache')}, so later tokens can read them without running your token again.`;
+          }
           return `
-            <div class="tk-headwrap">
-              <div class="tk-hl"><span></span><span>key</span><span>score</span><span class="tall">weight</span><span></span><span>value</span></div>
-              <div class="tk-scroll" data-keep-scroll><div class="tk-head">${cols}</div></div>
-            </div>
-            <div class="tk-flow">
-              <span class="tk-box act"><b>q<sub>${t + 1}</sub></b><small>${dqk} numbers</small></span>
-              <span class="tk-arrow">·k<sub>j</sub> / √${dqk}</span>
-              <span class="tk-box op"><b>scores</b><small>${reads.length}, one per token read</small></span>
-              <span class="tk-arrow">→</span>
-              <span class="tk-box op"><b>${a(cfg.links.softmax, 'softmax')}</b><small>weights sum to 1</small></span>
-              <span class="tk-arrow">→</span>
-              <span class="tk-box act"><b>o<sub>${t + 1}</sub> = Σ w<sub>j</sub> v<sub>j</sub></b><small>${dv} numbers</small></span>
-            </div>
-            <p class="tk-read">One of ${h.nh ? fmt(h.nh) : 'n_h'} heads in one ${a(h.link, 'attention')} layer, computing position ${t + 1}. Your token’s query q<sub>${t + 1}</sub> is compared with the key of each token it may read: a dot product over ${dqk} numbers, divided by √${dqk}. Softmax turns the scores into weights, and the head’s output is the weighted average of those tokens’ values. ${kvFrom}. The scores and weights are made up ${EX}: the real ones depend on the trained weights.</p>
-            <p class="tk-read">All ${h.nh ? fmt(h.nh) : 'n_h'} heads do this in parallel with their own projections. Their outputs, ${h.nh && h.dv ? `${fmt(h.nh)} × ${fmt(h.dv)} = ${fmt(h.nh * h.dv)}` : 'n_h × d_v'} numbers, are joined and projected back to ${fmt(cfg.d)} by W<sup>O</sup>, then added to h<sub>${t + 1}</sub>.${h.topk ? ` In this model each query reads at most ${fmt(h.topk)} earlier tokens, picked by the indexer.` : ''}</p>`;
+            ${legend(P.latent ? ['vec', 'weight', 'rope', 'cache'] : ['vec', 'weight', 'cache'], colOf(toks, t), colOf(toks, Math.max(0, t - 1)))}
+            ${figure(tracks, 'Query, key and value projections')}
+            <p class="tk-read">One attention layer, position ${T1}. ${text}</p>
+            <p class="tk-read">Every bar here still has your token’s colour only: a projection mixes the numbers of one vector, never the tokens. Lengths are on a square-root scale; the real sizes are under each shape.</p>`;
+        },
+        Heads: (toks, t) => {
+          const c = colOf(toks, t);
+          const own = pure(c);
+          const T1 = t + 1;
+          const tracks: Track[] = [];
+          const zoomAt = (trs: Track[]) => {
+            const x = Math.max(...trs.map((r) => r.x));
+            trs.forEach((r) => (r.x = x));
+          };
+          let text: string;
+          if (P.latent) {
+            const dqk = P.dh + P.dr;
+            const two = (r: boolean): Part[] => [{ f: P.dh / dqk, mix: own }, ...(r ? [{ f: P.dr / dqk, mix: own, rope: true }] : [])];
+            const tq = new Track();
+            tq.vec({ id: 'qc', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'q^{C}', size: `${nh} × ${P.dh}` });
+            tq.vec({ id: 'qr', len: Lp(nh * P.dr), parts: [{ f: 1, mix: own, rope: true }], split: nh, pick: { strong: [0] }, name: 'q^{R}', size: `${nh} × ${P.dr}` });
+            const tk = new Track();
+            tk.vec({ id: 'kc', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'k^{C}', size: `${nh} × ${P.dh}` });
+            tk.vec({ id: 'kr', len: Lp(P.dr), parts: [{ f: 1, mix: own, rope: true }], name: 'k^{R}, shared', size: fmt(P.dr) });
+            const tv = new Track();
+            tv.vec({ id: 'v', len: Lp(nh * P.dv), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0] }, name: 'v', size: `${nh} × ${P.dv}` });
+            zoomAt([tq, tk, tv]);
+            tq.op('→ head 1, zoomed').vec({ id: 'q1', len: Lz(dqk), parts: two(true), name: 'q_{1} = [q^{C}_{1}, q^{R}_{1}]', size: `${fmt(dqk)} = ${P.dh} + ${P.dr}` });
+            tk.op('→ head 1, zoomed').vec({ id: 'k1', len: Lz(dqk), parts: two(true), name: 'k_{1} = [k^{C}_{1}, k^{R}]', size: `${fmt(dqk)} = ${P.dh} + ${P.dr}` });
+            tv.op('→ head 1, zoomed').vec({ id: 'v1', len: Lz(P.dv), parts: [{ f: 1, mix: own }], name: 'v_{1}', size: fmt(P.dv) });
+            tracks.push(tq, tk, tv);
+            text = `The long bars are cut into ${nh} heads of ${P.dh} (the thin lines; head 1 is outlined). Head 1’s query is two pieces joined end to end: its slice of q<sup>C</sup> and its slice of q<sup>R</sup>, ${P.dh} + ${P.dr} = ${fmt(dqk)} numbers. Its key is built the same way, except that the RoPE piece k<sup>R</sup> is one ${P.dr}-wide vector shared by all ${nh} heads. That is why the joined bars have two colours: a plain part that carries content and a hatched part that carries position.`;
+          } else {
+            const kvh = P.kvh;
+            const gs = Math.max(1, Math.round(nh / kvh));
+            const tq = new Track();
+            tq.vec({ id: 'q', len: Lp(nh * P.dh), parts: [{ f: 1, mix: own }], split: nh, pick: { strong: [0], light: Array.from({ length: gs - 1 }, (_, i) => i + 1) }, name: `q_{${T1}}`, size: `${nh} heads × ${P.dh}` });
+            const tk = new Track();
+            tk.vec({ id: 'k', len: Lp(kvh * P.dh), parts: [{ f: 1, mix: own }], split: kvh, pick: { strong: [0] }, name: `k_{${T1}}`, size: `${kvh} head${kvh > 1 ? 's' : ''} × ${P.dh}` });
+            const tv = new Track();
+            tv.vec({ id: 'v', len: Lp(kvh * P.dv), parts: [{ f: 1, mix: own }], split: kvh, pick: { strong: [0] }, name: `v_{${T1}}`, size: `${kvh} head${kvh > 1 ? 's' : ''} × ${P.dv}` });
+            zoomAt([tq, tk, tv]);
+            tq.op('→ head 1, zoomed').vec({ id: 'q1', len: Lz(P.dh), parts: [{ f: 1, mix: own }], name: 'q_{1}', size: fmt(P.dh) });
+            tk.op('→ head 1, zoomed').vec({ id: 'k1', len: Lz(P.dh), parts: [{ f: 1, mix: own }], name: 'k_{1}', size: fmt(P.dh) });
+            tv.op('→ head 1, zoomed').vec({ id: 'v1', len: Lz(P.dv), parts: [{ f: 1, mix: own }], name: 'v_{1}', size: fmt(P.dv) });
+            tracks.push(tq, tk, tv);
+            text =
+              kvh < nh
+                ? `The query is cut into ${nh} heads of ${P.dh} (the thin lines), but the key and value only into ${kvh}. Query heads 1 to ${gs} (outlined) all use key/value head 1: ${a(cfg.head.link, 'grouped-query attention')} shares one key and value between ${gs} query heads, which shrinks the cache by ${gs}×.`
+                : `The query, key and value are each cut into ${nh} heads of ${P.dh} (the thin lines). Head 1 (outlined) uses only its own slice of each.`;
+          }
+          return `
+            ${legend(P.latent ? ['heads', 'rope'] : ['heads'], c, c)}
+            ${figure(tracks, 'Splitting into heads')}
+            <p class="tk-read">${text} Cutting a bar into heads moves no numbers: it only decides which numbers are compared with which in the next step.</p>`;
+        },
+        Scores: (toks, t) => {
+          const T1 = t + 1;
+          const { scores, w } = attend(toks, t, 0);
+          const dqk = P.latent ? P.dh + P.dr : P.dh;
+          const parts = (j: number): Part[] => (P.latent ? [{ f: P.dh / dqk, mix: pure(colOf(toks, j)) }, { f: P.dr / dqk, mix: pure(colOf(toks, j)), rope: true }] : [{ f: 1, mix: pure(colOf(toks, j)) }]);
+          const lo = Math.min(...scores);
+          const hi = Math.max(...scores);
+          const tr = new Track();
+          tr.vec({ id: 'q', len: Lz(dqk), parts: parts(t), name: `q_{${T1},1}`, size: fmt(dqk) });
+          tr.mul(
+            'q',
+            { name: 'K^{T}, head 1', sub: `${fmt(dqk)} × ${T1} token${T1 > 1 ? 's' : ''}`, tokens: { dir: 'cols', parts: w.map((_, j) => parts(j)) } },
+            { id: 's', len: T1 * CELL, cells: scores.map((s, j) => ({ fill: '#8a94a6', opacity: 0.15 + (0.75 * (s - lo)) / (hi - lo || 1), text: s.toFixed(1), tag: short(toks[j]) })), name: 'scores', size: `${T1}, one per token` },
+          );
+          tr.op('softmax');
+          tr.vec({ id: 'w', len: T1 * CELL, cells: w.map((x, j) => ({ fill: colOf(toks, j), opacity: 0.15 + 0.85 * x, text: `${Math.round(x * 100)}`, tag: short(toks[j]) })), name: 'weights, %', size: 'sum to 100' });
+          return `
+            ${legend(P.latent ? ['vec', 'rope', 'weight'] : ['vec'], colOf(toks, t), colOf(toks, Math.max(0, t - 1)))}
+            ${figure([tr], 'Attention scores for head 1')}
+            <p class="tk-read">Here the matrix is not learned: it is the keys of the tokens your token may read, one column each, in their own colours${P.latent ? ' (with the shared RoPE part at the bottom)' : ''}. They were computed when those tokens passed and come from the cache; the last column is your own key. Your query runs down the left edge and is compared with each column: a dot product over ${fmt(dqk)} numbers, divided by √${fmt(dqk)}. That gives ${T1} score${T1 > 1 ? 's' : ''}, and ${a(cfg.links.softmax, 'softmax')} turns them into weights that sum to 1.</p>
+            <p class="tk-read">One head’s vectors are drawn larger here than in the Q, K, V step. Tokens to the right of yours have no column: they don’t exist yet when your token is computed. The scores and weights are made up ${EX}, because the real ones depend on the trained weights.</p>`;
+        },
+        'Mix values': (toks, t) => {
+          const T1 = t + 1;
+          const { w } = attend(toks, t, 0);
+          const tr = new Track();
+          tr.vec({ id: 'w', len: T1 * CELL, cells: w.map((x, j) => ({ fill: colOf(toks, j), opacity: 0.15 + 0.85 * x, text: `${Math.round(x * 100)}`, tag: short(toks[j]) })), name: 'weights, %', size: `${T1}` });
+          tr.mul('w', { name: 'V, head 1', sub: `${T1} token${T1 > 1 ? 's' : ''} × ${fmt(P.dv)}`, tokens: { dir: 'rows', parts: w.map((_, j) => [{ f: 1, mix: pure(colOf(toks, j)) }]) } }, { id: 'o', len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, w) }], name: `o_{${T1},1}`, size: fmt(P.dv) });
+          const others = new Track('Other heads, same tokens, their own weights');
+          const nShow = Math.min(nh, 5);
+          for (let i = 1; i < nShow; i++) others.vec({ id: `o${i}`, len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, attend(toks, t, i).w) }], name: `o_{${T1},${i + 1}}`, size: fmt(P.dv) });
+          if (nh > nShow) others.op('…', 'tp-op dots').vec({ id: 'on', len: Lz(P.dv), parts: [{ f: 1, mix: blendOf(toks, attend(toks, t, nh - 1).w) }], name: `o_{${T1},${nh}}`, size: fmt(P.dv) });
+          return `
+            ${legend(['vec', 'mix'], colOf(toks, t), colOf(toks, Math.max(0, t - 1)))}
+            ${figure(nh > 1 ? [tr, others] : [tr], 'Weighted sum of values for head 1')}
+            <p class="tk-read">The weights now run down the left edge of the values: one row per token, the value vectors those tokens left in the cache. Each output number is the weighted sum down one column, so the head’s output o<sub>${T1},1</sub> is a blend of the tokens’ values. This is the first step that mixes tokens, and it is why the bar is striped: each stripe’s thickness is that token’s weight.</p>
+            <p class="tk-read">Every head does the same with its own query and key slices, so every head blends the tokens in its own proportions (second row). The weights are made up ${EX}.</p>`;
+        },
+        'Join heads': (toks, t) => {
+          const T1 = t + 1;
+          const c = colOf(toks, t);
+          const heads = Array.from({ length: nh }, (_, i) => attend(toks, t, i).w);
+          const tr = new Track();
+          tr.vec({ id: 'o', len: Lp(nh * P.dv), parts: heads.map((w) => ({ f: 1 / nh, mix: blendOf(toks, w) })), split: nh, name: `o_{${T1}} = [o_{1}, …, o_{${nh}}]`, size: `${fmt(nh * P.dv)} = ${nh} × ${P.dv}` });
+          tr.mul('o', { name: 'W^{O}', sub: `${fmt(nh * P.dv)} → ${fmt(cfg.d)}` }, { id: 'a', len: Lp(cfg.d), parts: [{ f: 1, mix: blendOf(toks, meanW(heads)) }], name: 'attention out', size: fmt(cfg.d) });
+          tr.op('+').vec({ id: 'h', len: Lp(cfg.d), parts: [{ f: 1, mix: pure(c) }], name: `h_{${T1}}`, size: fmt(cfg.d) });
+          tr.op('=').vec({ id: 'h2', len: Lp(cfg.d), parts: [{ f: 1, mix: residual(toks, t, heads) }], name: `new h_{${T1}}`, size: fmt(cfg.d) });
+          const len = Math.min(Lp(cfg.d), 220);
+          const tag = (j: number) => short(toks[j]);
+          const seq = row([
+            sequence('Before this layer', toks.map((_, j) => ({ mix: pure(colOf(toks, j)), tag: tag(j), cur: j === t })), len),
+            sequence('After it', toks.map((_, j) => ({ mix: residual(toks, j, Array.from({ length: Math.min(nh, 16) }, (_, i) => attend(toks, j, i).w)), tag: tag(j), cur: j === t })), len),
+          ]);
+          return `
+            ${legend(['vec', 'mix', 'weight', 'heads'], c, colOf(toks, Math.max(0, t - 1)))}
+            ${figure([tr, seq], 'Joining heads and the residual add')}
+            <p class="tk-read">The ${nh} head outputs are joined end to end into one bar of ${fmt(nh * P.dv)}, each slice with its own blend. W<sup>O</sup> mixes the slices into ${fmt(cfg.d)} numbers, and the result is added to h<sub>${T1}</sub>, the bar your token came in with. The new h<sub>${T1}</sub> keeps a thick stripe of your token’s colour and gains stripes from the tokens it read: your token has been recoloured.</p>
+            <p class="tk-read">All tokens go through this at once (right). The first token can read only itself, so it keeps one colour; later tokens pick up more colours. After ${cfg.L} layers each bar holds a blend of everything before it. The proportions are made up ${EX}.</p>`;
         },
         Cache: (toks, t) => {
           const c = cfg.cache;
@@ -446,7 +594,7 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head ? ['One head'] :
         this.querySelectorAll('[data-set]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.set === String(set))));
         this.querySelectorAll('[data-stage]').forEach((b) => b.setAttribute('aria-selected', String((b as HTMLElement).dataset.stage === String(stage))));
         q<HTMLElement>('[data-out="tokens"]').innerHTML = toks
-          .map((x, j) => `<button type="button" class="tk-tok${x.special ? ' special' : ''}${j === t ? ' cur' : ''}" data-j="${j}" aria-pressed="${j === t}"><span class="tt">${show(x)}</span><span class="ti">${fmt(x.id)}</span></button>`)
+          .map((x, j) => `<button type="button" class="tk-tok${x.special ? ' special' : ''}${j === t ? ' cur' : ''}" data-j="${j}" aria-pressed="${j === t}" style="--tc:${tokColor(j, x.special)}"><span class="tt">${show(x)}</span><span class="ti">${fmt(x.id)}</span></button>`)
           .join('');
         q<HTMLElement>('[data-out="stage"]').innerHTML = render[stages[stage]](toks, t);
         q<HTMLElement>('[data-out="pos"]').textContent = `${stage + 1} / ${stages.length}`;
@@ -652,54 +800,6 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head ? ['One head'] :
     color: var(--ink-soft);
     font-size: var(--step--1);
   }
-  /* Embedding lookup */
-  .trace .tk-emb {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.6rem;
-  }
-  .trace .tk-table {
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--role-weight);
-    background: var(--role-weight-wash);
-    border-radius: var(--radius-block);
-  }
-  .trace .tk-cap {
-    margin: 0 0 0.3rem;
-    font-size: 0.75rem;
-    color: var(--ink-soft);
-  }
-  .trace .tk-erow {
-    display: grid;
-    grid-template-columns: 6.2rem auto;
-    align-items: center;
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    color: var(--ink-soft);
-    padding: 1px 0;
-  }
-  .trace .tk-erow.gap {
-    display: block;
-    padding-left: 2rem;
-  }
-  .trace .tk-erow.hot {
-    color: var(--ink);
-    font-weight: 600;
-  }
-  .trace .tk-vec {
-    display: inline-flex;
-    gap: 1px;
-  }
-  .trace .tk-vec i {
-    width: 0.55rem;
-    height: 0.8rem;
-    border: 1px solid var(--rule);
-    background: color-mix(in srgb, var(--role-activation) calc(var(--s) * 100%), var(--paper));
-  }
-  .trace .tk-box .tk-vec {
-    margin-top: 0.2rem;
-  }
   /* Which tokens each sublayer reads */
   .trace .tk-grid {
     display: grid;
@@ -776,58 +876,150 @@ const STAGES = ['Tokens', 'Embedding', 'Which tokens', ...(head ? ['One head'] :
     gap: 4px;
     min-width: calc(var(--n) * 3.2rem);
   }
-  /* One attention head */
-  .trace .tk-headwrap {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 6px;
+  /* Tensor pictures (./tensorpics.ts): bars are token vectors, grids are weights. */
+  .trace .tk-tok {
+    border-left: 5px solid var(--tc, var(--role-activation));
   }
-  .trace .tk-hl,
-  .trace .tk-hc {
-    display: grid;
-    grid-template-rows: 1.3rem 1.8rem 1.3rem 4rem 1.3rem 1.8rem;
-    gap: 4px;
-    align-items: center;
-    font-size: 0.72rem;
+  .trace .tp-wrap {
+    overflow-x: auto;
+    margin-top: 0.4rem;
   }
-  .trace .tk-hl {
+  .trace svg.tp {
+    display: block;
     color: var(--ink-soft);
-    text-align: right;
   }
-  .trace .tk-head {
-    display: flex;
-    gap: 4px;
+  .trace .tp text {
+    font-family: var(--font-ui);
+    font-size: 12px;
+    fill: var(--ink);
   }
-  .trace .tk-hc {
-    width: 3.2rem;
-    flex: none;
-    text-align: center;
+  .trace .tp .sc {
+    font-size: 9.5px;
   }
-  .trace .tk-hc.cur .tk-ht {
-    font-weight: 700;
-  }
-  .trace .tk-ht {
+  .trace .tp .tp-size,
+  .trace .tp .tp-tag {
     font-family: var(--font-mono);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 10.5px;
+    fill: var(--ink-soft);
   }
-  .trace .tk-sc {
+  .trace .tp .tp-mname {
+    font-weight: 600;
+    fill: var(--role-weight);
+  }
+  .trace .tp .tp-title {
+    font-size: 12px;
+    font-weight: 600;
+    fill: var(--ink-soft);
+  }
+  .trace .tp .tp-cachetag {
+    fill: var(--role-cache);
+    font-size: 10.5px;
+  }
+  .trace .tp .tp-op {
+    font-size: 13px;
+    fill: var(--ink-soft);
+  }
+  .trace .tp .tp-num {
     font-family: var(--font-mono);
-    color: var(--ink);
+    font-size: 10.5px;
+    paint-order: stroke;
+    stroke: #fff;
+    stroke-width: 2.5px;
+    stroke-linejoin: round;
   }
-  .trace .tk-wbar {
-    height: 100%;
+  .trace .tp .tp-edge {
+    fill: none;
+    stroke: var(--ink);
+    stroke-opacity: 0.55;
+    stroke-width: 1;
+  }
+  .trace .tp .tp-edge.cur {
+    stroke-opacity: 1;
+    stroke-width: 2;
+  }
+  .trace .tp .tp-cell {
+    stroke: var(--paper-raised);
+    stroke-width: 1;
+  }
+  .trace .tp .tp-div {
+    stroke: var(--paper-raised);
+    stroke-width: 0.8;
+  }
+  .trace .tp .tp-tokdiv {
+    stroke: var(--paper-raised);
+    stroke-width: 1.5;
+  }
+  .trace .tp .tp-pick {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.6;
+  }
+  .trace .tp .tp-pick.light {
+    stroke-width: 1;
+    stroke-dasharray: 2 2;
+  }
+  .trace .tp .tp-cache {
+    fill: none;
+    stroke: var(--role-cache);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+  .trace .tp .tp-w {
+    fill: var(--role-weight-wash);
+    stroke: var(--role-weight);
+    stroke-width: 1.2;
+  }
+  .trace .tp .tp-grid {
+    stroke: var(--role-weight);
+    stroke-opacity: 0.28;
+    stroke-width: 0.8;
+    fill: none;
+  }
+  .trace .tp .tp-ghost {
+    opacity: 0.75;
+  }
+  .trace .tp .tp-arrow {
+    fill: none;
+    stroke: var(--ink-soft);
+    stroke-width: 1.2;
+  }
+  .trace .tp-legend {
     display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
   }
-  .trace .tk-wbar i {
-    width: 60%;
-    min-height: 1px;
-    background: var(--role-op);
-    border-radius: 2px 2px 0 0;
+  .trace .tp-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .trace .tp-sw {
+    display: inline-block;
+    width: 1.6rem;
+    height: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--ink) 55%, transparent);
+  }
+  .trace .tp-sw.w {
+    width: 0.9rem;
+    height: 0.9rem;
+    background-color: var(--role-weight-wash);
+    background-image: linear-gradient(var(--role-weight) 1px, transparent 1px), linear-gradient(90deg, var(--role-weight) 1px, transparent 1px);
+    background-size: 4px 4px;
+    border-color: var(--role-weight);
+    opacity: 0.85;
+  }
+  .trace .tp-sw.rope {
+    background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.55) 0 1.5px, transparent 1.5px 4px);
+  }
+  .trace .tp-sw.cache {
+    border: 1.5px dashed var(--role-cache);
+    background: none;
+  }
+  .trace .tp-sw.heads {
+    background-image: repeating-linear-gradient(90deg, transparent 0 5px, var(--paper-raised) 5px 6px) !important;
   }
   /* Experts */
   .trace .tk-moe {
