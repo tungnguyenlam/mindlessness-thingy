@@ -25,6 +25,16 @@ const nav = [
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href={url('/favicon.svg')} />
     <title>{title ? `${title} | ${siteName}` : siteName}</title>
+    <script is:inline>
+      // Page views (GoatCounter), only on the deployed site so local builds and browser tests aren't counted.
+      if (location.hostname === 'tungnguyenlam.github.io') {
+        const s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://gc.zgo.at/count.js';
+        s.dataset.goatcounter = 'https://mindlessness.goatcounter.com/count';
+        document.head.append(s);
+      }
+    </script>
   </head>
   <body data-base={url('')} data-page-title={title ?? 'the map'}>
     <a class="skip ui" href="#main">Skip to content</a>

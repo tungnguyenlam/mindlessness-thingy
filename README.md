@@ -2,6 +2,16 @@
 
 A visual notebook for learning how ML models are built, one linked idea at a time. Notes are written mostly by agents, checked by a script, and promoted by a human.
 
+## Visits
+
+![total views](https://mindlessness.goatcounter.com/counter/TOTAL.svg)
+
+Counted by [GoatCounter](https://mindlessness.goatcounter.com) and refreshed daily by `.github/workflows/stats.yml`.
+
+<!-- stats:start -->
+No visits recorded yet.
+<!-- stats:end -->
+
 ## Run it
 
 ```sh

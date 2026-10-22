@@ -3,6 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    # README-only pushes (the daily visit stats from stats.yml) don't change the site.
+    paths-ignore: [README.md]
   workflow_dispatch:
 
 permissions:

@@ -196,3 +196,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: concept note for mHC; V4 model fields and generated overview/layer views; Single-Pass mHC on V4.1-Flash
 - files: src/content/notes/{concepts/mhc,systems/deepseek-v4,systems/deepseek-v4-1-flash,paths/deepseek-lineage}.mdx src/lib/models/{fields,overview}.mjs src/content/{models/deepseek-v4.yaml,sources/mhc-paper.yaml} ModelOverview.astro AGENTS.md
 - open: TokenTrace still draws the residual as T × d (the layer input after A, not the n_hc copies)
+
+## 2026-10-22 · feat(stats): count visits with GoatCounter and show them in the README
+- did: GoatCounter script in Base (deployed host only); daily workflow rewrites a README visits section (total + top 10 pages, last 30 days); deploy ignores README-only pushes
+- files: src/layouts/Base.astro scripts/readme-stats.mjs .github/workflows/{stats,deploy}.yml README.md
+- open: the stats bot pushes to main daily, so pull --rebase before pushing; counting is not covered by browser tests (they run on localhost)
