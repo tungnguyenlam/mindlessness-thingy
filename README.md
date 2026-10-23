@@ -9,6 +9,8 @@ A visual notebook for learning how ML models are built, one linked idea at a tim
 Counted by [GoatCounter](https://mindlessness.goatcounter.com) and refreshed daily by `.github/workflows/stats.yml`.
 
 <!-- stats:start -->
+Visits in the last 30 days: **0** (updated 2026-10-23).
+
 No visits recorded yet.
 <!-- stats:end -->
 
