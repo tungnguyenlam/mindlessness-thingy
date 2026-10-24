@@ -69,9 +69,29 @@ const minWidth = Math.round(width * 0.72);
 const remWidth = `${+(width / 17).toFixed(3)}rem`;
 
 const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
+// Draw order for the scroll-in reveal (src/scripts/motion.ts): an edge starts once everything
+// feeding its source has arrived, so the picture fills in the way data flows through it.
+// Depth is the longest chain of solid edges into a block; dashed edges (cache writes, loops) are
+// ignored for depth so a decoding loop can't make the order circular.
+const depth = new Map(blocks.map((b) => [b.id, 0]));
+for (let pass = 0; pass < blocks.length; pass++) {
+  let changed = false;
+  for (const e of edges) {
+    if (e.dashed) continue;
+    const d = depth.get(e.from)! + 1;
+    if (d > depth.get(e.to)! && d < blocks.length) {
+      depth.set(e.to, d);
+      changed = true;
+    }
+  }
+  if (!changed) break;
+}
+const ranks = [...new Set(edges.map((e) => depth.get(e.from)!))].sort((a, b) => a - b);
+const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
 ---
 
-<figure class="arch ui" style={`--w:${remWidth}`}>
+<figure class="arch ui" style={`--w:${remWidth}`} data-draw>
   <div class="scroll" data-keep-scroll>
     <svg viewBox={`0 0 ${width} ${height}`} width={width} style={`width:${remWidth};min-width:${minWidth}px`} role="img" aria-labelledby={`${markerId}-t`}>
       <title id={`${markerId}-t`}>{title}</title>
@@ -94,8 +114,8 @@ const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
         L.routes.map((r) => {
           const e = r.edge;
           return (
-            <g class:list={['edge', { dashed: e.dashed }]}>
-              <path d={r.d} marker-end={`url(#${markerId})`} />
+            <g class:list={['edge', e.dashed ? 'dashed' : 'solid']} style={`--i:${drawStep(e)}`}>
+              <path d={r.d} marker-end={`url(#${markerId})`} pathLength={e.dashed ? undefined : 1} />
               {e.label && (
                 <text x={r.lx} y={r.ly} dominant-baseline="middle">
                   {e.label}

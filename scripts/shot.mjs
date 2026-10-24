@@ -7,6 +7,7 @@
 //   pnpm run shot / --width 390 --out .scratch/shots/home-mobile.png
 //   pnpm run shot /notes/mla/ --select figure.arch      every match, cropped: notes-mla-figure-arch-1.png ...
 //                                                        (cheaper to look at than a full page)
+//   pnpm run shot /notes/mla/ --motion              run the animations (default: reduced motion, the settled page)
 //
 // Rebuilds dist/ first when anything under src/ is newer than the last build.
 import { execFileSync } from 'node:child_process';
@@ -40,7 +41,7 @@ if (newest('src') > built) {
   execFileSync('pnpm', ['exec', 'astro', 'build', '--silent'], { stdio: 'inherit' });
 }
 
-await withPage({ width, height }, async ({ goto, click, wait, shot, evaluate }) => {
+await withPage({ width, height, motion: args.includes('--motion') }, async ({ goto, click, wait, shot, evaluate }) => {
   await goto(page);
   await wait(Number(opt('--wait', 400)));
   for (const sel of all('--click')) await click(sel);

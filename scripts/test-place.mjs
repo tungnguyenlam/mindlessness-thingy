@@ -23,7 +23,7 @@ async function scenario(mode) {
     console.log(`${ok ? 'pass' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
   };
 
-  await withPage({ width: 1280, height: 860, flags: mode.flags }, async ({ goto, evaluate, click, key, wait, shot }) => {
+  await withPage({ width: 1280, height: 860, flags: mode.flags, motion: true }, async ({ goto, evaluate, click, key, wait, shot }) => {
     const snap = async (n) => SHOTS && shot(`${SHOTS}/${mode.name}-${n}.png`);
     const waitFor = async (expr, ms = 5000) => {
       const t = Date.now();

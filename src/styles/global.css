@@ -60,6 +60,27 @@
   --wide: calc(var(--measure) + 34rem);
   --radius-block: 3px;
   --radius-panel: 6px;
+
+  /* Motion. Durations count frames at 30 fps (one --f is 33 ms), so a move reads as "12 frames".
+     The curves are measured ones (motionmaxxing's frame-by-frame study of professional motion):
+     things land decelerating, leave accelerating, and opacity only helps a move, never replaces it.
+     The cubic-bezier values are fallbacks; browsers with linear() get the sampled measured curve. */
+  --f: 33.333ms;
+  --ease-land: cubic-bezier(0.2, 0.75, 0.3, 1); /* firm decelerate: panels, text, cards (softLand) */
+  --ease-glide: cubic-bezier(0.3, 0.6, 0.45, 1); /* gentle decelerate: lines that draw (glide) */
+  --ease-snap: cubic-bezier(0.05, 0.85, 0.2, 1); /* hero arrival, half the travel in the first tenth (snapSettle) */
+  --ease-leave: cubic-bezier(0.6, 0, 0.9, 0.5); /* accelerate away and leave at full speed (accelExit) */
+  --ease-fade: cubic-bezier(0.45, 0, 0.55, 1); /* symmetric S for colour and opacity ramps (softInOut) */
+}
+
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-land: linear(0 0%, 0.162 5%, 0.299 10%, 0.414 15%, 0.511 20%, 0.593 25%, 0.662 30%, 0.721 35%, 0.77 40%, 0.846 50%, 0.901 60%, 0.939 70%, 0.967 80%, 0.986 90%, 1 100%);
+    --ease-glide: linear(0 0%, 0.084 5%, 0.164 10%, 0.241 15%, 0.316 20%, 0.387 25%, 0.455 30%, 0.519 35%, 0.58 40%, 0.692 50%, 0.789 60%, 0.871 70%, 0.935 80%, 0.98 90%, 1 100%);
+    --ease-snap: linear(0 0%, 0.148 2%, 0.273 4%, 0.379 6%, 0.469 8%, 0.544 10%, 0.637 13%, 0.709 16%, 0.781 20%, 0.843 25%, 0.885 30%, 0.934 40%, 0.958 50%, 0.971 60%, 0.98 70%, 0.988 80%, 0.994 90%, 1 100%);
+    --ease-leave: linear(0 0%, 0 5%, 0.003 10%, 0.007 15%, 0.015 20%, 0.027 25%, 0.044 30%, 0.065 35%, 0.092 40%, 0.165 50%, 0.265 60%, 0.396 70%, 0.56 80%, 0.76 90%, 1 100%);
+    --ease-fade: linear(0 0%, 0.015 5%, 0.042 10%, 0.078 15%, 0.123 20%, 0.174 25%, 0.231 30%, 0.293 35%, 0.36 40%, 0.5 50%, 0.64 60%, 0.769 70%, 0.877 80%, 0.958 90%, 1 100%);
+  }
 }
 
 *,
@@ -155,7 +176,7 @@ a.wikilink.is-stub {
   box-shadow: 0 0 0 3px var(--place-wash);
   border-radius: 2px;
   text-decoration-color: var(--place) !important;
-  animation: place-fade 2.2s ease-out 1.4s forwards;
+  animation: place-fade 2.2s var(--ease-fade) 1.4s forwards;
 }
 .place-here:not(svg *)::before {
   content: '';
@@ -166,6 +187,17 @@ a.wikilink.is-stub {
   width: 3px;
   border-radius: 1px;
   background: var(--place);
+  /* The notch is set down beside the line, so the eye is pulled to it rather than finding it. */
+  animation: place-notch calc(11 * var(--f)) var(--ease-snap) both;
+}
+@keyframes place-notch {
+  from {
+    transform: translateX(-0.6em);
+    opacity: 0.2;
+  }
+  12% {
+    opacity: 1;
+  }
 }
 svg .place-here > :first-child {
   stroke: var(--place) !important;
@@ -195,6 +227,59 @@ svg .place-here text {
 }
 .trail[hidden] {
   display: none;
+}
+/* The ribbon arrives from below the screen edge and lands; then the bookmark is set into it.
+   Added by trail.ts only when the ribbon appears or its destination changes, not on every render. */
+.trail.is-entering .trail-bar {
+  animation: trail-rise calc(11 * var(--f)) var(--ease-snap) both;
+}
+.trail.is-entering .trail-ribbon {
+  animation: trail-bookmark calc(9 * var(--f)) var(--ease-land) calc(4 * var(--f)) both;
+}
+/* Forgetting the trail throws the ribbon back down, accelerating, and it is gone at full speed. */
+.trail.is-leaving {
+  animation: trail-drop calc(8 * var(--f)) var(--ease-leave) both;
+  pointer-events: none;
+}
+/* The stops open one after another, newest first, two frames apart. */
+.trail.is-opening .trail-list {
+  animation: trail-list-in calc(9 * var(--f)) var(--ease-land) both;
+}
+.trail.is-opening .trail-list li {
+  animation: trail-stop-in calc(9 * var(--f)) var(--ease-land) calc(var(--i, 0) * 2 * var(--f) + var(--f)) both;
+}
+@keyframes trail-rise {
+  from {
+    transform: translateY(calc(100% + 1.5rem));
+  }
+}
+@keyframes trail-bookmark {
+  from {
+    transform: translateY(-100%);
+  }
+}
+@keyframes trail-drop {
+  to {
+    transform: translateY(calc(100% + 1.5rem));
+  }
+}
+@keyframes trail-list-in {
+  from {
+    transform: translateY(0.75rem);
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@keyframes trail-stop-in {
+  from {
+    transform: translateX(-0.6rem);
+    opacity: 0.25;
+  }
+  45% {
+    opacity: 1;
+  }
 }
 .trail button {
   font: inherit;
@@ -385,6 +470,64 @@ svg .place-here text {
 @media print {
   .trail {
     display: none;
+  }
+}
+
+/* ---------- Motion on reader actions (src/scripts/motion.ts) ---------- */
+
+/* A tab the reader opened lands: a short rise with opacity as a helper. Restored tabs and the
+   first render never get this class, so a returning reader finds the panel already in place. */
+.motion-enter {
+  animation: panel-in calc(10 * var(--f)) var(--ease-land) both;
+}
+@keyframes panel-in {
+  from {
+    transform: translateY(0.5rem);
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* A diagram scrolled into view for the first time draws its edges in data-flow order: each edge
+   runs from its source to its target, and its arrowhead and label appear the frame it arrives. */
+.arch.is-drawing .edge.solid path {
+  stroke-dasharray: 1;
+  animation: edge-draw calc(9 * var(--f)) var(--ease-glide) calc(var(--i, 0) * 5 * var(--f)) both;
+}
+.arch.is-waiting .edge path,
+.arch.is-waiting .edge text {
+  visibility: hidden;
+}
+.arch.is-drawing .edge:not(.drawn) path {
+  marker-end: none;
+}
+.arch.is-drawing .edge.dashed path,
+.arch.is-drawing .edge text {
+  animation: edge-show var(--f) steps(1, end) calc(var(--i, 0) * 5 * var(--f) + 9 * var(--f)) both;
+}
+@keyframes edge-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes edge-show {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
+}
+@media print {
+  .arch .edge path,
+  .arch .edge text {
+    visibility: visible !important;
+    animation: none !important;
   }
 }
 

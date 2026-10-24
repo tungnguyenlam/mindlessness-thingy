@@ -67,8 +67,10 @@ const nav = [
     <script>
       import { initPreviews } from '../scripts/previews';
       import { initTrail } from '../scripts/trail';
+      import { initMotion } from '../scripts/motion';
       initPreviews();
       initTrail();
+      initMotion();
     </script>
   </body>
 </html>
@@ -141,6 +143,18 @@ const nav = [
     line-height: 1.45;
     box-shadow: 0 6px 18px -8px rgb(20 33 61 / 0.35);
     pointer-events: none;
+    /* The card comes out of the link it describes: a short drop from the link, landing firmly,
+       with opacity only helping the first frames. It leaves in one frame, so it never lingers. */
+    animation: preview-in calc(8 * var(--f)) var(--ease-land) both;
+  }
+  @keyframes preview-in {
+    from {
+      transform: translateY(-0.4rem);
+      opacity: 0.3;
+    }
+    45% {
+      opacity: 1;
+    }
   }
   .preview-card :global(strong) {
     display: block;

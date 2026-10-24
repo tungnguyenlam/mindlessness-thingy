@@ -234,6 +234,8 @@ function announce(msg: string) {
 }
 
 async function restore(e: Entry) {
+  // Lets one-shot entrances (src/scripts/motion.ts) settle at once: a return is not a first view.
+  document.dispatchEvent(new CustomEvent('trail:restore'));
   await applyState(e);
   await document.fonts?.ready;
   await new Promise(requestAnimationFrame);
@@ -352,6 +354,9 @@ function label(e: Entry) {
 }
 
 let expanded = false;
+/** The stop the ribbon showed last, so it only animates in when it appears or points somewhere new. */
+let shownTop: string | null = null;
+let opening = false;
 function render() {
   const root = document.getElementById('trail');
   if (!root) return;
@@ -361,6 +366,10 @@ function render() {
   live.setAttribute('aria-live', 'polite');
   root.replaceChildren(live);
   root.hidden = !top;
+  root.classList.remove('is-leaving', 'is-opening');
+  const entering = !!top && top.id !== shownTop;
+  shownTop = top?.id ?? null;
+  root.classList.toggle('is-entering', entering);
   if (!top) return;
 
   const bar = h('div', 'trail-bar');
@@ -386,6 +395,7 @@ function render() {
     more.append(dots, h('span', 'visually-hidden', `${older} earlier ${older === 1 ? 'stop' : 'stops'}`));
     more.addEventListener('click', () => {
       expanded = !expanded;
+      opening = expanded;
       render();
     });
     bar.append(more);
@@ -398,7 +408,17 @@ function render() {
   clear.addEventListener('click', () => {
     store.save([]);
     expanded = false;
-    render();
+    // Let the ribbon leave before it is removed; with reduced motion the animation ends at once.
+    const done = () => {
+      root.removeEventListener('animationend', onEnd);
+      clearTimeout(timer);
+      render();
+    };
+    const onEnd = (ev: AnimationEvent) => ev.target === root && done();
+    const timer = window.setTimeout(done, 400);
+    root.addEventListener('animationend', onEnd);
+    root.classList.remove('is-entering', 'is-opening');
+    root.classList.add('is-leaving');
   });
   bar.append(clear);
 
@@ -415,11 +435,14 @@ function render() {
         b.type = 'button';
         b.append(h('strong', '', e.path === here() ? 'This page' : e.title), e.section ? h('span', 'trail-where', e.section) : '', quote(e));
         b.addEventListener('click', () => goBack(i));
+        li.style.setProperty('--i', String(list.children.length));
         li.append(b);
         list.append(li);
       });
     root.append(list);
+    root.classList.toggle('is-opening', opening);
   }
+  opening = false;
   root.append(bar);
 }
 

@@ -61,7 +61,7 @@ How all of this fits together, and how to add a new rule, is in `docs/guardrails
 | `pnpm run ci` | The GitHub Actions build job, locally: clean checkout of `HEAD`, frozen-lockfile install, `pnpm run check`. Run after every commit (`--keep` keeps the temp checkout). |
 | `pnpm run check:graph` | Fast content and contract checks only (well under a second). Add `--files a,b` to scope, `--json` for tools. |
 | `pnpm run new <kind> <slug> "Title"` | New stub. Add `--draft` to scaffold a full note from `templates/notes/<kind>.mdx`. |
-| `pnpm run shot <path>` | Screenshot a page to `.scratch/shots/`. Options: `--select <css>` (crop to each match, e.g. `figure.arch`; cheapest to look at), `--full`, `--width`, `--click <selector>`, `--out <file>`. |
+| `pnpm run shot <path>` | Screenshot a page to `.scratch/shots/`. Options: `--select <css>` (crop to each match, e.g. `figure.arch`; cheapest to look at), `--full`, `--width`, `--click <selector>`, `--out <file>`, `--motion` (run the animations; by default pages open with reduced motion so shots show the settled page). |
 | `pnpm run test:place` | Just the keep-place browser test (`--shots` saves screenshots). |
 | `pnpm run test:visual` | Just the render-clean browser test; pass page paths to limit it (`/notes/mla/`), `--selftest` after editing it. |
 | `pnpm run dev` | Local site at http://localhost:4321/mindlessness-thingy/ |

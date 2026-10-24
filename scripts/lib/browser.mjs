@@ -123,8 +123,12 @@ function connect(url) {
 /**
  * Open a page and hand back helpers. Always closes Chrome and the server.
  * `fn({ goto, evaluate, click, wait, shot, page })`
+ *
+ * Pages open with prefers-reduced-motion, so screenshots and render checks see the settled page
+ * (diagrams fully drawn, no entrance mid-flight). Pass `motion: true` to run the real animations,
+ * as the keep-place test does to prove they never disturb the return to place.
  */
-export async function withPage({ width = 1280, height = 900, flags = [] } = {}, fn) {
+export async function withPage({ width = 1280, height = 900, flags = [], motion = false } = {}, fn) {
   const server = await serveDist();
   const origin = `http://127.0.0.1:${server.address().port}`;
   const chrome = await launch(flags);
@@ -136,6 +140,7 @@ export async function withPage({ width = 1280, height = 900, flags = [] } = {}, 
     await page.send('Page.enable');
     await page.send('Runtime.enable');
     await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 600 });
+    if (!motion) await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
 
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const evaluate = async (expr) => {

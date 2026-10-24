@@ -201,3 +201,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: GoatCounter script in Base (deployed host only); daily workflow rewrites a README visits section (total + top 10 pages, last 30 days); deploy ignores README-only pushes
 - files: src/layouts/Base.astro scripts/readme-stats.mjs .github/workflows/{stats,deploy}.yml README.md
 - open: the stats bot pushes to main daily, so pull --rebase before pushing; counting is not covered by browser tests (they run on localhost)
+
+## 2026-10-24 · feat(motion): measured motion for trail, previews, tabs and diagrams
+- did: frame-based motion tokens with measured curves (motionmaxxing); ribbon rises and bookmark drops, place notch slides in, hover card drops from its link, opened tabs land, ArchDiagram edges draw in data-flow order on first scroll-in; browser tools default to reduced motion (shot --motion opts in), keep-place test runs with motion
+- files: src/styles/global.css src/scripts/{motion,trail}.ts src/layouts/Base.astro src/components/viz/ArchDiagram.astro scripts/{lib/browser,shot,test-place}.mjs AGENTS.md
+- open: ModelOverview/ModelDiagram edges don't draw in yet (only ArchDiagram); linear() curves fall back to cubic-bezier in older browsers
