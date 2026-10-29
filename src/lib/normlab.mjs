@@ -102,3 +102,23 @@ export function axesData(rows = 6, cols = 8) {
   const byCol = cols_(cols_(raw).map(layerNorm));
   return { raw, byRow, byCol, byRms };
 }
+
+/**
+ * View "block": one token's numbers through one pre-norm layer. The stream x arrives large (deep in
+ * a network); each sub-layer reads a normalized copy, and its output is added back onto x.
+ */
+export function blockData(d = 48) {
+  const r = rng(21);
+  const x = standard(r, d).map((z) => 0.6 + 3 * z);
+  const W = matrix(r, d, d, 1 / Math.sqrt(d));
+  const W1 = matrix(r, d, d, 1 / Math.sqrt(d));
+  const W2 = matrix(r, d, d, Math.sqrt(2 / d));
+  const gelu = (u) => 0.5 * u * (1 + Math.tanh(0.7978845608 * (u + 0.044715 * u ** 3)));
+  const h1 = layerNorm(x);
+  const a = matvec(h1, W);
+  const x1 = x.map((u, i) => u + a[i]);
+  const h2 = layerNorm(x1);
+  const f = matvec(matvec(h2, W1).map(gelu), W2);
+  const x2 = x1.map((u, i) => u + f[i]);
+  return { x, h1, a, x1, h2, f, x2 };
+}

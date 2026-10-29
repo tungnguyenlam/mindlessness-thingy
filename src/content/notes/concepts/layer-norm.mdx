@@ -30,6 +30,18 @@ A token leaves every layer as a vector of $d$ numbers, where $d$ is the hidden s
 The last step gives some freedom back. $\gamma$ and $\beta$ are learned vectors of length $d$: one scale and one shift per feature, shared by all tokens. If a layer works better when some feature sits higher or spreads wider, training sets $\gamma$ and $\beta$ to do that. In practice a tiny constant is added under the square root in $\sigma$ so a token whose numbers are all equal doesn't divide by zero.
 </Words>
 
+## Where it sits in a model
+
+<NormLab
+  view="block"
+  title="One token through one layer"
+  caption="A pre-norm layer, the order most models in this notebook use. Each small curve is the token's numbers at that point; σ is their spread. Toy numbers."
+/>
+
+<Words>
+Every layer of a [[transformer-block]] has two sub-layers, attention and a feed-forward network. In the pre-norm order, each one starts with its own LayerNorm, so a model with $L$ layers has $2L$ of them, each with its own $\gamma$ and $\beta$. The norm doesn't change the residual stream. It makes a normalized copy for the sub-layer to read, and the sub-layer's output is added back onto the unnormalized stream. GPT-2 also adds one final LayerNorm after the last layer, just before the output head <Cite id="gpt2-paper" where="§2.3" />.
+</Words>
+
 ## Why a network needs it
 
 <NormLab

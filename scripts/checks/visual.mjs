@@ -2,8 +2,9 @@
 // Structure rules for written concept and system notes. Problems carry a code so scripts/baseline.json
 // can grandfather notes written before a rule existed; anything new is an error.
 import { maskComponents } from '../lib/mdx-props.mjs';
+import { PLACES } from '../../src/lib/bigpicture.mjs';
 
-const VISUALS = ['ArchDiagram', 'BiasVariance', 'NormLab', 'DecodeGrid', 'ModelDiagram', 'LayerStrip', 'Compare', 'Calc', 'Stepper', 'Figure', 'MaskGrid', 'ShapeFlow', 'Timeline', 'ModelOverview', 'TokenizerFlow', 'TokenizerCompare', 'Tokenizer'];
+const VISUALS = ['ArchDiagram', 'BiasVariance', 'NormLab', 'DecodeGrid', 'Scene', 'ModelDiagram', 'LayerStrip', 'Compare', 'Calc', 'Stepper', 'Figure', 'MaskGrid', 'ShapeFlow', 'Timeline', 'ModelOverview', 'TokenizerFlow', 'TokenizerCompare', 'Tokenizer'];
 const TABLES = ['Spec', 'ModelSpec'];
 const ALL = [...VISUALS, ...TABLES];
 const MARK = '\u0000VISUAL\u0000';
@@ -30,6 +31,9 @@ export default function visual({ notes }, { error, warn }) {
     const hasVisual = new RegExp(`<(${VISUALS.join('|')})\\b`).test(n.text);
     if (!hasVisual) {
       error('visual-first', n.file, `${d.status} ${d.kind} note has no visual`, 'add one before more prose: <ArchDiagram> for structure, <Calc> for how it scales, <Stepper> for a procedure; system notes: <ModelDiagram>, <LayerStrip> (see templates/notes/)');
+    }
+    if (d.kind === 'concept' && !PLACES[n.slug ?? n.id]) {
+      warn('visual-first', n.file, 'concept note has no place in the bigger picture', 'add it to PLACES in src/lib/bigpicture.mjs, so <BigPicture> shows where it fits');
     }
     if (d.kind === 'system') {
       if (!/<(Spec|ModelSpec)\b/.test(n.text)) warn('visual-first', n.file, 'system note has no numbers table', 'add model data and <ModelSpec model="..." /> (docs/workflow.md)');

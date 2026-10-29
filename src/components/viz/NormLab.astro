@@ -7,9 +7,11 @@ import '../../styles/player.css';
 //          attention softmax of one token, and the size of the stream by layer (pre- and post-norm).
 //   axes:  a batch grid, tokens × features: which numbers share one μ and σ in LayerNorm, BatchNorm
 //          and RMSNorm, and why BatchNorm has nothing to average over one token at a time.
+//   block: where it sits: one token through a pre-norm layer, its numbers drawn at every stop, so the
+//          stream grows at each add while every sub-layer reads a normalized copy.
 //   <NormLab view="steps" title="..." caption="..." />
 // Plays in a loop while on screen (src/scripts/player.ts). Restorable: the beat comes back, paused.
-type View = 'steps' | 'depth' | 'axes';
+type View = 'steps' | 'depth' | 'axes' | 'block';
 interface Props {
   view: View;
   title: string;
@@ -33,6 +35,14 @@ const SAYS: Record<View, string[]> = {
     'With LayerNorm, every sub-layer reads numbers of the same size at any depth, so attention stays spread.',
     'Pre-norm lets the stream itself grow slowly. Post-norm, dashed, normalizes the stream after every layer.',
   ],
+  block: [
+    'A token’s numbers arrive on the residual stream, the running sum that every layer adds to.',
+    'Before attention, LayerNorm makes a normalized copy. The stream itself is left as it is.',
+    'Attention reads only the normalized copy, and writes its output.',
+    'That output is added back onto the stream, which gets a little bigger.',
+    'The same again for the feed-forward network: normalize a copy, compute, add back.',
+    'So every sub-layer reads numbers of size 1, however big the stream has grown.',
+  ],
   axes: [
     'A batch: each row is one token, each column one feature. A bar is one number.',
     'LayerNorm: each token is normalized with the mean and spread of its own row.',
@@ -42,7 +52,7 @@ const SAYS: Record<View, string[]> = {
   ],
 };
 const says = SAYS[view];
-if (!says) throw new Error(`<NormLab title="${title}">: view must be steps, depth or axes`);
+if (!says) throw new Error(`<NormLab title="${title}">: view must be steps, depth, axes or block`);
 ---
 
 <x-normlab class="normlab live ui" data-restorable data-view={view} tabindex="-1">
@@ -70,6 +80,7 @@ if (!says) throw new Error(`<NormLab title="${title}">: view must be steps, dept
       </div>
     )
   }
+  {view === 'block' && <svg class="nl-svg nl-watch nl-block" viewBox="0 0 480 222" role="img" aria-label={title}></svg>}
   {view === 'axes' && <svg class="nl-svg nl-watch nl-grid" viewBox="0 0 330 270" role="img" aria-label={title}></svg>}
   <div class="player">
     <p class="says" aria-live="polite">
@@ -89,7 +100,7 @@ if (!says) throw new Error(`<NormLab title="${title}">: view must be steps, dept
 
 <script>
   import { mountPlayer, tweener, type Player } from '../../scripts/player';
-  import { stepsData, depthData, axesData, mean, std } from '../../lib/normlab.mjs';
+  import { stepsData, depthData, axesData, blockData, mean, std } from '../../lib/normlab.mjs';
 
   const f1 = (x: number) => (Math.abs(x) < 0.05 ? '0.0' : x.toFixed(1)).replace('-', '−');
   const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
@@ -292,7 +303,76 @@ if (!says) throw new Error(`<NormLab title="${title}">: view must be steps, dept
     };
   }
 
-  const VIEWS = { steps, depth, axes };
+  // ---- block: where LayerNorm sits in a pre-norm layer ----
+  function block(root: HTMLElement) {
+    const svg = root.querySelector('svg.nl-svg')!;
+    const D = blockData();
+    const S = 50;
+    const B = 125;
+    const P: [number, number][] = [[40, S], [95, S], [95, B], [175, B], [240, B], [240, S], [305, S], [305, B], [385, B], [450, B], [450, S], [474, S]];
+    // Stops where the token's numbers are drawn: point index, data, above (stream) or below (branch).
+    const stops: { at: number; v: number[]; up: boolean; norm?: boolean }[] = [
+      { at: 0, v: D.x, up: true },
+      { at: 2, v: D.h1, up: false, norm: true },
+      { at: 3, v: D.a, up: false },
+      { at: 5, v: D.x1, up: true },
+      { at: 7, v: D.h2, up: false, norm: true },
+      { at: 8, v: D.f, up: false },
+      { at: 10, v: D.x2, up: true },
+    ];
+    const glyphs = stops.map((st) => {
+      // Stream curves sit above the line, left of the add circle; branch curves sit under their box.
+      const cx = st.up && st.at > 0 ? P[st.at][0] - 42 : P[st.at][0];
+      const base = st.up ? 28 : 186;
+      const gx = (u: number) => cx - 32 + ((clamp(u, -10, 10) + 10) / 20) * 64;
+      return { ...st, cx, base, d: density(st.v, gx, -10, 10, base, 60, 28), sd: std(st.v) };
+    });
+    const box = (cx: number, w: number, label: string, cls: string) =>
+      `<rect class="bx ${cls}" x="${cx - w / 2}" y="${B - 15}" width="${w}" height="30" rx="3"/><text class="bx-l" x="${cx}" y="${B + 4}">${label}</text>`;
+    const pos = (t: number) => {
+      const k = Math.min(P.length - 2, Math.floor(t));
+      const u = t - k;
+      return [P[k][0] + (P[k + 1][0] - P[k][0]) * u, P[k][1] + (P[k + 1][1] - P[k][1]) * u];
+    };
+    type St = { t: number; lit: number };
+    const tw = tweener<St>((s) => {
+      let out = `<line class="stream" x1="16" x2="474" y1="${S}" y2="${S}"/><text class="lbl" x="112" y="${S + 16}">residual stream</text><text class="lbl" x="444" y="${S + 16}" text-anchor="end">to the next layer →</text>`;
+      out += `<path class="wire" d="M95,${S} V${B} M128,${B} H140 M210,${B} H240 V${S} M305,${S} V${B} M338,${B} H352 M418,${B} H450 V${S}"/>`;
+      out += box(95, 66, 'LayerNorm', 'op norm') + box(175, 70, 'Attention', 'op') + box(305, 66, 'LayerNorm', 'op norm') + box(385, 66, 'FFN', 'wt');
+      for (const ax of [240, 450]) out += `<circle class="add" cx="${ax}" cy="${S}" r="9"/><path class="plus" d="M${ax - 5},${S} h10 M${ax},${S - 5} v10"/>`;
+      for (const gl of glyphs) {
+        const op = clamp((s.t - gl.at) / 0.3 + 1, 0, 1);
+        if (op <= 0) continue;
+        const hl = gl.norm && s.lit ? ' lit' : '';
+        out += `<g opacity="${op.toFixed(2)}"><line class="base" x1="${gl.cx - 32}" x2="${gl.cx + 32}" y1="${gl.base}" y2="${gl.base}"/><path class="area${hl}" d="${gl.d}"/>`;
+        out += `<text class="stat${hl}" x="${gl.cx}" y="${gl.up ? S - 6 : gl.base + 12}" text-anchor="middle">σ ${f1(gl.sd)}</text></g>`;
+      }
+      const [dx, dy] = pos(clamp(s.t, 0, P.length - 1));
+      out += `<circle class="tok" cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="6"/>`;
+      svg.innerHTML = out;
+    });
+    const plan = [
+      { t: 0, lit: 0, ms: 3400 },
+      { t: 2, lit: 0, ms: 3600 },
+      { t: 3, lit: 0, ms: 3000 },
+      { t: 5, lit: 0, ms: 3400 },
+      { t: 10, lit: 0, ms: 4800 },
+      { t: 11, lit: 1, ms: 4600 },
+    ];
+    return {
+      n: plan.length,
+      show: (i: number, animate: boolean) => {
+        const b = plan[i];
+        if (!animate) return tw.to({ t: b.t, lit: b.lit }, 0);
+        if ((tw.state?.t ?? 0) > b.t) tw.to({ t: 0, lit: 0 }, 0);
+        const from = tw.state!.t;
+        tw.to({ t: b.t, lit: b.lit }, Math.max(400, (b.t - from) * 480), true);
+      },
+      length: (i: number) => plan[i].ms,
+    };
+  }
+
+  const VIEWS = { steps, depth, axes, block };
 
   class XNormLab extends HTMLElement {
     player: Player | null = null;
@@ -494,6 +574,57 @@ if (!says) throw new Error(`<NormLab title="${title}">: view must be steps, dept
   .normlab :global(.cbar.clip) {
     fill: var(--ink);
   }
+  .normlab :global(.stream) {
+    stroke: var(--role-activation);
+    stroke-width: 3;
+  }
+  .normlab :global(.wire) {
+    fill: none;
+    stroke: var(--ink-soft);
+    stroke-width: 1.4;
+  }
+  .normlab :global(.bx.op) {
+    fill: var(--paper-raised);
+    stroke: var(--role-op);
+    stroke-width: 1.5;
+  }
+  .normlab :global(.bx.norm) {
+    stroke: var(--ink);
+    stroke-width: 2.2;
+  }
+  .normlab :global(.bx.wt) {
+    fill: var(--role-weight-wash);
+    stroke: var(--role-weight);
+    stroke-width: 1.5;
+  }
+  .normlab :global(.bx-l) {
+    text-anchor: middle;
+    fill: var(--ink);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .normlab :global(.add) {
+    fill: var(--paper-raised);
+    stroke: var(--ink);
+    stroke-width: 1.5;
+  }
+  .normlab :global(.plus) {
+    stroke: var(--ink);
+    stroke-width: 1.5;
+  }
+  .normlab :global(.tok) {
+    fill: var(--ink);
+    stroke: var(--paper-raised);
+    stroke-width: 2;
+  }
+  .normlab :global(.area.lit) {
+    fill: var(--role-activation);
+    fill-opacity: 0.5;
+  }
+  .normlab :global(.stat.lit) {
+    fill: var(--ink);
+    font-weight: 600;
+  }
   .normlab :global(.hl) {
     fill: none;
     stroke: var(--ink);
@@ -510,7 +641,7 @@ if (!says) throw new Error(`<NormLab title="${title}">: view must be steps, dept
       font-size: 15px;
     }
     /* The single-picture views shrink to fit a phone, so their labels grow to stay readable. */
-    svg.nl-watch :global(text) {
+    svg.nl-watch:not(.nl-block) :global(text) {
       font-size: 15px !important;
     }
   }

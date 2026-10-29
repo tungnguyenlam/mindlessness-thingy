@@ -16,6 +16,13 @@ Attention ([[mha]]) scores a query against a key with a dot product, and a dot p
 
 ## The idea in one picture
 
+<Scene
+  name="rope-rotate"
+  title="Two tokens, two angles, one score"
+  caption="Each arrow is one pair of a vector's numbers. Watch the angle between q and k, not the arrows themselves."
+/>
+
+<Words>
 <Stepper title="Two tokens, two angles, one score">
   <Step title="Two vectors, position unused">
     A query from the token at position $m$ and a key from the token at position $n$ come out of the [[mha]] projections as plain vectors $q$ and $k$. Scored as they are, $q^{\top} k$ says nothing about where either token sits.
@@ -32,6 +39,7 @@ Attention ([[mha]]) scores a query against a key with a dot product, and a dot p
 </Stepper>
 
 Position enters only as a rotation angle, so a pair's score depends on the gap $n - m$ and nothing else <Cite id="roformer-paper" where="§3.1" />.
+</Words>
 
 ## How it works
 

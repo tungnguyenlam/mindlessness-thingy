@@ -4,6 +4,7 @@ import Base from '../../layouts/Base.astro';
 import NoteIndex from '../../components/NoteIndex.astro';
 import LocalGraph from '../../components/LocalGraph.astro';
 import StatusMark from '../../components/StatusMark.astro';
+import BigPicture from '../../components/BigPicture.astro';
 import { vizComponents } from '../../components/viz';
 import { backlinks, getGraph, pathPositions, readFirst, type Note } from '../../lib/graph';
 import { noteUrl } from '../../lib/url';
@@ -84,6 +85,8 @@ const linkTypeText: Record<string, string> = {
           <span class="updated">Updated {updated}</span>
         </p>
       </header>
+
+      {d.kind !== 'path' && <BigPicture note={note} g={g} />}
 
       <div class="prose">
         <Content components={vizComponents} />

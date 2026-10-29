@@ -1,0 +1,159 @@
+---
+import '../../styles/player.css';
+// A live animation from a scene file: src/lib/scenes/<name>.mjs (contract in src/lib/scenes/kit.mjs).
+// The first beat is drawn on the server, so the page lays out the same before the script runs; the
+// script then plays the beats in a loop while on screen (src/scripts/player.ts), tweening the state.
+//   <Scene name="mha-heads" title="..." caption="..." />
+// Restorable: the beat comes back, paused (whenReady waits for the scene file to load).
+interface Props {
+  name: string;
+  title: string;
+  caption?: string;
+}
+const { name, title, caption } = Astro.props;
+const mods = import.meta.glob('../../lib/scenes/*.mjs', { eager: true }) as Record<string, { default?: any }>;
+const scene = mods[`../../lib/scenes/${name}.mjs`]?.default;
+if (!scene?.beats?.length || typeof scene.draw !== 'function') throw new Error(`<Scene name="${name}">: no scene at src/lib/scenes/${name}.mjs (needs viewBox, beats and draw; see kit.mjs)`);
+const [w, h] = scene.viewBox;
+const DEFS = '<defs><marker id="sc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 Z" fill="currentColor"/></marker></defs>';
+const first = DEFS + scene.draw(scene.beats[0].state, scene.setup?.() ?? {});
+---
+
+<x-scene class="scene live ui" data-restorable data-scene={name} tabindex="-1">
+  <p class="sc-title">{title}</p>
+  <svg class="sc-svg sc-watch" viewBox={`0 0 ${w} ${h}`} style={`--w:${w}`} role="img" aria-label={title} set:html={first} />
+  <div class="player">
+    <p class="says" aria-live="polite">
+      {scene.beats.map((b: { say: string }, i: number) => <span class="say" hidden={i > 0 ? true : undefined}>{b.say}</span>)}
+    </p>
+    <div class="controls" hidden>
+      <button type="button" class="play" aria-label="Pause">
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path class="i-pause" d="M3,2 v8 M9,2 v8" /><path class="i-play" d="M3,1.5 L10,6 L3,10.5 Z" /></svg>
+      </button>
+      <span class="beats">
+        {scene.beats.map((_: unknown, i: number) => <button type="button" class="beat-dot" data-i={i} aria-label={`Step ${i + 1} of ${scene.beats.length}`} aria-current={i === 0 ? 'step' : undefined} />)}
+      </span>
+    </div>
+  </div>
+  {caption && <p class="sc-caption">{caption}</p>}
+</x-scene>
+
+<script>
+  import { mountPlayer, tweener, type Player } from '../../scripts/player';
+
+  const scenes = import.meta.glob('../../lib/scenes/*.mjs');
+  type Beat = { say: string; state: Record<string, any>; ms?: number; tween?: number; linear?: boolean; from?: Record<string, any> };
+  const DEFS = '<defs><marker id="sc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 Z" fill="currentColor"/></marker></defs>';
+  const isNum = (v: unknown): boolean => typeof v === 'number' || (Array.isArray(v) && v.every(isNum));
+
+  class XScene extends HTMLElement {
+    player: Player | null = null;
+    ready: Promise<void> = Promise.resolve();
+    whenReady() {
+      return this.ready;
+    }
+    snapshot() {
+      return this.player?.snapshot() ?? null;
+    }
+    restore(state: unknown) {
+      this.player?.restore(state);
+    }
+    connectedCallback() {
+      const load = scenes[`../../lib/scenes/${this.dataset.scene}.mjs`];
+      if (!load) return;
+      this.ready = load().then((mod: any) => this.mount(mod.default));
+    }
+    mount(scene: { beats: Beat[]; draw: (s: any, ctx: any) => string; setup?: () => any }) {
+      const svg = this.querySelector<SVGSVGElement>('svg.sc-svg')!;
+      const ctx = scene.setup?.() ?? {};
+      let flags: Record<string, unknown> = {};
+      const tw = tweener<Record<string, any>>((s) => (svg.innerHTML = DEFS + scene.draw({ ...s, ...flags }, ctx)));
+      const split = (st: Record<string, any>) => {
+        const nums: Record<string, any> = {};
+        const rest: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(st)) (isNum(v) ? nums : rest)[k] = v;
+        return { nums, rest };
+      };
+      this.player = mountPlayer(this, {
+        watch: svg,
+        length: (i) => scene.beats[i].ms ?? 3600,
+        show: (i, animate) => {
+          const b = scene.beats[i];
+          const { nums, rest } = split(b.state);
+          flags = rest;
+          if (!animate) return tw.to(nums, 0);
+          if (b.from) tw.to({ ...(tw.state ?? nums), ...split(b.from).nums }, 0);
+          tw.to(nums, b.tween ?? 900, b.linear);
+        },
+      });
+    }
+  }
+  customElements.define('x-scene', XScene);
+</script>
+
+<style>
+  .scene {
+    display: block;
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    width: min(100%, var(--mid));
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .scene:focus {
+    outline: none;
+  }
+  .sc-title {
+    margin: 0 0 0.6rem;
+    font-weight: 600;
+  }
+  .sc-svg {
+    display: block;
+    width: 100%;
+    max-width: min(100%, calc(var(--w) * 1.35px));
+    height: auto;
+    margin: 0 auto;
+    cursor: pointer;
+    font-family: var(--font-ui);
+    overflow: visible;
+    color: var(--ink-soft);
+  }
+  .sc-caption {
+    margin: 0.6rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  /* Scene vocabulary (src/lib/scenes/kit.mjs) */
+  .scene :global(svg .act) { fill: var(--role-activation-wash); stroke: var(--role-activation); stroke-width: 1.4; }
+  .scene :global(svg .wt) { fill: var(--role-weight-wash); stroke: var(--role-weight); stroke-width: 1.4; }
+  .scene :global(svg .cache) { fill: var(--role-cache-wash); stroke: var(--role-cache); stroke-width: 1.6; }
+  .scene :global(svg .route) { fill: var(--role-route-wash); stroke: var(--role-route); stroke-width: 1.4; }
+  .scene :global(svg .op) { fill: var(--paper-raised); stroke: var(--role-op); stroke-width: 1.4; }
+  .scene :global(svg .ink) { fill: var(--paper); stroke: var(--ink); stroke-width: 1.4; }
+  .scene :global(svg .faint) { fill: var(--paper); stroke: var(--rule); stroke-width: 1.2; }
+  .scene :global(svg .act.solid) { fill: var(--role-activation); }
+  .scene :global(svg .wt.solid) { fill: var(--role-weight); }
+  .scene :global(svg .cache.solid) { fill: var(--role-cache); }
+  .scene :global(svg .route.solid) { fill: var(--role-route); }
+  .scene :global(svg .op.solid) { fill: var(--role-op); }
+  .scene :global(svg .ink.solid) { fill: var(--ink); }
+  .scene :global(svg .faint.solid) { fill: var(--rule); }
+  .scene :global(svg .solid) { stroke-width: 0; }
+  .scene :global(svg .hot) { stroke: var(--ink) !important; stroke-width: 2.6 !important; }
+  .scene :global(svg .wire) { fill: none; stroke: var(--ink-soft); stroke-width: 1.3; }
+  .scene :global(svg .flow) { fill: none; stroke: var(--role-activation); stroke-width: 3; }
+  .scene :global(svg .dash) { stroke-dasharray: 4 3; }
+  .scene :global(svg .arrow) { marker-end: url(#sc-arrow); }
+  .scene :global(svg text) { font-size: 12px; fill: var(--ink); stroke: none; }
+  .scene :global(svg .tb) { font-weight: 600; }
+  .scene :global(svg .ts) { font-size: 10.5px; fill: var(--ink-soft); }
+  .scene :global(svg .tm) { font-family: var(--font-mono); }
+  .scene :global(svg .tc) { text-anchor: middle; }
+  .scene :global(svg .te) { text-anchor: end; }
+  .scene :global(svg text.act) { stroke: none; fill: var(--role-activation); }
+  .scene :global(svg text.wt) { stroke: none; fill: var(--role-weight); }
+  .scene :global(svg text.cache) { stroke: none; fill: var(--role-cache); }
+  .scene :global(svg text.route) { stroke: none; fill: var(--role-route); }
+  .scene :global(svg text.faint) { stroke: none; fill: var(--ink-faint); }
+</style>
