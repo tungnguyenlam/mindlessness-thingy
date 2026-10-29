@@ -341,6 +341,22 @@ export function lintDiagram(props) {
     for (const id of [e.from, e.to]) if (!ids.has(id)) err('unknown-edge-end', `${where}: edge ${e.from} → ${e.to} refers to unknown block "${id}"`, 'fix the id or add the block');
     if (e.label && NUMBER.test(String(e.label))) warn('number-in-label', `${where}: edge label "${e.label}" contains a number`, 'cite the number in prose or a <Spec>; use a symbol in the diagram', 'sourced-numbers');
   }
+  // Animated diagrams (frames): every id exists, and each beat says one short thing without numbers.
+  const keys = new Set([...ids, ...edges.map((e) => `${e.from}>${e.to}`)]);
+  for (const [i, f] of (props.frames ?? []).entries()) {
+    const at = `${where} frame ${i + 1}`;
+    if (!f.say) err('frame-no-say', `${at} says nothing`, "give it say: 'what happens now, in a few words'");
+    else {
+      if (NUMBER.test(f.say)) warn('number-in-label', `${at} say "${f.say}" contains a number`, 'use a symbol or a word ("every token", "t tokens")', 'sourced-numbers');
+      if (f.say.split(/\s+/).length > 14) warn('frame-long-say', `${at} say has ${f.say.split(/\s+/).length} words`, 'one short line per frame (at most 14 words): split it into two frames');
+    }
+    for (const field of ['add', 'flow', 'hot', 'hide']) {
+      for (const k of f[field] ?? []) {
+        if (!keys.has(k)) err('frame-unknown', `${at} ${field} refers to unknown block or edge "${k}"`, 'use a block id, or an edge as "from>to"');
+        else if (field === 'flow' && !k.includes('>')) err('frame-flow-block', `${at} flow "${k}" is a block`, 'flow takes edges ("from>to"); light a block with hot');
+      }
+    }
+  }
   if (out.some((p) => p.level === 'error')) return out;
 
   const L = layout(props);

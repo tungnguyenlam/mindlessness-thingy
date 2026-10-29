@@ -206,3 +206,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: frame-based motion tokens with measured curves (motionmaxxing); ribbon rises and bookmark drops, place notch slides in, hover card drops from its link, opened tabs land, ArchDiagram edges draw in data-flow order on first scroll-in; browser tools default to reduced motion (shot --motion opts in), keep-place test runs with motion
 - files: src/styles/global.css src/scripts/{motion,trail}.ts src/layouts/Base.astro src/components/viz/ArchDiagram.astro scripts/{lib/browser,shot,test-place}.mjs AGENTS.md
 - open: ModelOverview/ModelDiagram edges don't draw in yet (only ArchDiagram); linear() curves fall back to cubic-bezier in older browsers
+
+## 2026-10-29 · feat(frames): animated diagrams, pilot on the KV cache note
+- did: owner wants pictures and animation, not text: ArchDiagram frames={[...]} plays beats in a loop (blocks fade in, dots run along flow edges, one large say line per beat, pause/scrub, restorable, paused on return); <Words> folds prose behind Read the words; kv-cache rewritten as four animations + Calc with prose folded; frames linted in the fast check; keep-place test covers frame restore
+- files: src/components/viz/{ArchDiagram,Words}.astro src/components/viz/index.ts src/lib/diagram/geometry.mjs src/content/notes/concepts/kv-cache.mdx scripts/test-place.mjs AGENTS.md
+- open: pilot only: other notes still prose-first, owner to decide rollout; PRINCIPLES.md visual-first not updated (owner's call); reduced motion never autoplays

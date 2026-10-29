@@ -88,6 +88,29 @@ async function scenario(mode) {
     check('no stale hover card on return', !back.card);
     await snap('2-returned');
 
+    // ---- 1b. An animated diagram keeps its frame, paused, and its block link is marked ----
+    await goto('/notes/kv-cache/');
+    const anim = await evaluate(`(async () => {
+      const xf = document.querySelector('x-frames');
+      xf.scrollIntoView({ block: 'center' });
+      xf.querySelector('.beat-dot[data-i="6"]').click();
+      await new Promise((r) => setTimeout(r, 400));
+      const a = xf.querySelector('a.block-link');
+      a.setAttribute('data-test-anim', '');
+      return { frame: xf.i, href: a.getAttribute('href') };
+    })()`);
+    await click('[data-test-anim]', { navigates: true });
+    await click('.trail-back');
+    await backAt('/notes/kv-cache/');
+    const animBack = await evaluate(`(() => {
+      const xf = document.querySelector('x-frames');
+      return { frame: xf.i, paused: xf.paused, marked: !!xf.querySelector('a.place-here') };
+    })()`);
+    check('animated diagram reopens on the same frame', animBack.frame === anim.frame, `${animBack.frame} vs ${anim.frame}`);
+    check('animated diagram is paused on return', animBack.paused === true);
+    check('the clicked diagram block is marked on return', animBack.marked);
+    await goto('/notes/mla/');
+
     // ---- 2. Two hops deep (prose, then side panel), unwind with the B key ----
     await markVisible('.prose a.wikilink', 'data-hop1');
     await click('[data-hop1]', { navigates: true });

@@ -121,7 +121,7 @@ Available in every note without imports. Full props are in each file under `src/
 
 | Component | Use it for |
 | --- | --- |
-| `<ArchDiagram>` | Hand-drawn block diagrams for concepts: data flow, what is cached. Leave out `col`/`row` and blocks are placed from the edges; edges route around blocks; groups take `blocks: [ids]`. Blocks can link to notes. (`link`), or, inside a component with views, open one (`open`, drawn with a + badge). |
+| `<ArchDiagram>` | Hand-drawn block diagrams for concepts: data flow, what is cached. Leave out `col`/`row` and blocks are placed from the edges; edges route around blocks; groups take `blocks: [ids]`. Blocks can link to notes. (`link`), or, inside a component with views, open one (`open`, drawn with a + badge). `frames={[{ say, add, flow, hot, hide }]}` makes it an animation: blocks and edges (`'from>to'`) appear beat by beat, dots run along `flow` edges and `say` is the one short line for that beat; it loops while on screen. |
 | `<BiasVariance>` | Bias and variance measured live: many noisy training sets, one model family fit to each in the browser (`src/lib/fitlab.mjs`), the fits on the left (spread = variance, gap to the truth = bias), bias², variance, test and train error across the model's knob on the right. `models={['poly', 'knn', ...]}` gives one tab each; `controls` adds noise, n and λ sliders. |
 | `<Calc>` | Sliders plus formulas, e.g. cache size as context length grows. |
 | `<ConvTokens>` | A gated short convolution in token space, from a model's data and tokenizer: real tokens as columns, one row per stage of the block, a chosen token's output tracing back to the k tokens it reads (the only row that crosses tokens), one channel's own kernel, prefill vs decode (the window cache), and how far stacked conv layers reach. `model=` needs `conv_window`, `hidden_size` and a tokenizer; `samples=[...]` gives one tab per sample text. |
@@ -142,6 +142,7 @@ Available in every note without imports. Full props are in each file under `src/
 | `<Cite>` | Inline citation of a source, with an optional location. |
 | `<Callout>` | `note`, `intuition` or `pitfall` asides. Use sparingly. |
 | `<Figure>` | A captioned wrapper for anything else. |
+| `<Words>` | The written explanation folded behind "Read the words", placed right after the picture it explains, so a note reads as pictures first. |
 
 Block roles in `ArchDiagram` (and bar roles in `Calc`) have fixed meanings across the whole site. Use them only for what they mean:
 

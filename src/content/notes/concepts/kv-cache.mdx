@@ -9,20 +9,92 @@ contrasts_with: []
 related: [mqa, gqa, mla]
 sources: [attention-is-all-you-need, mqa-paper]
 status: draft
-updated: 2026-10-16
+updated: 2026-10-29
 ---
+
+<ArchDiagram
+  title="Decoding with a KV cache, per token"
+  caption="One layer, one token per step. Click the picture to pause; the dots jump to a frame."
+  blocks={[
+    { id: 'x', label: 'Newest token x_t', sub: 'd', role: 'activation' },
+    { id: 'w', label: 'W_Q, W_K, W_V', sub: 'd → n_h·d_h', role: 'weight' },
+    { id: 'q', label: 'Query q_t', sub: 'n_h × d_h', role: 'activation' },
+    { id: 'kv', label: 'New k_t, v_t', sub: 'n_kv × d_h', role: 'activation' },
+    { id: 'c1', label: 'Saved: "The"', sub: 'k, v: n_kv × d_h', role: 'cache' },
+    { id: 'c2', label: 'Saved: "cat"', sub: 'k, v: n_kv × d_h', role: 'cache' },
+    { id: 'c3', label: 'Saved: "sat"', sub: 'k, v: n_kv × d_h', role: 'cache' },
+    { id: 'attn', label: 'Attention', sub: 'q_t reads t keys', role: 'op', link: 'mha' },
+    { id: 'out', label: 'Next token', sub: 'logits: V', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'x', to: 'w' },
+    { from: 'w', to: 'q' },
+    { from: 'w', to: 'kv' },
+    { from: 'kv', to: 'c1', dashed: true },
+    { from: 'kv', to: 'c2', dashed: true },
+    { from: 'kv', to: 'c3', dashed: true },
+    { from: 'q', to: 'attn' },
+    { from: 'c1', to: 'attn' },
+    { from: 'c2', to: 'attn' },
+    { from: 'c3', to: 'attn' },
+    { from: 'attn', to: 'out' },
+    { from: 'out', to: 'x', dashed: true, side: 'left' },
+  ]}
+  groups={[{ label: 'KV cache', blocks: ['c1', 'c2', 'c3'] }]}
+  frames={[
+    { add: ['x'], hot: ['x'], say: 'The token "The" comes in as a vector.' },
+    { flow: ['x>w', 'w>q', 'w>kv'], say: 'It is turned into a query, a key and a value.' },
+    { flow: ['kv>c1'], say: 'Its key and value are saved in the cache.' },
+    { add: ['attn', 'out'], flow: ['q>attn', 'c1>attn', 'attn>out'], say: 'The query reads what is saved. Out comes the next token.' },
+    { flow: ['out>x'], say: '"cat" goes back in as the newest token.' },
+    { flow: ['x>w', 'w>q', 'w>kv', 'kv>c2'], say: 'Only "cat" is projected. Its key and value join the cache.' },
+    { flow: ['q>attn', 'c1>attn', 'c2>attn', 'attn>out'], hot: ['c1'], say: '"The" is read from the cache, not computed again.' },
+    { flow: ['out>x', 'x>w', 'w>q', 'w>kv', 'kv>c3'], say: 'Every new token adds one more entry.' },
+    { flow: ['q>attn', 'c1>attn', 'c2>attn', 'c3>attn', 'attn>out'], hot: ['c1', 'c2', 'c3'], say: 'Each step reads the whole cache, and the cache keeps growing.' },
+  ]}
+/>
+
+<Words>
 
 A language model generates one token at a time. To produce token $t$, every attention layer needs the keys and values of tokens $1 \dots t-1$. Those don't change once computed, so instead of recomputing them at every step, the model keeps them in memory. That memory is the KV cache.
 
+</Words>
+
+## Without a cache
+
+<ArchDiagram
+  title="Decoding without a cache, per token"
+  caption="The same three steps, with nothing saved between them."
+  blocks={[
+    { id: 't1', label: '"The"', sub: 'd', role: 'activation' },
+    { id: 't2', label: '"cat"', sub: 'd', role: 'activation' },
+    { id: 't3', label: '"sat"', sub: 'd', role: 'activation' },
+    { id: 'w', label: 'W_K, W_V', sub: 'd → n_kv·d_h', role: 'weight' },
+    { id: 'k', label: 'K, V of all tokens', sub: 't × n_kv × d_h', role: 'activation' },
+    { id: 'attn', label: 'Attention', sub: 'q_t reads t keys', role: 'op' },
+  ]}
+  edges={[
+    { from: 't1', to: 'w' },
+    { from: 't2', to: 'w' },
+    { from: 't3', to: 'w' },
+    { from: 'w', to: 'k' },
+    { from: 'k', to: 'attn' },
+  ]}
+  frames={[
+    { flow: ['t1>w', 'w>k', 'k>attn'], say: 'First step: project "The".' },
+    { flow: ['t1>w', 't2>w', 'w>k', 'k>attn'], hot: ['t1'], say: 'Next step: project "The" again, and then "cat".' },
+    { flow: ['t1>w', 't2>w', 't3>w', 'w>k', 'k>attn'], hot: ['t1', 't2'], say: 'Every step redoes the work for all earlier tokens.' },
+    { hot: ['k'], say: 'A cache does this work once and keeps the result.' },
+  ]}
+/>
+
 ## What it costs
 
-For [[mha]], each layer stores one key and one value vector per head per token. In elements:
+Each layer saves one key and one value per key/value head, per token, per sequence:
 
 $$
-\text{KV cache} = 2 \times n_\text{layers} \times n_\text{kv heads} \times d_h \times \text{tokens} \times \text{batch}
+\text{KV cache} = 2 \times L \times n_{kv} \times d_h \times \text{tokens} \times \text{batch}
 $$
-
-Multiply by bytes per element (2 for FP16/BF16) to get memory. Notice what's absent: the number of parameters. A model's weights are a fixed cost, but the cache grows linearly with both context length and the number of sequences served at once.
 
 <Calc
   title="How big does the cache get?"
@@ -38,25 +110,74 @@ Multiply by bytes per element (2 for FP16/BF16) to get memory. Notice what's abs
     { label: 'Per token, all layers', expr: '2 * layers * kvh * dh * bytes', format: 'bytes', role: 'cache' },
     { label: 'Whole cache', expr: '2 * layers * kvh * dh * bytes * ctx * batch', format: 'bytes', role: 'cache' },
   ]}
-  note="The defaults are a generic 32-layer model with full multi-head attention. Try dropping key/value heads to 8 to see what grouped-query attention buys."
+  note="The defaults are a generic 32-layer model with full multi-head attention. Drag context length and batch: the cache grows with both. Drop key/value heads to 8 to see what grouped-query attention saves."
 />
 
-At the default settings a single 8K-token sequence already needs a few gigabytes. Serve 32 of them and the cache dwarfs the weights.
+<Words>
 
-## Why it is a bandwidth problem too
+$L$ is the number of layers, $n_{kv}$ the number of key/value heads and $d_h$ the head dimension. Multiply by bytes per element (2 for FP16/BF16) to get memory. The number of parameters is not in the formula. A model's weights are a fixed cost, but the cache grows linearly with both context length and the number of sequences served at once. At the default settings a single 8K-token sequence already needs a few gigabytes. Serve 32 of them and the cache is bigger than the weights.
+
+</Words>
+
+## Why it is slow, too
+
+<ArchDiagram
+  title="Each decoding step reads the whole cache"
+  caption="One decoding step on one layer."
+  blocks={[
+    { id: 'wts', label: 'Weights', sub: 'fixed size', role: 'weight' },
+    { id: 'cache', label: 'KV cache', sub: 't × n_kv × d_h', role: 'cache' },
+    { id: 'chip', label: 'Compute', sub: 'little math per token', role: 'op' },
+    { id: 'tok', label: 'Next token', sub: 'logits: V', role: 'activation' },
+  ]}
+  edges={[
+    { from: 'wts', to: 'chip' },
+    { from: 'cache', to: 'chip' },
+    { from: 'chip', to: 'tok' },
+    { from: 'tok', to: 'cache', dashed: true, side: 'right' },
+  ]}
+  groups={[{ label: 'GPU memory', blocks: ['wts', 'cache'] }]}
+  frames={[
+    { flow: ['wts>chip', 'cache>chip'], say: 'To make one token, the whole cache is read from memory.' },
+    { flow: ['chip>tok'], hot: ['chip'], say: 'The math done with it is small.' },
+    { flow: ['tok>cache'], say: 'The new key and value are added, so the next read is longer.' },
+    { hot: ['cache'], say: 'So each step waits on memory, not on math.' },
+  ]}
+/>
+
+<Words>
 
 Generating each new token means reading the entire cache from GPU memory once per layer, while doing only a small amount of arithmetic with it. Shazeer observed that this memory traffic, not the arithmetic, dominates incremental decoding time <Cite id="mqa-paper" where="§2" />. Shrinking the cache therefore helps twice: more sequences fit, and each step finishes sooner.
 
-<Callout type="intuition">
-Think of the cache as the model's working memory of the conversation so far. Every design on the path from [[mha]] to [[mla]] trades a little modelling flexibility for a smaller working memory.
-</Callout>
+</Words>
 
 ## Ways to shrink it
 
-- Store fewer key/value heads: [[mqa]] keeps one, [[gqa]] keeps a few groups.
-- Store a compressed version and expand it when needed: [[mla]].
-- Store fewer bits per number, for example 8-bit cache quantization.
-- Store fewer tokens, for example sliding-window or sparse attention.
-- Keep attention in only a few layers and use a fixed-size recurrent state everywhere else: [[hybrid-ssm-attention]].
-
-The first two and the last change the architecture, so they have to be decided before training. The middle two can often be applied to an existing model.
+<ArchDiagram
+  title="Ways to shrink the KV cache"
+  caption="Click a box to open the note on that idea."
+  blocks={[
+    { id: 'c', label: 'KV cache', sub: 'L × t × n_kv × d_h', role: 'cache', col: 1, row: 0 },
+    { id: 'h', label: 'Fewer K/V heads', sub: 'MQA', role: 'op', link: 'mqa', col: 0, row: 1 },
+    { id: 'g', label: 'Heads in groups', sub: 'GQA', role: 'op', link: 'gqa', col: 1, row: 1 },
+    { id: 'm', label: 'A small latent', sub: 'MLA: d_c per token', role: 'op', link: 'mla', col: 2, row: 1 },
+    { id: 'b', label: 'Fewer bits', sub: 'quantized cache', role: 'op', col: 0, row: 2 },
+    { id: 'w', label: 'Fewer tokens', sub: 'window, sparse', role: 'op', col: 1, row: 2 },
+    { id: 's', label: 'Fewer attention layers', sub: 'hybrid with SSM', role: 'op', link: 'hybrid-ssm-attention', col: 2, row: 2 },
+  ]}
+  edges={[
+    { from: 'c', to: 'h' },
+    { from: 'c', to: 'g' },
+    { from: 'c', to: 'm' },
+  ]}
+  frames={[
+    { hot: ['c'], say: 'The cache stores something for every layer, head and token.' },
+    { add: ['h', 'g'], flow: ['c>h', 'c>g'], say: 'Store fewer key/value heads.' },
+    { add: ['m'], flow: ['c>m'], say: 'Store a small latent, expand it when needed.' },
+    { add: ['b'], hot: ['b'], say: 'Store fewer bits per number.' },
+    { add: ['w'], hot: ['w'], say: 'Store fewer tokens.' },
+    { add: ['s'], hot: ['s'], say: 'Keep attention in only a few layers.' },
+    { hot: ['h', 'g', 'm', 's'], say: 'These change the model, so they are chosen before training.' },
+    { hot: ['b', 'w'], say: 'These can often be added to a trained model.' },
+  ]}
+/>

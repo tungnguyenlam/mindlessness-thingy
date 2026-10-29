@@ -1,0 +1,54 @@
+---
+// The written explanation behind a picture, folded away so the page reads as pictures first.
+// restorable: none, the trail restores the open state of every <details> in main (trail.ts).
+interface Props {
+  /** What the reader gets by opening it. */
+  label?: string;
+}
+const { label = 'Read the words' } = Astro.props;
+---
+
+<details class="words">
+  <summary class="ui">{label}</summary>
+  <div class="body">
+    <slot />
+  </div>
+</details>
+
+<style>
+  .words {
+    margin: -1rem 0 2rem;
+  }
+  summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary::before {
+    content: '';
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform calc(5 * var(--f)) var(--ease-land);
+  }
+  .words[open] summary::before {
+    transform: rotate(45deg);
+  }
+  summary:hover {
+    color: var(--ink);
+  }
+  .body {
+    margin-top: 0.6rem;
+    padding-left: 0.9rem;
+    border-left: 2px solid var(--rule-soft);
+  }
+</style>

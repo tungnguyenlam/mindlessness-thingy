@@ -38,15 +38,30 @@ interface Group {
   from?: [number, number];
   to?: [number, number];
 }
+/** One beat of an animated diagram. Ids are block ids and edges as "from>to". */
+interface Frame {
+  /** What this beat says, in a few plain words. Shown large under the picture. */
+  say: string;
+  /** Blocks or edges that appear now and stay. Anything never added, flowed or lit is there from the start. */
+  add?: string[];
+  /** Edges data runs along now (a dot travels from source to target); they appear too. */
+  flow?: string[];
+  /** Blocks or edges lit up now (they appear too). */
+  hot?: string[];
+  /** Blocks or edges that disappear now. */
+  hide?: string[];
+}
 interface Props {
   title: string;
   blocks: Block[];
   edges?: Edge[];
   groups?: Group[];
   caption?: string;
+  /** Turns the diagram into an animation that plays its frames in a loop while it is on screen. */
+  frames?: Frame[];
 }
 
-const { title, blocks, edges = [], groups = [], caption } = Astro.props;
+const { title, blocks, edges = [], groups = [], caption, frames = [] } = Astro.props;
 
 // All geometry lives in src/lib/diagram/geometry.mjs, shared with the diagram-geometry check, so
 // what the check approves is exactly what renders. Blocks without col/row are placed automatically.
@@ -89,9 +104,46 @@ for (let pass = 0; pass < blocks.length; pass++) {
 }
 const ranks = [...new Set(edges.map((e) => depth.get(e.from)!))].sort((a, b) => a - b);
 const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
+
+// Frames are resolved here, at build time, into what is visible and lit in each beat, so the
+// script only swaps classes. Data that flows in a beat runs in order: an edge leaving a block
+// that another flow of the same beat feeds starts after it (`step`).
+const ekey = (e: Edge) => `${e.from}>${e.to}`;
+const keys = new Set([...blocks.map((b) => b.id), ...edges.map(ekey)]);
+for (const [i, f] of frames.entries()) {
+  for (const k of [...(f.add ?? []), ...(f.flow ?? []), ...(f.hot ?? []), ...(f.hide ?? [])]) {
+    if (!keys.has(k)) throw new Error(`<ArchDiagram title="${title}">: frame ${i + 1} refers to unknown block or edge "${k}"`);
+  }
+}
+const introduced = new Set(frames.flatMap((f) => [...(f.add ?? []), ...(f.flow ?? []), ...(f.hot ?? []), ...(f.flow ?? []).flatMap((k) => k.split('>'))]));
+const plan = (() => {
+  const on = new Set([...keys].filter((k) => !introduced.has(k)));
+  return frames.map((f) => {
+    for (const k of [...(f.add ?? []), ...(f.flow ?? []), ...(f.hot ?? [])]) on.add(k);
+    for (const k of f.flow ?? []) for (const id of k.split('>')) on.add(id);
+    for (const k of f.hide ?? []) on.delete(k);
+    const flow = f.flow ?? [];
+    const step = new Map(flow.map((k) => [k, 0]));
+    for (let pass = 0; pass < flow.length; pass++) {
+      for (const k of flow) {
+        const from = k.split('>')[0];
+        for (const j of flow) if (j.split('>')[1] === from && j !== k) step.set(k, Math.max(step.get(k)!, step.get(j)! + 1));
+      }
+    }
+    // A group box shows once something inside it has appeared.
+    L.groupBoxes.forEach((g, gi) => {
+      if ((g.blocks ?? []).some((id: string) => on.has(id)) || !(g.blocks ?? []).length) on.add(`group:${gi}`);
+    });
+    return { say: f.say, on: [...on], hot: [...new Set([...(f.hot ?? []), ...flow])], flow: flow.map((k) => [k, step.get(k)!]) };
+  });
+})();
+const framed = plan.length > 0;
+const first = plan[0];
+const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: first.hot.includes(k) } : {});
 ---
 
-<figure class="arch ui" style={`--w:${remWidth}`} data-draw>
+<x-frames class:list={['frames-wrap', { framed }]} data-restorable={framed ? '' : undefined} data-frames={framed ? JSON.stringify(plan) : undefined}>
+<figure class:list={['arch ui', { framed }]} style={`--w:${remWidth}`} data-draw={framed ? undefined : ''}>
   <div class="scroll" data-keep-scroll>
     <svg viewBox={`0 0 ${width} ${height}`} width={width} style={`width:${remWidth};min-width:${minWidth}px`} role="img" aria-labelledby={`${markerId}-t`}>
       <title id={`${markerId}-t`}>{title}</title>
@@ -101,8 +153,8 @@ const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
         </marker>
       </defs>
       {
-        L.groupBoxes.map((g) => (
-          <g class="group">
+        L.groupBoxes.map((g, gi) => (
+          <g class:list={['group', framed && { beat: true, off: !first.on.includes(`group:${gi}`) }]} data-k={framed ? `group:${gi}` : undefined}>
             <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="6" />
             <text x={g.x + g.w - 12} y={g.y + g.h} text-anchor="end" dominant-baseline="middle">
               {g.label}
@@ -114,7 +166,7 @@ const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
         L.routes.map((r) => {
           const e = r.edge;
           return (
-            <g class:list={['edge', e.dashed ? 'dashed' : 'solid']} style={`--i:${drawStep(e)}`}>
+            <g class:list={['edge', e.dashed ? 'dashed' : 'solid', stateClass(ekey(e))]} style={`--i:${drawStep(e)}`} data-k={ekey(e)}>
               <path d={r.d} marker-end={`url(#${markerId})`} pathLength={e.dashed ? undefined : 1} />
               {e.label && (
                 <text x={r.lx} y={r.ly} dominant-baseline="middle">
@@ -127,6 +179,7 @@ const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
       }
       {
         boxes.map((b) => {
+          const block = (el: any) => (framed ? <g class:list={['beat', stateClass(b.id)]} data-k={b.id}>{el}</g> : el);
           const r = b;
           const inner = (
             <g class:list={['block', `role-${b.role ?? 'op'}`]}>
@@ -142,7 +195,7 @@ const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
             </g>
           );
           if (b.open)
-            return (
+            return block(
               <g class="block-open" data-open={b.open} role="button" tabindex="0" aria-label={`Open the ${b.label} view`}>
                 {inner}
                 <g class="badge" aria-hidden="true">
@@ -151,17 +204,46 @@ const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
                 </g>
               </g>
             );
-          return b.link ? (
-            <a href={noteUrl(b.link)} data-slug={b.link} class="block-link">
-              {inner}
-            </a>
-          ) : (
-            inner
+          return block(
+            b.link ? (
+              <a href={noteUrl(b.link)} data-slug={b.link} class="block-link">
+                {inner}
+              </a>
+            ) : (
+              inner
+            ),
           );
         })
       }
+      {
+        framed &&
+          L.routes.map((r) => (
+            <circle class="dot" r="4.5" data-k={ekey(r.edge)} style={`offset-path: path('${r.d}')`} aria-hidden="true" />
+          ))
+      }
     </svg>
   </div>
+  {
+    framed && (
+      <div class="player">
+        <p class="says" aria-live="polite">
+          {plan.map((f, i) => (
+            <span class="say" hidden={i > 0 ? true : undefined}>{f.say}</span>
+          ))}
+        </p>
+        <div class="controls" hidden>
+          <button type="button" class="play" aria-label="Pause">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path class="i-pause" d="M3,2 v8 M9,2 v8" /><path class="i-play" d="M3,1.5 L10,6 L3,10.5 Z" /></svg>
+          </button>
+          <span class="beats">
+            {plan.map((_, i) => (
+              <button type="button" class="beat-dot" data-i={i} aria-label={`Frame ${i + 1} of ${plan.length}`} aria-current={i === 0 ? 'step' : undefined} />
+            ))}
+          </span>
+        </div>
+      </div>
+    )
+  }
   <figcaption>
     <span class="caption">{caption ?? title}</span>
     <span class="legend" aria-hidden="true">
@@ -178,8 +260,133 @@ const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
     </span>
   </figcaption>
 </figure>
+</x-frames>
+
+<script>
+  // An animated diagram (frames={[...]}): plays its frames in a loop while at least half of it is
+  // on screen. Clicking the picture or the button pauses; a dot jumps to that frame and pauses.
+  // Restorable (src/scripts/trail.ts): a returning reader finds the frame they were on, paused,
+  // because restoring never starts motion (src/scripts/motion.ts). Reduced motion never autoplays.
+  type Plan = { say: string; on: string[]; hot: string[]; flow: [string, number][] }[];
+  const FRAME = 1000 / 30;
+  class XFrames extends HTMLElement {
+    i = 0;
+    started = false;
+    paused = false;
+    visible = false;
+    timer = 0;
+    plan: Plan = [];
+    show = (_i: number, _animate: boolean) => {};
+    snapshot() {
+      return this.started ? { f: this.i, p: this.paused } : null;
+    }
+    restore(state: unknown) {
+      const s = state as { f?: number } | null;
+      if (!s || typeof s.f !== 'number') return;
+      this.started = true;
+      this.setPaused(true);
+      this.show(s.f, false);
+    }
+    setPaused(_p: boolean) {}
+    connectedCallback() {
+      if (!this.dataset.frames) return;
+      this.plan = JSON.parse(this.dataset.frames);
+      const els = [...this.querySelectorAll<SVGElement>('svg [data-k]')];
+      const says = [...this.querySelectorAll<HTMLElement>('.say')];
+      const dots = [...this.querySelectorAll<HTMLButtonElement>('.beat-dot')];
+      const play = this.querySelector<HTMLButtonElement>('.play')!;
+      const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const words = (s: string) => s.split(/\s+/).length;
+      // A beat lasts until its last dot lands, plus time to read what it says.
+      const length = (i: number) => {
+        const f = this.plan[i];
+        const steps = f.flow.length ? Math.max(...f.flow.map(([, s]) => s)) + 1 : 0;
+        return Math.max(2200, steps * 16 * FRAME + 900 + words(f.say) * 260);
+      };
+      this.show = (i, animate) => {
+        this.i = (i + this.plan.length) % this.plan.length;
+        const f = this.plan[this.i];
+        const on = new Set(f.on);
+        const hot = new Set(f.hot);
+        const flow = new Map(f.flow);
+        for (const el of els) {
+          const k = el.dataset.k!;
+          if (el.classList.contains('dot')) {
+            el.classList.remove('go');
+            if (animate && flow.has(k) && !reduced()) {
+              void el.getBoundingClientRect(); // restart the run
+              el.style.setProperty('--s', String(flow.get(k)));
+              el.classList.add('go');
+            }
+            continue;
+          }
+          el.classList.toggle('off', !on.has(k));
+          el.classList.toggle('hot', hot.has(k));
+        }
+        says.forEach((s, k) => (s.hidden = k !== this.i));
+        dots.forEach((d, k) => (k === this.i ? d.setAttribute('aria-current', 'step') : d.removeAttribute('aria-current')));
+      };
+      const tick = () => {
+        clearTimeout(this.timer);
+        if (this.paused || !this.visible) return;
+        this.timer = window.setTimeout(() => {
+          this.show(this.i + 1, true);
+          tick();
+        }, length(this.i) + (this.i === this.plan.length - 1 ? 1200 : 0));
+      };
+      this.setPaused = (p: boolean) => {
+        this.paused = p;
+        this.classList.toggle('paused', p);
+        play.setAttribute('aria-label', p ? 'Play' : 'Pause');
+        tick();
+      };
+      this.querySelector<HTMLElement>('.controls')!.hidden = false;
+      play.addEventListener('click', () => {
+        this.started = true;
+        if (this.paused) this.show(this.i + (this.i === this.plan.length - 1 ? 1 : 0), true);
+        this.setPaused(!this.paused);
+      });
+      this.querySelector('svg')!.addEventListener('click', (e) => {
+        if ((e.target as Element).closest('a, [data-open]')) return;
+        play.click();
+      });
+      dots.forEach((d, k) =>
+        d.addEventListener('click', () => {
+          this.started = true;
+          this.setPaused(true);
+          this.show(k, true);
+        }),
+      );
+      this.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        this.started = true;
+        this.setPaused(true);
+        this.show(this.i + (e.key === 'ArrowRight' ? 1 : -1), true);
+      });
+      if (reduced()) this.setPaused(true);
+      document.addEventListener('trail:restore', () => {
+        if (!this.started) this.setPaused(true);
+      });
+      new IntersectionObserver(
+        ([entry]) => {
+          this.visible = entry.isIntersecting;
+          if (this.visible && !this.started && !this.paused) {
+            this.started = true;
+            this.show(0, true);
+          }
+          tick();
+        },
+        { threshold: 0.5 },
+      ).observe(this.querySelector('svg')!);
+    }
+  }
+  customElements.define('x-frames', XFrames);
+</script>
 
 <style>
+  x-frames {
+    display: block;
+  }
   .arch {
     margin: 2rem 0;
     /* At least the usual column, wider when the diagram is: the panel hugs big diagrams. */
@@ -320,4 +527,161 @@ const drawStep = (e: Edge) => ranks.indexOf(depth.get(e.from)!);
   .key.role-weight i { background: var(--role-weight-wash); border-color: var(--role-weight); }
   .key.role-cache i { background: var(--role-cache-wash); border-color: var(--role-cache); }
   .key.role-route i { background: var(--role-route-wash); border-color: var(--role-route); }
+
+  /* Animated diagrams: things fade in as they join the story, lit ones stand out, dots carry data. */
+  .framed .beat,
+  .framed .edge {
+    transition: opacity calc(8 * var(--f)) var(--ease-fade);
+  }
+  .framed .off {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .framed .beat.hot .block rect {
+    stroke-width: 2.8;
+  }
+  .framed .beat.hot .block {
+    animation: beat-pulse calc(12 * var(--f)) var(--ease-land);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .framed .edge.hot path {
+    stroke: var(--ink);
+    stroke-width: 2;
+  }
+  .framed .edge:not(.hot):not(.off) {
+    opacity: 0.45;
+  }
+  .dot {
+    fill: var(--ink);
+    stroke: var(--paper-raised);
+    stroke-width: 1.5;
+    offset-rotate: 0deg;
+    offset-distance: 0%;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .dot.go {
+    animation: dot-run calc(15 * var(--f)) var(--ease-glide) calc(var(--s, 0) * 16 * var(--f)) both;
+  }
+  @keyframes dot-run {
+    0% {
+      offset-distance: 0%;
+      opacity: 0;
+    }
+    12% {
+      opacity: 1;
+    }
+    88% {
+      opacity: 1;
+    }
+    100% {
+      offset-distance: 100%;
+      opacity: 0;
+    }
+  }
+  @keyframes beat-pulse {
+    30% {
+      transform: scale(1.05);
+    }
+  }
+  .framed svg {
+    cursor: pointer;
+  }
+  .player {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem 1rem;
+    margin-top: 0.6rem;
+  }
+  .says {
+    display: grid;
+    flex: 1 1 18rem;
+    margin: 0;
+    font-size: var(--step-1);
+    line-height: 1.3;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  /* Every line shares one cell, so the player is as tall as its longest line and never jumps. */
+  .say {
+    grid-area: 1 / 1;
+  }
+  .say[hidden] {
+    display: block;
+    visibility: hidden;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .controls[hidden] {
+    display: none;
+  }
+  .play {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: 50%;
+    background: var(--paper-raised);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .play svg {
+    width: 0.75rem;
+    height: 0.75rem;
+    cursor: inherit;
+  }
+  .play path {
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  .play .i-play {
+    fill: currentColor;
+    stroke: none;
+    display: none;
+  }
+  x-frames.paused .play .i-play {
+    display: inline;
+  }
+  x-frames.paused .play .i-pause {
+    display: none;
+  }
+  .beats {
+    display: flex;
+    gap: 0.15rem;
+  }
+  .beat-dot {
+    width: 1.2rem;
+    height: 1.2rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    position: relative;
+  }
+  .beat-dot::after {
+    content: '';
+    position: absolute;
+    inset: 0.4rem;
+    border-radius: 50%;
+    background: var(--rule);
+    transition: background calc(4 * var(--f)) var(--ease-fade), inset calc(4 * var(--f)) var(--ease-land);
+  }
+  .beat-dot[aria-current]::after {
+    background: var(--ink);
+    inset: 0.3rem;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot {
+      display: none;
+    }
+  }
 </style>

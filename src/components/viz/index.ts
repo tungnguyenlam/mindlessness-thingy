@@ -22,5 +22,6 @@ import Timeline from './Timeline.astro';
 import Tokenizer from './Tokenizer.astro';
 import TokenizerCompare from './TokenizerCompare.astro';
 import TokenizerFlow from './TokenizerFlow.astro';
+import Words from './Words.astro';
 
-export const vizComponents = { ArchDiagram, BiasVariance, Calc, Callout, Cite, Compare, ConvTokens, Figure, LayerStrip, MaskGrid, ModelDiagram, ModelOverview, ModelSpec, NgramLookup, ShapeFlow, Spec, Step, Stepper, Timeline, Tokenizer, TokenizerCompare, TokenizerFlow };
+export const vizComponents = { ArchDiagram, BiasVariance, Calc, Callout, Cite, Compare, ConvTokens, Figure, LayerStrip, MaskGrid, ModelDiagram, ModelOverview, ModelSpec, NgramLookup, ShapeFlow, Spec, Step, Stepper, Timeline, Tokenizer, TokenizerCompare, TokenizerFlow, Words };
