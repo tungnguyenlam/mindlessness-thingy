@@ -1,0 +1,7 @@
+title: On Layer Normalization in the Transformer Architecture
+short: Xiong et al. 2020
+authors: Ruibin Xiong, Yunchang Yang, Di He, Kai Zheng, Shuxin Zheng, Chen Xing, Huishuai Zhang, Yanyan Lan, Liwei Wang, Tie-Yan Liu
+year: 2020
+url: https://arxiv.org/abs/2002.04745
+type: paper
+notes: "Shows that with the norm after the residual add (Post-LN), gradients near the output are large at initialization, which is why a learning-rate warm-up is needed; with the norm inside the residual branch (Pre-LN), gradients are well behaved and the warm-up can be removed (abstract, §3)."

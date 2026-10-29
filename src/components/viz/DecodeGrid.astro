@@ -1,0 +1,273 @@
+---
+import '../../styles/player.css';
+// Decoding one token at a time, twice side by side: without a cache every step recomputes the keys
+// and values of all earlier tokens; with a KV cache it computes only the newest token's and reads
+// the rest back. Rows are steps, columns are tokens; counters keep the running totals.
+//   <DecodeGrid title="..." words={['The', 'cat', 'sat', 'on', 'the', 'mat']} />
+// Plays in a loop while on screen (src/scripts/player.ts). Restorable: the beat comes back, paused.
+interface Props {
+  title: string;
+  /** The tokens generated, one per step (3 to 7). */
+  words?: string[];
+  caption?: string;
+}
+const { title, words = ['The', 'cat', 'sat', 'on', 'the', 'mat'], caption } = Astro.props;
+if (words.length < 3 || words.length > 7) throw new Error(`<DecodeGrid title="${title}">: give 3 to 7 words`);
+const n = words.length;
+const says = [
+  `Step 1: “${words[0]}” goes in, and its key and value are computed.`,
+  `Step 2: without a cache, “${words[0]}” is computed again. With one, it is read back.`,
+  'Each step, the left redoes every earlier token. The right computes only the newest.',
+  `After ${n} tokens: ${(n * (n + 1)) / 2} computations against ${n}. The gap grows with the square of the length.`,
+  'The price: the cache stays in memory, and every step reads all of it.',
+];
+const config = JSON.stringify({ words });
+---
+
+<x-decodegrid class="decodegrid live ui" data-restorable tabindex="-1">
+  <script type="application/json" set:html={config} />
+  <p class="dg-title">{title}</p>
+  <div class="dg-pair dg-watch">
+    <div class="dg-col" data-col="none">
+      <p class="dg-head">Without a cache</p>
+      <svg viewBox="0 0 260 244" role="img" aria-label="Without a cache: keys and values computed at each step" />
+    </div>
+    <div class="dg-col" data-col="cache">
+      <p class="dg-head">With a KV cache</p>
+      <svg viewBox="0 0 260 244" role="img" aria-label="With a KV cache: keys and values computed or read at each step" />
+    </div>
+  </div>
+  <ul class="dg-legend">
+    <li><i class="k-new"></i>newest token’s K, V computed</li>
+    <li><i class="k-again"></i>computed again</li>
+    <li><i class="k-read"></i>read from the cache</li>
+  </ul>
+  <div class="player">
+    <p class="says" aria-live="polite">
+      {says.map((s, i) => <span class="say" hidden={i > 0 ? true : undefined}>{s}</span>)}
+    </p>
+    <div class="controls" hidden>
+      <button type="button" class="play" aria-label="Pause">
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path class="i-pause" d="M3,2 v8 M9,2 v8" /><path class="i-play" d="M3,1.5 L10,6 L3,10.5 Z" /></svg>
+      </button>
+      <span class="beats">
+        {says.map((_, i) => <button type="button" class="beat-dot" data-i={i} aria-label={`Step ${i + 1} of ${says.length}`} aria-current={i === 0 ? 'step' : undefined} />)}
+      </span>
+    </div>
+  </div>
+  {caption && <p class="dg-caption">{caption}</p>}
+</x-decodegrid>
+
+<script>
+  import { mountPlayer, tweener, type Player } from '../../scripts/player';
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
+
+  class XDecodeGrid extends HTMLElement {
+    player: Player | null = null;
+    snapshot() {
+      return this.player?.snapshot() ?? null;
+    }
+    restore(state: unknown) {
+      this.player?.restore(state);
+    }
+    connectedCallback() {
+      const { words } = JSON.parse(this.querySelector('script[type="application/json"]')!.textContent!) as { words: string[] };
+      const n = words.length;
+      const [none, cache] = [...this.querySelectorAll<SVGSVGElement>('.dg-col svg')];
+      const cols = [...this.querySelectorAll<HTMLElement>('.dg-col')];
+      const W = Math.min(36, 220 / n);
+      const X = 36;
+      const Y = 34;
+      const H = Math.min(24, 144 / n);
+      const panel = (svg: SVGSVGElement, cached: boolean, s: number, mem: number) => {
+        const done = Math.floor(s + 1e-6);
+        const part = s - done;
+        let out = `<text class="lbl" x="2" y="${Y - 10}">step</text>`;
+        words.forEach((w, j) => (out += `<text class="word" x="${X + j * W + W / 2}" y="${Y - 10}">${esc(w)}</text>`));
+        let computed = 0;
+        for (let t = 0; t < n; t++) {
+          const shown = t < done ? 1 : t === done ? part : 0;
+          const now = t === Math.min(done, n) - (part > 0.5 ? 0 : 1);
+          out += `<text class="lbl" x="14" y="${Y + t * H + H / 2 + 4}" text-anchor="middle" opacity="${shown > 0 ? 1 : 0.35}">${t + 1}</text>`;
+          out += `<g opacity="${(shown * (now ? 1 : 0.62)).toFixed(2)}">`;
+          for (let j = 0; j <= t; j++) {
+            const kind = j === t ? 'new' : cached ? 'read' : 'again';
+            const memHot = cached && mem > 0 && t === n - 1;
+            out += `<rect class="c ${kind}${memHot ? ' mem' : ''}" x="${X + j * W + 1.5}" y="${Y + t * H + 1.5}" width="${W - 3}" height="${H - 3}" rx="2"/>`;
+          }
+          out += `</g>`;
+          if (shown > 0) computed += cached ? 1 : t + 1;
+        }
+        for (let t = 0; t < n; t++) for (let j = t + 1; j < n; j++) out += `<rect class="c future" x="${X + j * W + 1.5}" y="${Y + t * H + 1.5}" width="${W - 3}" height="${H - 3}" rx="2"/>`;
+        const yc = Y + n * H + 14;
+        if (cached) {
+          const kept = Math.min(n, Math.ceil(s - 1e-6));
+          out += `<text class="lbl" x="2" y="${yc + 13}">cache</text>`;
+          for (let j = 0; j < kept; j++) out += `<rect class="c kept${mem > 0 ? ' mem' : ''}" x="${X + j * W + 1.5}" y="${yc}" width="${W - 3}" height="18" rx="2"/>`;
+        } else {
+          out += `<text class="lbl" x="${X}" y="${yc + 13}">nothing kept between steps</text>`;
+        }
+        out += `<text class="count" x="2" y="${yc + 46}">K, V computed: <tspan class="num">${computed}</tspan></text>`;
+        svg.innerHTML = out;
+      };
+      type S = { s: number; mem: number };
+      const tw = tweener<S>((st) => {
+        panel(none, false, st.s, 0);
+        panel(cache, true, st.s, st.mem);
+      });
+      const plan: (S & { lit: string; ms: number })[] = [
+        { s: 1, mem: 0, lit: '', ms: 3600 },
+        { s: 2, mem: 0, lit: '', ms: 4600 },
+        { s: n, mem: 0, lit: '', ms: 3000 + n * 700 },
+        { s: n, mem: 0, lit: 'none', ms: 4600 },
+        { s: n, mem: 1, lit: 'cache', ms: 4400 },
+      ];
+      this.player = mountPlayer(this, {
+        watch: this.querySelector('.dg-watch')!,
+        length: (i) => plan[i].ms,
+        show: (i, animate) => {
+          const b = plan[i];
+          cols.forEach((c) => c.classList.toggle('lit', c.dataset.col === b.lit));
+          const from = tw.state?.s ?? 0;
+          if (!animate) return tw.to({ s: b.s, mem: b.mem }, 0);
+          if (b.s < from) tw.to({ s: 0, mem: 0 }, 0);
+          const start = tw.state!.s;
+          tw.to({ s: b.s, mem: b.mem }, Math.max(500, clamp(b.s - start, 0, n) * 700), true);
+        },
+      });
+    }
+  }
+  customElements.define('x-decodegrid', XDecodeGrid);
+</script>
+
+<style>
+  .decodegrid {
+    display: block;
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    width: min(100%, var(--mid));
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .decodegrid:focus {
+    outline: none;
+  }
+  .dg-title {
+    margin: 0 0 0.6rem;
+    font-weight: 600;
+  }
+  .dg-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 0.8rem;
+    cursor: pointer;
+  }
+  .dg-col {
+    padding: 0.5rem 0.6rem 0.3rem;
+    border: 1.5px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+    transition: border-color calc(8 * var(--f)) var(--ease-fade), background calc(8 * var(--f)) var(--ease-fade);
+  }
+  .dg-col.lit {
+    border-color: var(--ink);
+    background: var(--paper);
+  }
+  .dg-head {
+    margin: 0 0 0.3rem;
+    font-size: var(--step--1);
+    font-weight: 600;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    font-family: var(--font-ui);
+  }
+  .dg-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1.2rem;
+    margin: 0.6rem 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .dg-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .dg-legend i {
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 1.5px solid;
+    border-radius: 2px;
+  }
+  .k-new {
+    background: var(--role-activation);
+    border-color: var(--role-activation);
+  }
+  .k-again {
+    background: var(--role-activation-wash);
+    border-color: var(--role-activation);
+  }
+  .k-read {
+    background: var(--role-cache-wash);
+    border-color: var(--role-cache);
+  }
+  .dg-caption {
+    margin: 0.6rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .decodegrid :global(svg text) {
+    font-size: 11px;
+    fill: var(--ink-soft);
+  }
+  .decodegrid :global(.word) {
+    text-anchor: middle;
+    fill: var(--ink);
+    font-weight: 500;
+  }
+  .decodegrid :global(.count) {
+    font-size: 12px;
+    fill: var(--ink);
+  }
+  .decodegrid :global(.num) {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .decodegrid :global(.c) {
+    stroke-width: 1.4;
+  }
+  .decodegrid :global(.c.new) {
+    fill: var(--role-activation);
+    stroke: var(--role-activation);
+  }
+  .decodegrid :global(.c.again) {
+    fill: var(--role-activation-wash);
+    stroke: var(--role-activation);
+  }
+  .decodegrid :global(.c.read),
+  .decodegrid :global(.c.kept) {
+    fill: var(--role-cache-wash);
+    stroke: var(--role-cache);
+  }
+  .decodegrid :global(.c.kept) {
+    fill: var(--role-cache);
+  }
+  .decodegrid :global(.c.future) {
+    fill: none;
+    stroke: var(--rule-soft);
+    stroke-dasharray: 2 2;
+  }
+  .decodegrid :global(.c.mem) {
+    stroke: var(--ink);
+    stroke-width: 2.2;
+  }
+</style>

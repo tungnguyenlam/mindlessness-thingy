@@ -1,0 +1,7 @@
+title: Layer Normalization
+short: Ba et al. 2016
+authors: Jimmy Lei Ba, Jamie Ryan Kiros, Geoffrey E. Hinton
+year: 2016
+url: https://arxiv.org/abs/1607.06450
+type: paper
+notes: "§3 computes the mean and spread over all hidden units of one layer for each training case, so the statistics don't depend on the batch and the same computation runs at training and test time; §2 lists BatchNorm's dependence on the mini-batch and its awkward fit to recurrent networks. The paper calls the learned per-unit scale and shift gain g and bias b."

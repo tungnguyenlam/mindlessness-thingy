@@ -109,6 +109,24 @@ async function scenario(mode) {
     check('animated diagram reopens on the same frame', animBack.frame === anim.frame, `${animBack.frame} vs ${anim.frame}`);
     check('animated diagram is paused on return', animBack.paused === true);
     check('the clicked diagram block is marked on return', animBack.marked);
+
+    // ---- 1c. A live animation (src/scripts/player.ts) keeps its beat, paused ----
+    await goto('/notes/layer-norm/');
+    const live = await evaluate(`(async () => {
+      const lab = document.querySelectorAll('x-normlab')[2];
+      lab.scrollIntoView({ block: 'center' });
+      lab.querySelectorAll('.beat-dot')[3].click();
+      await new Promise((r) => setTimeout(r, 300));
+      const a = [...document.querySelectorAll('.prose a.wikilink')].find((l) => l.checkVisibility() && l.getAttribute('href').includes('adaln'));
+      a.setAttribute('data-test-live', '');
+      return { beat: lab.player.i };
+    })()`);
+    await click('[data-test-live]', { navigates: true });
+    await click('.trail-back');
+    await backAt('/notes/layer-norm/');
+    const liveBack = await evaluate(`(() => { const lab = document.querySelectorAll('x-normlab')[2]; return { beat: lab.player.i, paused: lab.player.paused }; })()`);
+    check('live animation reopens on the same beat', liveBack.beat === live.beat, `${liveBack.beat} vs ${live.beat}`);
+    check('live animation is paused on return', liveBack.paused === true);
     await goto('/notes/mla/');
 
     // ---- 2. Two hops deep (prose, then side panel), unwind with the B key ----

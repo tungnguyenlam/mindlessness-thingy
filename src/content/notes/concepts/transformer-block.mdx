@@ -6,7 +6,7 @@ domains: [llm]
 prerequisites: []
 builds_on: []
 contrasts_with: []
-related: [mha]
+related: [mha, layer-norm]
 sources: [attention-is-all-you-need, lfm2-report]
 status: draft
 updated: 2026-10-17
@@ -19,9 +19,9 @@ A transformer model is one block, repeated: the original stacks six identical la
   caption="The stream is normalized before each sub-layer, and the dashed edges add the sub-layer's output back onto it. This is the pre-norm order; the original Transformer normalizes after adding instead."
   blocks={[
     { id: 'x', label: 'Residual stream x', sub: 'T × d', role: 'activation' },
-    { id: 'n1', label: 'LayerNorm', role: 'op' },
+    { id: 'n1', label: 'LayerNorm', role: 'op', link: 'layer-norm' },
     { id: 'att', label: 'Attention', sub: 'mixes tokens', role: 'op', link: 'mha' },
-    { id: 'n2', label: 'LayerNorm', role: 'op' },
+    { id: 'n2', label: 'LayerNorm', role: 'op', link: 'layer-norm' },
     { id: 'ffn', label: 'Feed-forward', sub: 'd → d_ff → d', role: 'weight' },
     { id: 'y', label: 'Output stream', sub: 'T × d', role: 'activation' },
   ]}

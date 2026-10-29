@@ -1,0 +1,517 @@
+---
+import '../../styles/player.css';
+// Normalization, animated from live toy data (src/lib/normlab.mjs). One view per use:
+//   steps: three tokens' numbers as distributions; LayerNorm subtracts μ, divides by σ, then applies
+//          γ and β, while the old distribution stays as a dashed ghost.
+//   depth: a toy stack of random layers with and without a norm: what each sub-layer reads, the
+//          attention softmax of one token, and the size of the stream by layer (pre- and post-norm).
+//   axes:  a batch grid, tokens × features: which numbers share one μ and σ in LayerNorm, BatchNorm
+//          and RMSNorm, and why BatchNorm has nothing to average over one token at a time.
+//   <NormLab view="steps" title="..." caption="..." />
+// Plays in a loop while on screen (src/scripts/player.ts). Restorable: the beat comes back, paused.
+type View = 'steps' | 'depth' | 'axes';
+interface Props {
+  view: View;
+  title: string;
+  caption?: string;
+}
+const { view, title, caption } = Astro.props;
+
+const SAYS: Record<View, string[]> = {
+  steps: [
+    'Three tokens leave a layer. Each one is a list of numbers, and each list sits somewhere else.',
+    'LayerNorm first finds μ, the mean of each token’s own numbers.',
+    'Subtract μ: every token now centres on zero. The dashed curve is where it started.',
+    'σ measures how far each token’s numbers spread.',
+    'Divide by σ: every token now has the same spread.',
+    'A learned scale γ and shift β per feature, the same for every token, set the final range.',
+  ],
+  depth: [
+    'Layer 1: both stacks read the same numbers, and token 1 spreads its attention over many tokens.',
+    'Without a norm, every layer adds its output on top, so the numbers grow layer after layer.',
+    'Bigger numbers make bigger attention scores, and softmax puts all the weight on one token.',
+    'With LayerNorm, every sub-layer reads numbers of the same size at any depth, so attention stays spread.',
+    'Pre-norm lets the stream itself grow slowly. Post-norm, dashed, normalizes the stream after every layer.',
+  ],
+  axes: [
+    'A batch: each row is one token, each column one feature. A bar is one number.',
+    'LayerNorm: each token is normalized with the mean and spread of its own row.',
+    'BatchNorm: each feature is normalized with the mean and spread of its column, across the batch.',
+    'Writing one token at a time, a column holds one number: BatchNorm has no batch to average over.',
+    'RMSNorm skips the mean and only divides each row by its size, which is cheaper.',
+  ],
+};
+const says = SAYS[view];
+if (!says) throw new Error(`<NormLab title="${title}">: view must be steps, depth or axes`);
+---
+
+<x-normlab class="normlab live ui" data-restorable data-view={view} tabindex="-1">
+  <p class="nl-title">{title}</p>
+  {view === 'steps' && <svg class="nl-svg nl-watch" viewBox="0 0 420 344" role="img" aria-label={title}></svg>}
+  {
+    view === 'depth' && (
+      <div class="nl-watch">
+        <div class="nl-pair">
+          <div class="nl-col" data-col="none">
+            <p class="nl-head">No norm</p>
+            <svg class="nl-svg" viewBox="0 0 240 196" role="img" aria-label="Without a norm: what the sub-layer reads, and token 1's attention" />
+          </div>
+          <div class="nl-col" data-col="pre">
+            <p class="nl-head">LayerNorm before each sub-layer</p>
+            <svg class="nl-svg" viewBox="0 0 240 196" role="img" aria-label="With LayerNorm: what the sub-layer reads, and token 1's attention" />
+          </div>
+        </div>
+        <svg class="nl-svg nl-chart" viewBox="0 0 420 150" role="img" aria-label="Size of the stream by layer" />
+        <ul class="nl-legend">
+          <li><i class="k-none"></i>no norm</li>
+          <li><i class="k-pre"></i>pre-norm</li>
+          <li><i class="k-post"></i>post-norm</li>
+        </ul>
+      </div>
+    )
+  }
+  {view === 'axes' && <svg class="nl-svg nl-watch nl-grid" viewBox="0 0 330 270" role="img" aria-label={title}></svg>}
+  <div class="player">
+    <p class="says" aria-live="polite">
+      {says.map((s, i) => <span class="say" hidden={i > 0 ? true : undefined}>{s}</span>)}
+    </p>
+    <div class="controls" hidden>
+      <button type="button" class="play" aria-label="Pause">
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path class="i-pause" d="M3,2 v8 M9,2 v8" /><path class="i-play" d="M3,1.5 L10,6 L3,10.5 Z" /></svg>
+      </button>
+      <span class="beats">
+        {says.map((_, i) => <button type="button" class="beat-dot" data-i={i} aria-label={`Step ${i + 1} of ${says.length}`} aria-current={i === 0 ? 'step' : undefined} />)}
+      </span>
+    </div>
+  </div>
+  {caption && <p class="nl-caption">{caption}</p>}
+</x-normlab>
+
+<script>
+  import { mountPlayer, tweener, type Player } from '../../scripts/player';
+  import { stepsData, depthData, axesData, mean, std } from '../../lib/normlab.mjs';
+
+  const f1 = (x: number) => (Math.abs(x) < 0.05 ? '0.0' : x.toFixed(1)).replace('-', '−');
+  const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
+
+  /** A smooth curve of where the numbers in v fall (a kernel density estimate). */
+  function density(v: number[], x: (u: number) => number, lo: number, hi: number, base: number, k: number, cap: number) {
+    const s = std(v) || 1;
+    const h = Math.max(0.12, 1.06 * s * Math.pow(v.length, -0.2));
+    const pts: string[] = [];
+    for (let g = 0; g <= 120; g++) {
+      const u = lo + ((hi - lo) * g) / 120;
+      let p = 0;
+      for (const a of v) p += Math.exp(-0.5 * ((u - a) / h) ** 2);
+      p /= v.length * h * Math.sqrt(2 * Math.PI);
+      pts.push(`${x(u).toFixed(1)},${(base - Math.min(cap, p * k)).toFixed(1)}`);
+    }
+    return `M${x(lo).toFixed(1)},${base} L${pts.join(' L')} L${x(hi).toFixed(1)},${base} Z`;
+  }
+
+  // ---- steps: one token's numbers, normalized stage by stage ----
+  function steps(root: HTMLElement) {
+    const svg = root.querySelector('svg.nl-svg')!;
+    const D = stepsData();
+    const LO = -6.5;
+    const HI = 6.5;
+    const X0 = 100;
+    const X1 = 412;
+    const x = (u: number) => X0 + ((clamp(u, LO, HI) - LO) / (HI - LO)) * (X1 - X0);
+    const bases = [86, 186, 286];
+    const jitter = D.tokens[0].map((_, i) => ((i * 37) % 11) / 11);
+    type S = { v: number[][]; ghost: number; mu: number; sig: number };
+    const targets: S[] = [
+      { v: D.tokens, ghost: 0, mu: 0, sig: 0 },
+      { v: D.tokens, ghost: 0, mu: 1, sig: 0 },
+      { v: D.centred, ghost: 1, mu: 1, sig: 0 },
+      { v: D.centred, ghost: 1, mu: 1, sig: 1 },
+      { v: D.normed, ghost: 1, mu: 1, sig: 1 },
+      { v: D.affine, ghost: 1, mu: 1, sig: 1 },
+    ];
+    const ghosts = D.tokens.map((v, t) => density(v, x, LO, HI, bases[t], 120, 62));
+    const tw = tweener<S>((s) => {
+      let out = `<line class="zero" x1="${x(0)}" x2="${x(0)}" y1="14" y2="318"/><text class="tick" x="${x(0)}" y="338">0</text>`;
+      s.v.forEach((v, t) => {
+        const b = bases[t];
+        const m = mean(v);
+        const sd = std(v);
+        out += `<text class="row" x="4" y="${b - 34}">token ${t + 1}</text>`;
+        out += `<text class="stat" x="4" y="${b - 16}" opacity="${0.35 + 0.65 * s.mu}">μ ${f1(m)}</text>`;
+        out += `<text class="stat" x="4" y="${b + 2}" opacity="${0.35 + 0.65 * s.sig}">σ ${f1(sd)}</text>`;
+        out += `<line class="base" x1="${X0}" x2="${X1}" y1="${b}" y2="${b}"/>`;
+        out += `<path class="ghost" d="${ghosts[t]}" opacity="${s.ghost}"/>`;
+        out += `<path class="area" d="${density(v, x, LO, HI, b, 120, 62)}"/>`;
+        out += v.map((a, i) => `<circle class="pt" cx="${x(a).toFixed(1)}" cy="${(b + 5 + jitter[i] * 10).toFixed(1)}" r="2.6"/>`).join('');
+        out += `<g opacity="${s.mu}"><line class="mu" x1="${x(m)}" x2="${x(m)}" y1="${b}" y2="${b - 70}"/><text class="mark" x="${x(m) + 4}" y="${b - 62}">μ</text></g>`;
+        const a = x(m - sd);
+        const c = x(m + sd);
+        out += `<g class="sig" opacity="${s.sig}"><path d="M${a},${b + 20} v6 M${a},${b + 23} H${c} M${c},${b + 20} v6"/><text class="mark" x="${c + 4}" y="${b + 28}">σ</text></g>`;
+      });
+      svg.innerHTML = out;
+    });
+    return { n: targets.length, show: (i: number, animate: boolean) => tw.to(targets[i], animate ? 900 : 0), length: () => 3600 };
+  }
+
+  // ---- depth: a toy stack, with and without a norm ----
+  function depth(root: HTMLElement) {
+    const [none, pre] = [...root.querySelectorAll<SVGSVGElement>('.nl-col svg')];
+    const chart = root.querySelector<SVGSVGElement>('.nl-chart')!;
+    const cols = [...root.querySelectorAll<HTMLElement>('.nl-col')];
+    const D = depthData();
+    const at = (run: typeof D.none, l: number) => {
+      const a = run[Math.floor(l) - 1];
+      const b = run[Math.min(D.L, Math.floor(l) + 1) - 1];
+      const t = l - Math.floor(l);
+      const mix = (p: number[], q: number[]) => p.map((u, k) => u + (q[k] - u) * t);
+      return { reads: mix(a.reads, b.reads), attn: mix(a.attn, b.attn), size: a.size + (b.size - a.size) * t };
+    };
+    const LO = -5;
+    const HI = 5;
+    const x = (u: number) => 12 + ((clamp(u, LO, HI) - LO) / (HI - LO)) * 216;
+    const ghost = density(D.none[0].reads, x, LO, HI, 84, 140, 60);
+    const panel = (svg: SVGSVGElement, s: ReturnType<typeof at>) => {
+      const left = s.reads.filter((u) => u < LO).length;
+      const right = s.reads.filter((u) => u > HI).length;
+      let out = `<text class="lbl" x="12" y="12">what the sub-layer reads</text><text class="stat" x="228" y="12" text-anchor="end">σ ${f1(std(s.reads))}</text>`;
+      out += `<line class="base" x1="12" x2="228" y1="84" y2="84"/><path class="ghost" d="${ghost}"/><path class="area" d="${density(s.reads, x, LO, HI, 84, 140, 60)}"/>`;
+      out += s.reads.map((u, i) => `<circle class="pt" cx="${x(u).toFixed(1)}" cy="${89 + ((i * 37) % 11)}" r="2.4"/>`).join('');
+      if (left) out += `<text class="off" x="12" y="114">◂ ${left} off the chart</text>`;
+      if (right) out += `<text class="off" x="228" y="114" text-anchor="end">${right} off the chart ▸</text>`;
+      out += `<text class="lbl" x="12" y="134">token 1’s attention, softmax</text><text class="stat" x="228" y="134" text-anchor="end">top ${s.attn.reduce((a, b) => Math.max(a, b)).toFixed(2)}</text>`;
+      out += s.attn.map((w, k) => `<rect class="bar" x="${14 + k * 27}" y="${190 - w * 48}" width="20" height="${Math.max(0.5, w * 48)}" rx="1.5"/>`).join('');
+      out += `<line class="base" x1="12" x2="228" y1="190" y2="190"/>`;
+      svg.innerHTML = out;
+    };
+    // The stream size, log scale.
+    const cx = (l: number) => 44 + ((l - 1) / (D.L - 1)) * 360;
+    const cy = (v: number) => 128 - ((Math.log10(clamp(v, 0.7, 200)) - Math.log10(0.7)) / (Math.log10(200) - Math.log10(0.7))) * 100;
+    const line = (run: typeof D.none, l: number) => {
+      const pts = run.slice(0, Math.floor(l)).map((r, k) => `${cx(k + 1).toFixed(1)},${cy(r.size).toFixed(1)}`);
+      if (l % 1) pts.push(`${cx(l).toFixed(1)},${cy(at(run, l).size).toFixed(1)}`);
+      return `M${pts.join(' L')}`;
+    };
+    type S = { l: number; post: number };
+    const tw = tweener<S>((s) => {
+      const l = clamp(s.l, 1, D.L);
+      panel(none, at(D.none, l));
+      panel(pre, at(D.pre, l));
+      let out = `<text class="lbl" x="44" y="12">size of the stream (RMS) by layer, log scale</text>`;
+      for (const v of [1, 10, 100]) out += `<line class="grid" x1="44" x2="404" y1="${cy(v)}" y2="${cy(v)}"/><text class="tick" x="38" y="${cy(v) + 4}" text-anchor="end">${v}</text>`;
+      out += `<text class="tick" x="${cx(1)}" y="146" text-anchor="middle" opacity="${l > 3 ? 1 : 0}">1</text>`;
+      out += `<path class="ln-post" opacity="${s.post}" d="${line(D.post, l)}"/><path class="ln-pre" d="${line(D.pre, l)}"/><path class="ln-none" d="${line(D.none, l)}"/>`;
+      out += `<line class="now" x1="${cx(l)}" x2="${cx(l)}" y1="22" y2="132"/><text class="now-l" x="${clamp(cx(l), 70, 380)}" y="146" text-anchor="middle">layer ${Math.round(l)}</text>`;
+      chart.innerHTML = out;
+    });
+    const targets: (S & { lit: string; ms: number })[] = [
+      { l: 1, post: 0, lit: '', ms: 3400 },
+      { l: 5, post: 0, lit: 'none', ms: 3800 },
+      { l: D.L, post: 0, lit: 'none', ms: 5200 },
+      { l: D.L, post: 0, lit: 'pre', ms: 4200 },
+      { l: D.L, post: 1, lit: 'pre', ms: 4400 },
+    ];
+    return {
+      n: targets.length,
+      show: (i: number, animate: boolean) => {
+        const { l, post, lit } = targets[i];
+        cols.forEach((c) => c.classList.toggle('lit', c.dataset.col === lit));
+        const from = tw.state?.l ?? 1;
+        const sweep = l > from;
+        tw.to({ l, post }, animate ? (sweep ? (l - from) * 260 : 700) : 0, sweep);
+      },
+      length: (i: number) => targets[i].ms,
+    };
+  }
+
+  // ---- axes: which numbers share one mean and spread ----
+  function axes(root: HTMLElement) {
+    const svg = root.querySelector('svg.nl-svg')!;
+    const D = axesData();
+    const R = D.raw.length;
+    const C = D.raw[0].length;
+    const X = 62;
+    const Y = 30;
+    const W = 32;
+    const H = 34;
+    type Mode = 'raw' | 'row' | 'col' | 'one' | 'rms';
+    const goal: Record<Mode, number[][]> = { raw: D.raw, row: D.byRow, col: D.byCol, one: D.byRow, rms: D.byRms };
+    type S = { p: number; fade: number };
+    let mode: Mode = 'raw';
+    const tw = tweener<S>((s) => {
+      const target = goal[mode];
+      const byCol = mode === 'col';
+      let out = `<text class="lbl" x="${X}" y="14">features →</text>`;
+      for (let i = 0; i < R; i++) {
+        const rowOp = i === 0 ? 1 : 1 - s.fade;
+        out += `<g opacity="${rowOp.toFixed(2)}"><text class="row" x="4" y="${Y + i * H + H / 2 + 4}">token ${i + 1}</text>`;
+        for (let j = 0; j < C; j++) {
+          const k = byCol ? j : i;
+          const t = mode === 'raw' ? 0 : clamp(s.p - k, 0, 1);
+          const v = D.raw[i][j] + (target[i][j] - D.raw[i][j]) * t;
+          const h = clamp(v * 6, -15, 15);
+          const cx = X + j * W;
+          const mid = Y + i * H + H / 2;
+          out += `<rect class="cell" x="${cx + 1}" y="${Y + i * H + 1}" width="${W - 2}" height="${H - 2}" rx="2"/>`;
+          out += `<rect class="cbar${Math.abs(v * 6) > 15 ? ' clip' : ''}" x="${cx + 9}" y="${(h > 0 ? mid - h : mid).toFixed(1)}" width="${W - 18}" height="${Math.max(0.6, Math.abs(h)).toFixed(1)}"/>`;
+        }
+        out += `<line class="mid" x1="${X}" x2="${X + C * W}" y1="${Y + i * H + H / 2}" y2="${Y + i * H + H / 2}"/></g>`;
+      }
+      const below = (rows: number) => Y + rows * H + 18;
+      if (mode === 'one') {
+        // One token: the row still has C numbers, a column has just one.
+        out += `<rect class="hl" x="${X - 2}" y="${Y}" width="${C * W + 4}" height="${H}" rx="4"/>`;
+        out += `<rect class="hl bad" x="${X}" y="${Y - 2}" width="${W}" height="${H + 4}" rx="4"/>`;
+        out += `<text class="lbl" x="${X}" y="${below(1)}">LayerNorm: ${C} numbers in the row</text>`;
+        out += `<text class="lbl off" x="${X}" y="${below(1) + 18}">BatchNorm: 1 number per column</text>`;
+      } else if (mode !== 'raw') {
+        const k = Math.floor(clamp(s.p, 0, (byCol ? C : R) - 0.001));
+        out += byCol
+          ? `<rect class="hl" x="${X + k * W}" y="${Y - 2}" width="${W}" height="${R * H + 4}" rx="4"/>`
+          : `<rect class="hl" x="${X - 2}" y="${Y + k * H}" width="${C * W + 4}" height="${H}" rx="4"/>`;
+        out += `<text class="lbl" x="${X}" y="${below(R)}">${byCol ? 'one μ and σ per column' : mode === 'rms' ? 'one size per row, no mean' : 'one μ and σ per row'}</text>`;
+      }
+      svg.innerHTML = out;
+    });
+    const plan: { mode: Mode; p: number; fade: number; ms: number }[] = [
+      { mode: 'raw', p: 0, fade: 0, ms: 3200 },
+      { mode: 'row', p: R, fade: 0, ms: 4200 },
+      { mode: 'col', p: C, fade: 0, ms: 4600 },
+      { mode: 'one', p: 1, fade: 1, ms: 5200 },
+      { mode: 'rms', p: R, fade: 0, ms: 4200 },
+    ];
+    return {
+      n: plan.length,
+      show: (i: number, animate: boolean) => {
+        const b = plan[i];
+        mode = b.mode;
+        if (!animate) return tw.to({ p: b.p, fade: b.fade }, 0);
+        tw.to({ p: 0, fade: b.fade }, 0);
+        tw.to({ p: b.p, fade: b.fade }, b.p * 420, true);
+      },
+      length: (i: number) => plan[i].ms,
+    };
+  }
+
+  const VIEWS = { steps, depth, axes };
+
+  class XNormLab extends HTMLElement {
+    player: Player | null = null;
+    snapshot() {
+      return this.player?.snapshot() ?? null;
+    }
+    restore(state: unknown) {
+      this.player?.restore(state);
+    }
+    connectedCallback() {
+      const view = VIEWS[this.dataset.view as keyof typeof VIEWS](this);
+      this.player = mountPlayer(this, { show: view.show, length: view.length, watch: this.querySelector('.nl-watch')! });
+    }
+  }
+  customElements.define('x-normlab', XNormLab);
+</script>
+
+<style>
+  .normlab {
+    display: block;
+    margin: 2rem 0;
+    padding: 1rem 1.1rem;
+    width: min(100%, var(--mid));
+    background: var(--paper-raised);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+  }
+  .normlab:focus {
+    outline: none;
+  }
+  .nl-title {
+    margin: 0 0 0.6rem;
+    font-weight: 600;
+  }
+  .nl-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    cursor: pointer;
+    font-family: var(--font-ui);
+  }
+  svg.nl-svg:not(.nl-chart) {
+    max-width: 36rem;
+    margin: 0 auto;
+  }
+  .nl-grid {
+    max-width: 30rem !important;
+  }
+  .nl-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 0.8rem;
+    cursor: pointer;
+  }
+  .nl-col {
+    padding: 0.5rem 0.6rem 0.3rem;
+    border: 1.5px solid var(--rule-soft);
+    border-radius: var(--radius-panel);
+    transition: border-color calc(8 * var(--f)) var(--ease-fade), background calc(8 * var(--f)) var(--ease-fade);
+  }
+  .nl-col.lit {
+    border-color: var(--ink);
+    background: var(--paper);
+  }
+  .nl-head {
+    margin: 0 0 0.3rem;
+    font-size: var(--step--1);
+    font-weight: 600;
+  }
+  .nl-chart {
+    margin-top: 0.8rem;
+  }
+  .nl-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1.2rem;
+    margin: 0.2rem 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .nl-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .nl-legend i {
+    width: 1.2rem;
+    border-top: 2.5px solid var(--ink);
+  }
+  .nl-legend .k-pre {
+    border-color: var(--role-activation);
+  }
+  .nl-legend .k-post {
+    border-top: 2px dashed var(--ink-faint);
+  }
+  .nl-caption {
+    margin: 0.6rem 0 0;
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+  }
+  .normlab :global(svg text) {
+    fill: var(--ink-soft);
+    font-size: 11px;
+  }
+  .normlab :global(.row) {
+    fill: var(--ink);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .normlab :global(.stat),
+  .normlab :global(.tick) {
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .normlab :global(.tick) {
+    text-anchor: middle;
+    fill: var(--ink-faint);
+  }
+  .normlab :global(.mark) {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    fill: var(--ink);
+  }
+  .normlab :global(.off) {
+    fill: var(--ink);
+    font-weight: 500;
+  }
+  .normlab :global(.base),
+  .normlab :global(.mid) {
+    stroke: var(--rule);
+  }
+  .normlab :global(.zero) {
+    stroke: var(--ink-faint);
+    stroke-dasharray: 3 3;
+  }
+  .normlab :global(.area) {
+    fill: var(--role-activation-wash);
+    fill-opacity: 0.85;
+    stroke: var(--role-activation);
+    stroke-width: 1.6;
+  }
+  .normlab :global(.ghost) {
+    fill: none;
+    stroke: var(--ink-faint);
+    stroke-width: 1.3;
+    stroke-dasharray: 4 3;
+  }
+  .normlab :global(.pt) {
+    fill: var(--role-activation);
+    fill-opacity: 0.7;
+  }
+  .normlab :global(.mu),
+  .normlab :global(.sig path) {
+    stroke: var(--ink);
+    stroke-width: 1.5;
+    fill: none;
+  }
+  .normlab :global(.bar) {
+    fill: var(--role-activation);
+  }
+  .normlab :global(.grid) {
+    stroke: var(--rule-soft);
+  }
+  .normlab :global(.ln-none),
+  .normlab :global(.ln-pre),
+  .normlab :global(.ln-post) {
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linejoin: round;
+  }
+  .normlab :global(.ln-none) {
+    stroke: var(--ink);
+  }
+  .normlab :global(.ln-pre) {
+    stroke: var(--role-activation);
+  }
+  .normlab :global(.ln-post) {
+    stroke: var(--ink-faint);
+    stroke-width: 2;
+    stroke-dasharray: 5 4;
+  }
+  .normlab :global(.now) {
+    stroke: var(--ink-faint);
+    stroke-dasharray: 2 3;
+  }
+  .normlab :global(.now-l) {
+    fill: var(--ink);
+    font-weight: 600;
+  }
+  .normlab :global(.cell) {
+    fill: var(--paper);
+    stroke: var(--rule-soft);
+  }
+  .normlab :global(.cbar) {
+    fill: var(--role-activation);
+  }
+  .normlab :global(.cbar.clip) {
+    fill: var(--ink);
+  }
+  .normlab :global(.hl) {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 2.2;
+  }
+  .normlab :global(.hl.bad) {
+    stroke-dasharray: 4 3;
+  }
+  .normlab :global(.nl-chart text) {
+    font-size: 10px;
+  }
+  @media (max-width: 40rem) {
+    .normlab :global(.nl-chart text) {
+      font-size: 15px;
+    }
+    /* The single-picture views shrink to fit a phone, so their labels grow to stay readable. */
+    svg.nl-watch :global(text) {
+      font-size: 15px !important;
+    }
+  }
+</style>

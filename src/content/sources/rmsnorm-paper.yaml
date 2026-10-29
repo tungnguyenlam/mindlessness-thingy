@@ -1,0 +1,7 @@
+title: Root Mean Square Layer Normalization
+short: Zhang & Sennrich 2019
+authors: Biao Zhang, Rico Sennrich
+year: 2019
+url: https://arxiv.org/abs/1910.07467
+type: paper
+notes: "§4 drops LayerNorm's mean subtraction and divides by the root mean square only, arguing that re-scaling, not re-centring, is what LayerNorm's success rests on, and that this saves computation."

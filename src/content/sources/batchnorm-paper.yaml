@@ -1,0 +1,7 @@
+title: "Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift"
+short: Ioffe & Szegedy 2015
+authors: Sergey Ioffe, Christian Szegedy
+year: 2015
+url: https://arxiv.org/abs/1502.03167
+type: paper
+notes: "§3 normalizes each feature separately with the mean and variance of the mini-batch, then applies a learned γ and β; §3.1 replaces the mini-batch statistics with population averages at inference."

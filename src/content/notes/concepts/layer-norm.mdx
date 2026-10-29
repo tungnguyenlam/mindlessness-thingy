@@ -1,0 +1,70 @@
+---
+title: Layer normalization
+kind: concept
+summary: "LayerNorm shifts and rescales each token's numbers to mean 0 and spread 1, then applies a learned scale and shift, so every layer reads numbers of a steady size however deep the network is."
+domains: [llm, training]
+prerequisites: []
+builds_on: []
+contrasts_with: []
+related: [transformer-block, adaln]
+sources: [layernorm-paper, batchnorm-paper, rmsnorm-paper, pre-ln-paper, attention-is-all-you-need, gpt2-paper, deepseek-v3-report, lfm2-report]
+status: draft
+updated: 2026-10-29
+---
+
+Watch what LayerNorm does to the numbers of three tokens.
+
+<NormLab
+  view="steps"
+  title="LayerNorm on three tokens, one stage at a time"
+  caption="Each dot is one of a token's numbers, and the curve shows where they fall. Toy data: random numbers, not a real model."
+/>
+
+$$
+\mathrm{LayerNorm}(x) = \gamma \odot \frac{x - \mu}{\sigma} + \beta
+$$
+
+<Words>
+A token leaves every layer as a vector of $d$ numbers, where $d$ is the hidden size. LayerNorm looks only at that one vector. It computes $\mu$, the mean of its $d$ numbers, and $\sigma$, their standard deviation, then subtracts $\mu$ and divides by $\sigma$ <Cite id="layernorm-paper" where="§3" />. Every token comes out with mean 0 and spread 1, whatever it looked like going in.
+
+The last step gives some freedom back. $\gamma$ and $\beta$ are learned vectors of length $d$: one scale and one shift per feature, shared by all tokens. If a layer works better when some feature sits higher or spreads wider, training sets $\gamma$ and $\beta$ to do that. In practice a tiny constant is added under the square root in $\sigma$ so a token whose numbers are all equal doesn't divide by zero.
+</Words>
+
+## Why a network needs it
+
+<NormLab
+  view="depth"
+  title="A toy stack of 16 layers, with and without a norm"
+  caption="Random untrained weights, so only the sizes matter. Left and right start from the same numbers. Watch the dots leave the chart on the left while the right stays put."
+/>
+
+<Words>
+Each layer of a [[transformer-block]] adds its output onto the stream it was given. Without a norm, nothing stops those numbers from growing: in this toy stack the stream gets bigger with every layer.
+
+The size matters because the next layer's operations are tuned to a size. An attention score is a dot product of a query and a key, so it grows with the square of the numbers' size. Once the scores are large, softmax gives almost all the weight to one token, and small changes to the input barely move the output. The layer has stopped learning anything useful from most tokens. Ba et al. introduced LayerNorm to keep these sizes steady and make training faster and more stable <Cite id="layernorm-paper" where="§1" />.
+
+Where the norm sits also matters. The original Transformer adds first and normalizes after (**post-norm**) <Cite id="attention-is-all-you-need" where="§3.1" />. GPT-2 moved the norm to the input of each sub-layer (**pre-norm**) <Cite id="gpt2-paper" where="§2.3" />. With post-norm, the gradients near the output are large at the start of training, so it needs a learning-rate warm-up. Pre-norm keeps them well behaved and can train without one <Cite id="pre-ln-paper" where="§3" />. The price, visible in the chart, is that the pre-norm stream itself still grows slowly, because the norm only touches what each sub-layer reads.
+</Words>
+
+## LayerNorm, BatchNorm or RMSNorm
+
+<NormLab
+  view="axes"
+  title="Which numbers share one mean and spread"
+  caption="Dark bars are cut off at the cell edge: those numbers are too big to fit."
+/>
+
+| Norm | Averages over | Where it is used |
+| --- | --- | --- |
+| BatchNorm | one feature, across the batch | image CNNs, where it was introduced <Cite id="batchnorm-paper" where="§4.2" /> |
+| LayerNorm | one token's own features | the original Transformer, post-norm <Cite id="attention-is-all-you-need" where="§3.1" />; GPT-2, pre-norm <Cite id="gpt2-paper" where="§2.3" /> |
+| RMSNorm | one token's features, size only, no mean | DeepSeek-V3 <Cite id="deepseek-v3-report" where="Figure 2" />, LFM2 <Cite id="lfm2-report" where="§2.2" />, both pre-norm |
+| AdaLN | one token, with $\gamma$ and $\beta$ computed from a condition | diffusion transformers, see [[adaln]] |
+
+<Words>
+BatchNorm came first. It normalizes each feature with the mean and spread of that feature over the whole mini-batch <Cite id="batchnorm-paper" where="§3" />. That works well for images, where a batch holds many examples of the same shape. It fits language models badly.
+
+The statistics change with the batch, so at inference BatchNorm must switch to averages saved during training <Cite id="batchnorm-paper" where="§3.1" />. Sequences also have different lengths, and a model writing its reply produces one token at a time. LayerNorm avoids all of this because each token needs only its own numbers, so training and inference run the same computation <Cite id="layernorm-paper" where="§3" />.
+
+RMSNorm drops the mean. It divides each token by the root mean square of its numbers, $\sqrt{\tfrac{1}{d}\sum_i x_i^2}$, and keeps only the scale $\gamma$. Zhang and Sennrich argue that the rescaling is what makes LayerNorm work, so skipping the centring loses little and saves computation <Cite id="rmsnorm-paper" where="§4" />. Most recent language models in this notebook use it, before each sub-layer.
+</Words>

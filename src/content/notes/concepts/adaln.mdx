@@ -4,7 +4,7 @@ kind: concept
 summary: "Conditions a transformer by mapping a vector, such as the noise level, a class or a quality score, to the scale and shift applied after each normalization, so the condition modulates every block."
 domains: [generative]
 prerequisites: [transformer-block]
-builds_on: []
+builds_on: [layer-norm]
 contrasts_with: []
 related: []
 sources: [dit-paper]
@@ -36,7 +36,7 @@ A [[transformer-block]] applies the same function to every token, so a single co
 
 ## How it works
 
-Plain layer norm computes statistics per token and then scales and shifts with two learned constants. adaLN keeps the normalization and makes those two vectors functions of the condition $c$, of width $d_c$; they carry the hidden width $d$.
+Plain [[layer-norm|layer norm]] computes statistics per token and then scales and shifts with two learned constants. adaLN keeps the normalization and makes those two vectors functions of the condition $c$, of width $d_c$; they carry the hidden width $d$.
 
 $$
 \mathrm{adaLN}(h, c) = \gamma(c) \odot \mathrm{Norm}(h) + \beta(c)
