@@ -1,0 +1,7 @@
+title: "Denoising Diffusion Probabilistic Models"
+short: Ho et al. 2020
+authors: Jonathan Ho, Ajay Jain, Pieter Abbeel
+year: 2020
+url: https://arxiv.org/abs/2006.11239
+type: paper
+notes: "§4 and Appendix B parameterize the reverse diffusion process with a U-Net backbone that uses Group Normalization throughout its residual and attention blocks, replacing earlier Weight Normalization layers."

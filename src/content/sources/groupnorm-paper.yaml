@@ -1,0 +1,7 @@
+title: "Group Normalization"
+short: Wu & He 2018
+authors: Yuxin Wu, Kaiming He
+year: 2018
+url: https://arxiv.org/abs/1803.08494
+type: paper
+notes: "§3 divides a sample's C channels into G groups and normalizes each group over (C/G, H, W) independently of the batch, followed by per-channel γ and β (2C parameters); Table 1 and Table 2 show ResNet-50 on ImageNet holds 24.1% top-1 error at batch size 2 per GPU while BatchNorm degrades from 23.6% to 34.7%; Table 3 ablates G from 1 (LayerNorm) to C (InstanceNorm); §4.2 evaluates Mask R-CNN on COCO."

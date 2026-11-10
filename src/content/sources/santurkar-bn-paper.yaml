@@ -1,0 +1,7 @@
+title: "How Does Batch Normalization Help Optimization?"
+short: Santurkar et al. 2018
+authors: Shibani Santurkar, Dimitris Tsipras, Andrew Ilyas, Aleksander Madry
+year: 2018
+url: https://arxiv.org/abs/1805.11604
+type: paper
+notes: "§2–§4 shows that BatchNorm's benefit comes not from reducing internal covariate shift, as originally hypothesized, but from smoothing the optimization landscape and bounding the Lipschitzness of the loss and its gradients."

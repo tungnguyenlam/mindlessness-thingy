@@ -69,6 +69,7 @@ Where the norm sits also matters. The original Transformer adds first and normal
 | Norm | Averages over | Where it is used |
 | --- | --- | --- |
 | BatchNorm | one feature, across the batch | image CNNs, where it was introduced <Cite id="batchnorm-paper" where="§4.2" /> |
+| [[group-norm|GroupNorm]] | one group of channels over space, inside one example | small-batch vision CNNs and diffusion U-Nets <Cite id="groupnorm-paper" where="§3" /> |
 | LayerNorm | one token's own features | the original Transformer, post-norm <Cite id="attention-is-all-you-need" where="§3.1" />; GPT-2, pre-norm <Cite id="gpt2-paper" where="§2.3" /> |
 | RMSNorm | one token's features, size only, no mean | DeepSeek-V3 <Cite id="deepseek-v3-report" where="Figure 2" />, LFM2 <Cite id="lfm2-report" where="§2.2" />, both pre-norm |
 | AdaLN | one token, with $\gamma$ and $\beta$ computed from a condition | diffusion transformers, see [[adaln]] |

@@ -1,0 +1,7 @@
+title: "Micro-Batch Training with Batch-Channel Normalization and Weight Standardization"
+short: Qiao et al. 2019
+authors: Siyuan Qiao, Huiyu Wang, Chenxi Liu, Wei Shen, Alan Yuille
+year: 2019
+url: https://arxiv.org/abs/1903.10520
+type: paper
+notes: "§3–§4 standardizes each convolutional output filter's weights to zero mean and unit variance over its fan-in (C_in, K_h, K_w); §5 shows that pairing GroupNorm with Weight Standardization closes the large-batch accuracy gap with BatchNorm on ImageNet and improves micro-batch training."

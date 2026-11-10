@@ -1,0 +1,7 @@
+title: "Weight Normalization: A Simple Reparameterization to Accelerate Training of Deep Neural Networks"
+short: Salimans & Kingma 2016
+authors: Tim Salimans, Diederik P. Kingma
+year: 2016
+url: https://arxiv.org/abs/1602.07868
+type: paper
+notes: "§2 reparameterizes each weight vector w = g * v / ||v||, decoupling weight magnitude g from direction v without depending on mini-batch statistics."

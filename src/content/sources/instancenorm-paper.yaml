@@ -1,0 +1,7 @@
+title: "Instance Normalization: The Missing Ingredient for Fast Stylization"
+short: Ulyanov et al. 2016
+authors: Dmitry Ulyanov, Andrea Vedaldi, Victor Lempitsky
+year: 2016
+url: https://arxiv.org/abs/1607.08022
+type: paper
+notes: "§1–§2 normalizes each sample and each channel separately over the spatial dimensions (H, W) only (equivalent to GroupNorm with G = C), stripping instance-specific contrast and improving feed-forward style transfer."

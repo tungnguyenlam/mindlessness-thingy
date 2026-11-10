@@ -226,3 +226,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: AudioLLM (LFM2.5-230M) system note with pipeline architecture, model data, and audio-text alignment scene; support hybrid backbones in pipeline overviews; handle GoatCounter 404 in readme-stats
 - files: src/content/notes/systems/audiollm.mdx src/content/models/audiollm.yaml src/lib/scenes/audiollm-align.mjs src/content/sources/{audiollm-repo,mel-llm-paper,affinity-pooling-paper,implicit-encoders-paper,atome-paper}.yaml research/audiollm-facts.md src/components/viz/ModelOverview.astro src/lib/models/overview.mjs scripts/readme-stats.mjs scripts/lib/browser.mjs
 - open: none
+
+## 2026-11-10 · content(group-norm): add GroupNorm concept note and scenes
+- did: GroupNorm concept note with 4D tensor slicing and batch/eval scenes, conditioned ResBlock diagram, norm comparisons (InstanceNorm, WeightNorm, WS, RMSNorm, AdaLN), pitfalls, and contested claims
+- files: src/content/notes/concepts/{group-norm,layer-norm}.mdx src/lib/scenes/{group-axes,group-batch}.mjs src/lib/bigpicture.mjs src/content/sources/{groupnorm,instancenorm,weightnorm,weight-standardization,ddpm,bit,santurkar-bn}-paper.yaml research/group-norm-facts.md
+- open: none

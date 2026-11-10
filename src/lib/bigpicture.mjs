@@ -92,6 +92,7 @@ export const PIPELINES = {
 export const PLACES = {
   'byte-level-bpe': { pipe: 'llm', at: 'tok', short: 'BPE', role: 'turns text into token ids' },
   'layer-norm': { pipe: 'llm', at: 'norm', short: 'LayerNorm', role: 'keeps every layer’s input the same size' },
+  'group-norm': { pipe: 'llm', at: 'norm', short: 'GroupNorm', role: 'normalizes channel groups inside one example' },
   'transformer-block': { pipe: 'llm', at: 'layers', short: 'Block', role: 'the layer that is repeated L times' },
   rope: { pipe: 'llm', at: 'pos', short: 'RoPE', role: 'tells attention where each token is' },
   mha: { pipe: 'llm', at: 'mix', short: 'MHA', role: 'attention with its own K, V per head' },

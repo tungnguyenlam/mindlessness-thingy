@@ -1,0 +1,180 @@
+---
+title: Group normalization
+kind: concept
+summary: "GroupNorm splits each example's channels into G groups and normalizes every group over space on its own, so small-batch training and single-image inference run the exact same math."
+domains: [vision, generative, training]
+prerequisites: [layer-norm]
+builds_on: []
+contrasts_with: [layer-norm]
+related: [transformer-block, adaln, dit]
+sources: [groupnorm-paper, batchnorm-paper, layernorm-paper, instancenorm-paper, weightnorm-paper, weight-standardization-paper, ddpm-paper, bit-paper, santurkar-bn-paper, rmsnorm-paper, dit-paper]
+status: draft
+updated: 2026-11-10
+---
+
+BatchNorm normalizes each channel across the mini-batch, which breaks when high-resolution images or video volumes force only one or two examples onto each GPU. [[layer-norm|LayerNorm]] avoids the batch axis by pooling all channels of one example together, but convolutional filters learn features of very different scales. GroupNorm takes the middle path: it divides an example's channels into $G$ groups and normalizes each group on its own <Cite id="groupnorm-paper" where="§3" />.
+
+<Scene
+  name="group-axes"
+  title="How BatchNorm, LayerNorm, InstanceNorm and GroupNorm slice a 4D tensor"
+  caption="Left: a batch of N = 3 examples, each with C = 6 channels of H × W spatial grids. Right: the channel means of example 1 under each norm. Toy seeded numbers."
+/>
+
+$$
+\hat{x}_i = \frac{x_i - \mu_g}{\sqrt{\sigma_g^2 + \epsilon}}, \qquad y_i = \gamma_c \hat{x}_i + \beta_c
+$$
+
+<Words>
+A 2D convolutional layer produces a four-dimensional activation tensor $x$ of shape $(N, C, H, W)$, where $N$ is the batch size, $C$ is the number of channels, and $H \times W$ is the spatial grid. An index $i = (n, c, h, w)$ picks one number in that tensor.
+
+GroupNorm splits the $C$ channels of each example $n$ into $G$ contiguous groups of $C/G$ channels each <Cite id="groupnorm-paper" where="§3.1" />. Channel $c$ belongs to group $g = \lfloor c / (C/G) \rfloor$. For each example $n$ and group $g$, GroupNorm averages over all $m = (C/G) \cdot H \cdot W$ values in the group to find the group mean $\mu_g$ and variance $\sigma_g^2$, then subtracts $\mu_g$ and divides by $\sqrt{\sigma_g^2 + \epsilon}$, where $\epsilon$ is a small constant such as $10^{-5}$.
+
+The learned scale $\gamma$ and shift $\beta$ are indexed by channel $c$, not by group $g$ <Cite id="groupnorm-paper" where="§3.1, Fig. 3" />. Even though $C/G$ channels share one $\mu_g$ and $\sigma_g$, each channel keeps its own $\gamma_c$ and $\beta_c$, giving $2C$ trainable parameters per layer. Setting $G = 1$ pools all $C$ channels together and recovers [[layer-norm|LayerNorm]], whereas setting $G = C$ normalizes each channel alone and recovers InstanceNorm <Cite id="groupnorm-paper" where="§3.1" />.
+</Words>
+
+## Train vs. eval and the small-batch breakdown
+
+<Scene
+  name="group-batch"
+  title="Batch size sensitivity and train-vs-eval behavior"
+  caption="Left: BatchNorm's batch estimate wobbles at small N and switches to frozen running averages at eval, while GroupNorm computes the exact same intra-image statistics in both modes. Right: ResNet-50 ImageNet top-1 validation error from Wu & He (2018), Table 2."
+/>
+
+<Spec
+  title="ResNet-50 ImageNet top-1 validation error across per-GPU batch sizes"
+  columns={['Batch size per GPU', 'BatchNorm error (%)', 'GroupNorm (G = 32) error (%)', 'Gap (GN − BN, %)']}
+  rows={[
+    { label: 'N = 32 images', values: ['23.6', '24.1', '+0.5'], source: 'groupnorm-paper', where: 'Table 2' },
+    { label: 'N = 16 images', values: ['23.7', '24.2', '+0.5'], source: 'groupnorm-paper', where: 'Table 2' },
+    { label: 'N = 8 images', values: ['24.8', '24.0', '−0.8'], source: 'groupnorm-paper', where: 'Table 2' },
+    { label: 'N = 4 images', values: ['27.3', '24.2', '−3.1'], source: 'groupnorm-paper', where: 'Table 2' },
+    { label: 'N = 2 images', values: ['34.7', '24.1', '−10.6'], source: 'groupnorm-paper', where: 'Table 2' },
+  ]}
+  note="Trained on 8 GPUs for 100 epochs with linear learning-rate scaling. At N = 2 per GPU, GroupNorm is 10.6 percentage points more accurate than BatchNorm."
+/>
+
+<Words>
+BatchNorm runs different math during training and evaluation <Cite id="batchnorm-paper" where="§3.1" />. During training, it normalizes each channel with the mean and variance of the current mini-batch over $N \cdot H \cdot W$ values while updating exponential moving averages. At evaluation, it switches to those frozen running averages.
+
+When GPU memory limits the batch to $N = 1$ or $N = 2$ images per worker, BatchNorm's mini-batch estimates become noisy and drift from the running averages. On ResNet-50, shrinking from $32$ to $2$ images per GPU pushes BatchNorm's ImageNet error from $23.6\%$ to $34.7\%$ <Cite id="groupnorm-paper" where="Table 2" />. Fine-tuning on object detection also breaks unfrozen BatchNorm, forcing models to freeze its statistics or pay cross-GPU sync cost with SyncBN <Cite id="groupnorm-paper" where="§1, §2" />.
+
+GroupNorm avoids both issues because the batch axis $N$ never enters $\mu_g$ or $\sigma_g$ <Cite id="groupnorm-paper" where="§3.1" />. It stores no running buffers, needs no cross-GPU communication, and runs the exact same deterministic formula during training, fine-tuning, and single-image inference. Across batch sizes from $32$ down to $2$, ResNet-50 with GroupNorm ($G = 32$) stays between $24.0\%$ and $24.2\%$ validation error <Cite id="groupnorm-paper" where="Table 2" />.
+</Words>
+
+## Choosing the group count G: pros and cons
+
+<Spec
+  title="ResNet-50 ImageNet validation error across group divisions (N = 32 per GPU)"
+  columns={['Configuration', 'Groups G', 'Channels per group (C/G)', 'Top-1 val error (%)']}
+  rows={[
+    { label: 'BatchNorm baseline', values: ['—', '1 (across N)', '23.6'], source: 'groupnorm-paper', where: 'Table 1' },
+    { label: 'GroupNorm (64 groups)', values: ['64', 'varies by stage', '24.6'], source: 'groupnorm-paper', where: 'Table 3' },
+    { label: 'GroupNorm (default)', values: ['32', 'varies (16 at conv5)', '24.1'], source: 'groupnorm-paper', where: 'Table 3' },
+    { label: 'GroupNorm (16 groups)', values: ['16', 'varies by stage', '24.6'], source: 'groupnorm-paper', where: 'Table 3' },
+    { label: 'GroupNorm (8 groups)', values: ['8', 'varies by stage', '24.4'], source: 'groupnorm-paper', where: 'Table 3' },
+    { label: 'GroupNorm (2 groups)', values: ['2', 'varies by stage', '24.7'], source: 'groupnorm-paper', where: 'Table 3' },
+    { label: 'LayerNorm (all channels)', values: ['1', 'C', '25.3'], source: 'groupnorm-paper', where: 'Table 1, Table 3' },
+    { label: 'Fixed 16 channels/group', values: ['C / 16', '16', '24.2'], source: 'groupnorm-paper', where: 'Table 3' },
+    { label: 'InstanceNorm (1 ch/group)', values: ['C', '1', '28.4'], source: 'groupnorm-paper', where: 'Table 1, Table 3' },
+    { label: 'WeightNorm', values: ['—', 'per output filter', '28.2'], source: 'groupnorm-paper', where: 'Table 1, fn. 3' },
+  ]}
+  note="All models trained at 32 images per GPU on 8 GPUs. GroupNorm works well across any intermediate G between 2 and 64, whereas the two extremes (G = 1 and G = C) degrade accuracy."
+/>
+
+<Words>
+Why does dividing channels into groups beat both $G = 1$ ([[layer-norm|LayerNorm]]) and $G = C$ (InstanceNorm) on convolutional networks? At $G = 1$, all $C$ channels share one mean and variance, so high-energy filters dominate the variance estimate and squash quieter feature detectors, raising ResNet-50 error to $25.3\%$ <Cite id="groupnorm-paper" where="Table 3" />. At $G = C$, normalizing each channel over $(H, W)$ alone forces every channel's spatial mean to zero and erases relative firing strength across channels, raising error to $28.4\%$ <Cite id="groupnorm-paper" where="Table 3" />.
+
+Any intermediate group count ($G \in \{8, 16, 32\}$ or fixing $C/G = 16$ channels per group) pools enough values $m = (C/G)HW$ for a steady estimate while letting separate groups keep distinct activation scales <Cite id="groupnorm-paper" where="§4.1, Table 3" />.
+
+The main trade-off of plain GroupNorm appears at large batch sizes. At $N = 32$ per GPU, GroupNorm reaches *lower* training error than BatchNorm on ResNet-50, yet trails BatchNorm by $0.5\%$ on validation error ($24.1\%$ vs. $23.6\%$) <Cite id="groupnorm-paper" where="§4.1, Fig. 4" />. Because BatchNorm computes statistics over random mini-batches, its sampling noise acts as an implicit regularizer that deterministic GroupNorm lacks.
+</Words>
+
+## Where GroupNorm is used
+
+<ArchDiagram
+  title="GroupNorm inside a conditioned residual block with Weight Standardization"
+  caption="Two common pairings in modern vision and diffusion backbones: Weight Standardization normalizes each convolutional filter's weights, while GroupNorm normalizes channel groups and receives adaptive scale and shift from a timestep or condition embedding."
+  blocks={[
+    { id: 'x', label: 'Input feature map x', sub: 'C × H × W', role: 'activation' },
+    { id: 'ws', label: 'Weight-std conv', sub: 'C × K × K → C', role: 'weight' },
+    { id: 'h', label: 'Conv activations', sub: 'C × H × W', role: 'activation' },
+    { id: 'gn', label: 'GroupNorm (G groups)', sub: 'C × H × W', role: 'op' },
+    { id: 'cond', label: 'Condition / time t', sub: 'd_t', role: 'activation' },
+    { id: 'mlp', label: 'Modulation projection', sub: 'd_t → γ, β', role: 'weight', link: 'adaln' },
+    { id: 'mod', label: 'Scale, shift & SiLU', sub: 'C × H × W', role: 'activation' },
+    { id: 'add', label: 'Residual add', sub: 'C × H × W', role: 'op' },
+  ]}
+  edges={[
+    { from: 'x', to: 'ws' },
+    { from: 'ws', to: 'h' },
+    { from: 'h', to: 'gn' },
+    { from: 'cond', to: 'mlp' },
+    { from: 'mlp', to: 'mod', label: 'γ(t), β(t)' },
+    { from: 'gn', to: 'mod' },
+    { from: 'mod', to: 'add' },
+    { from: 'x', to: 'add' },
+  ]}
+/>
+
+<Words>
+**Object detection, segmentation, and video.** Mask R-CNN and Faster R-CNN train with 1 or 2 high-resolution images per GPU. Replacing frozen BatchNorm with GroupNorm ($G = 32$) in the ResNet-50 FPN backbone and box head lifts COCO box AP from $38.6$ to $40.3$ ($40.8$ on a longer schedule) and enables training detectors from scratch on COCO at $39.5$ box AP versus $34.5$ for SyncBN <Cite id="groupnorm-paper" where="§4.2, Tables 6–7" />.
+
+**Diffusion U-Nets and autoencoders.** Denoising Diffusion Probabilistic Models (DDPM) use GroupNorm ($G = 32$) in every U-Net residual and attention block <Cite id="ddpm-paper" where="§4, App. B" />. In a diffusion batch, each example sits at a different noise timestep $t$, so BatchNorm would average across incompatible noise levels. Diffusion U-Nets instead normalize each example with GroupNorm and modulate channels with timestep-projected scale and shift, the convolutional counterpart to [[adaln]] in [[dit]].
+
+**Large-scale transfer learning.** Big Transfer (BiT) replaces BatchNorm with GroupNorm plus Weight Standardization across ResNet-V2 backbones up to ResNet-152$\times$4 so pre-training and small-batch downstream transfer never suffer from running-average drift <Cite id="bit-paper" where="§2.1, §3.3" />.
+</Words>
+
+## Other common norms and when to use each
+
+<Spec
+  title="When to use each normalization layer"
+  columns={['Norm', 'Pools over', 'Batch-free & train = eval?', 'Best used when', 'Avoid when']}
+  rows={[
+    { label: 'BatchNorm', values: ['(N, H, W) per channel', 'No (uses running stats at eval)', 'Large-batch CNN classification (N ≥ 16/GPU)', 'Small batches (N ≤ 4), detection, LLMs, diffusion'], source: 'batchnorm-paper', where: '§3' },
+    { label: 'LayerNorm', values: ['(d) per token or (C, H, W) per image', 'Yes (2C or 2d params)', 'Transformers, ViTs, sequence models', 'Pure CNNs where filter scales vary widely across C'], source: 'layernorm-paper', where: '§3' },
+    { label: 'RMSNorm', values: ['(d) per token, root mean square only', 'Yes (C or d scale γ only)', 'Modern LLMs and hybrid backbones (faster, no μ)', 'Blocks that require explicit zero-mean centering'], source: 'rmsnorm-paper', where: '§4' },
+    { label: 'GroupNorm', values: ['(C/G, H, W) per group of 1 example', 'Yes (2C per-channel params)', 'Small-batch CNNs, detection, diffusion U-Nets & VAEs', 'Channel count C is smaller than or not divisible by G'], source: 'groupnorm-paper', where: '§3' },
+    { label: 'InstanceNorm', values: ['(H, W) per channel of 1 example (G = C)', 'Yes (2C params)', 'Style transfer and image-to-image translation', 'Classification (erases global contrast across channels)'], source: 'instancenorm-paper', where: '§1' },
+    { label: 'AdaLN / AdaGN', values: ['Same as LN or GN, modulated by condition', 'Yes (MLP predicts γ(c), β(c))', 'Conditioning diffusion blocks (DiT, U-Nets) on time/class', 'Token-varying spatial conditions (use cross-attention)'], source: 'dit-paper', where: '§3.2' },
+    { label: 'WeightNorm', values: ['Weight vector w = g · v / ||v||₂', 'Yes (operates on weights)', 'Lightweight weight reparameterization', 'Deep residual stacks without an activation norm (28.2% err)'], source: 'weightnorm-paper', where: '§2' },
+    { label: 'Weight Std (WS)', values: ['Conv filter W_i over (C_in, K_h, K_w)', 'Yes (zero-mean unit-var weights)', 'Paired with GroupNorm (GN + WS) to beat large-batch BN', 'Used alone without an activation normalization layer'], source: 'weight-standardization-paper', where: '§3' },
+  ]}
+  note="Comparison across activation and weight normalizations. LayerNorm, AdaLN, and Transformer blocks are covered in their own concept notes."
+/>
+
+<Words>
+**InstanceNorm** ($G = C$) normalizes each channel over its spatial grid $(H, W)$ alone <Cite id="instancenorm-paper" where="§1" />. Ulyanov et al. showed that in style transfer, an image's global contrast and lighting live in its per-channel spatial mean and variance. Stripping those statistics per channel lets a stylization network paint a new texture cleanly, whereas in classification it discards useful contrast between channels <Cite id="groupnorm-paper" where="§4.1, Table 1" />.
+
+**WeightNorm** <Cite id="weightnorm-paper" where="§2" /> and **Weight Standardization (WS)** <Cite id="weight-standardization-paper" where="§3" /> normalize the network's *weights* $W$ rather than its activations $x$. WeightNorm decouples each filter's length $g$ from its direction $v / \|v\|_2$, which avoids batch statistics but does not keep activation variance from growing with depth ($28.2\%$ error on ResNet-50 <Cite id="groupnorm-paper" where="Table 1, fn. 3" />).
+
+Weight Standardization centers and scales each convolutional output filter $W_i$ to zero mean and unit variance across its fan-in $(C_{\text{in}}, K_h, K_w)$:
+
+$$
+\hat{W}_{i,j} = \frac{W_{i,j} - \mu_{W_i}}{\sqrt{\sigma_{W_i}^2 + \epsilon}}
+$$
+
+Qiao et al. showed that Weight Standardization smooths the loss landscape while GroupNorm steadies activation scales, just as [[layer-norm|LayerNorm]] and [[adaln]] do in [[transformer-block|Transformers]]. Combining **GroupNorm + Weight Standardization** closes the $0.5\%$ large-batch gap with BatchNorm on ImageNet and matches or beats large-batch BatchNorm even at $N = 1$ image per GPU <Cite id="weight-standardization-paper" where="§4–§5" />.
+</Words>
+
+## Pitfalls and uncertain claims
+
+<Spec
+  title="Practical failure modes and contested claims around GroupNorm"
+  columns={['Topic', 'What happens in practice', 'Evidence / status']}
+  rows={[
+    { label: 'Channel divisibility (C mod G ≠ 0)', values: ['Standard implementations require C to be divisible by G; early stem layers with C = 16 or 24 fail with G = 32', 'Confirmed: reduce G in narrow layers or fix C/G (e.g. 16 ch/group)'], source: 'groupnorm-paper', where: '§3.1, Table 3' },
+    { label: 'Swapping into BN checkpoints', values: ['Replacing BatchNorm with GroupNorm in pre-trained weights without fine-tuning scrambles feature scales', 'Confirmed: BN folds population stats; GN computes per-image group stats'], source: 'groupnorm-paper', where: '§3.1, §4.2' },
+    { label: 'Redundant conv bias', values: ['An additive bias b in the preceding conv cancels out when μ_g is subtracted across (C/G, H, W)', 'Confirmed: set bias=False on conv layers directly before GroupNorm'], source: 'groupnorm-paper', where: '§3.1' },
+    { label: 'Why normalization helps training', values: ['Often attributed to reducing internal covariate shift, but evidence points to smoothing the loss and gradient Lipschitz constant', 'Contested: Santurkar et al. refute internal covariate shift as the primary cause'], source: 'santurkar-bn-paper', where: '§2–§4' },
+    { label: 'Do adjacent channels form semantic groups?', values: ['Motivated by SIFT/HOG orientation groups, yet randomly initialized CNN channels have no explicit ordering constraint', 'Uncertain mechanism: the proved effect comes from intermediate pool size m = (C/G)HW'], source: 'groupnorm-paper', where: '§1, §3, Table 3' },
+  ]}
+  note="Summary of verified implementation pitfalls and claims where mechanism explanations in the literature are contested."
+/>
+
+<Callout type="pitfall">
+Never swap GroupNorm into a BatchNorm-trained model without fine-tuning, and check that every layer's channel count $C$ is divisible by $G$. In narrow stem layers where $C < 32$, either pick a smaller $G$ (such as $G = 8$ or $G = \min(32, C)$) or fix the channels per group ($C/G = 16$) <Cite id="groupnorm-paper" where="Table 3" />. Also set `bias=False` on any convolution immediately before GroupNorm, because subtracting $\mu_g$ cancels any constant channel offset.
+</Callout>
+
+<Callout type="note">
+Two common claims in normalization papers are contested. First, early papers attributed BatchNorm's speedups to reducing "internal covariate shift" <Cite id="batchnorm-paper" where="§1" />, but Santurkar et al. showed that normalization instead helps by making the loss surface and gradients smoother <Cite id="santurkar-bn-paper" where="§2–§4" />. Second, Wu and He motivate channel groups by analogy to SIFT/HOG orientation bins <Cite id="groupnorm-paper" where="§1, §3" />, yet standard SGD places no semantic constraint on adjacent channel indices, so the verified benefit is statistical: an intermediate pool size $m = (C/G)HW$ avoids both all-channel squashing ($G=1$) and per-channel contrast erasure ($G=C$).
+</Callout>
