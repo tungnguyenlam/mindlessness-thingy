@@ -1,0 +1,8 @@
+title: "Mel-LLM: LLM can Read Spectrogram"
+short: Mel-LLM
+authors: Ziyang Ma et al.
+year: 2026
+url: https://arxiv.org/abs/2606.10231
+type: paper
+accessed: 2026-11-10
+notes: Demonstrates encoder-free speech recognition by mapping raw log-mel spectrograms into a decoder-only LLM via a small strided 1D convolutional adapter.

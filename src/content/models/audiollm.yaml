@@ -1,0 +1,82 @@
+title: AudioLLM (LFM2.5-230M)
+note: audiollm
+family: LFM
+extends: lfm2-5-230m
+kind: pipeline
+
+input:
+  v: "16 kHz mono audio (80-bin HTK log-mel, 100 Hz) + prompt"
+  source: audiollm-repo
+  where: "audiollm/features.py, audiollm/model.py"
+
+output:
+  v: "Transcript text tokens"
+  source: audiollm-repo
+  where: "audiollm/model.py"
+
+params_total:
+  v: 252.5e6
+  display: "252.5M (22.5M trainable)"
+  source: audiollm-repo
+  where: "README.md, WORKLOG.md (230M frozen LFM2.5 + 15.53M LoRA r=64 + 6.95M ConvAudioProjector)"
+
+params_active:
+  v: 252.5e6
+  display: "252.5M (22.5M trainable)"
+  source: audiollm-repo
+  where: "README.md, audiollm/config.py (dense hybrid stack + LoRA r=64 + ConvAudioProjector)"
+
+stages:
+  - id: wav
+    label: "16 kHz waveform"
+    sub: "80-bin log-mel (100 Hz)"
+    role: activation
+    col: 0
+    row: 0
+    source: audiollm-repo
+    where: "audiollm/features.py, audiollm/config.py (SR=16000, N_FFT=400, HOP=160, N_MELS=80)"
+  - id: proj
+    label: "ConvAudioProjector"
+    sub: "100 → 12.5 Hz, 6.95M"
+    role: weight
+    col: 0
+    row: 1
+    from: [wav]
+    source: audiollm-repo
+    where: "audiollm/projectors/conv.py (STACK=8, 80→512→1024→1024, 6.95M params)"
+  - id: prompt
+    label: "Prompt & text IDs"
+    sub: "'Transcription:' + text"
+    role: activation
+    col: 1
+    row: 1
+    source: audiollm-repo
+    where: "audiollm/model.py (PROMPT='Transcription:', GPT2TokenizerFast)"
+  - id: seq
+    label: "Prefix sequence"
+    sub: "[BOS][audio][prompt]"
+    role: op
+    col: 0
+    row: 2
+    from: [proj, prompt]
+    source: audiollm-repo
+    where: "audiollm/model.py (_encode_audio_and_prompt)"
+  - id: backbone
+    label: "LFM2.5-230M + LoRA"
+    role: weight
+    backbone: true
+    link: lfm2-5-230m
+    col: 0
+    row: 3
+    from: [seq]
+    source: audiollm-repo
+    where: "audiollm/backbone.py (LiquidAI/LFM2.5-230M-Base frozen + all-linear LoRA r=64, α=128; optional k=2 affinity merge)"
+  - id: out
+    label: "Transcript tokens"
+    sub: "greedy + 4-gram block"
+    role: activation
+    col: 0
+    row: 4
+    from: [backbone]
+    source: audiollm-repo
+    where: "audiollm/model.py (generate: duration token cap + no_repeat_ngram_size=4)"

@@ -1,0 +1,8 @@
+title: "audiollm: Encoder-free audio-to-LLM alignment with LiquidAI LFM2.5-230M"
+short: audiollm repo
+authors: Tung Nguyen Lam
+year: 2026
+url: https://github.com/tungnguyenlam/audiollm
+type: repo
+accessed: 2026-11-10
+notes: Source code, configs, evaluation logs, and design documents for encoder-free log-mel speech recognition on LiquidAI LFM2.5-230M-Base.

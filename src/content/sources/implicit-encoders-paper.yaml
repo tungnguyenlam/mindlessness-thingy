@@ -1,0 +1,8 @@
+title: "Encoder-Free Multimodal LLMs Learn Implicit Encoders"
+short: Implicit Encoders
+authors: Implicit Encoders authors
+year: 2026
+url: https://arxiv.org/abs/2610.24239
+type: paper
+accessed: 2026-11-10
+notes: Shows that in encoder-free multimodal LLMs, the early decoder blocks act as an implicit modality encoder whose adjacent token representations become progressively smoother and more mergeable.

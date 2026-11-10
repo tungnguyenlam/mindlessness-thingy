@@ -77,7 +77,7 @@ const normName = (m) => (/rmsnorm/i.test(String(m.values.norm?.v ?? 'RMSNorm')) 
 export function layerDiagram(m, ctx, { title, zoom = false } = {}) {
   const { v, z, layers, count, present } = access(m);
   if (!layers) throw new Error(`model "${m.id}" needs a layer_pattern`);
-  if (m.kind === 'pipeline') return blockDiagram(m, ctx, { title, zoom });
+  if (m.kind === 'pipeline' && layers.every((l) => l.join('') === layers[0].join(''))) return blockDiagram(m, ctx, { title, zoom });
   const mixers = present('ACMG');
   const ffns = present('DE');
   const times = (c, list) => (list.length > 1 ? `× ${count(c)}` : null);
@@ -616,7 +616,8 @@ function mtpDetail(m, ctx) {
 /** Every generated view of a model, in reading order. */
 export function overviewParts(m, ctx) {
   const { v, present, layers } = access(m);
-  if (m.kind === 'pipeline') {
+  const uniform = layers && layers.every((l) => l.join('') === layers[0].join(''));
+  if (m.kind === 'pipeline' && (!layers || uniform)) {
     const parts = [{ id: 'model', tab: 'Whole system', props: pipelineModel(m, ctx) }];
     if (!layers) return parts;
     parts.push({ id: 'layer', tab: 'One block', props: layerDiagram(m, ctx, { zoom: true }) });
@@ -624,7 +625,7 @@ export function overviewParts(m, ctx) {
     for (const c of layers[0]) if (TAB[c]) parts.push({ id: SUB_TAB[c], tab: TAB[c][0], props: TAB[c][1]() });
     return parts;
   }
-  const parts = [{ id: 'model', tab: 'Whole model', props: wholeModel(m, ctx) }];
+  const parts = [{ id: 'model', tab: m.kind === 'pipeline' ? 'Whole system' : 'Whole model', props: m.kind === 'pipeline' ? pipelineModel(m, ctx) : wholeModel(m, ctx) }];
   if (layers) parts.push({ id: 'layer', tab: 'One layer', props: layerDiagram(m, ctx, { zoom: true }) });
   const attn = String(v('attention') ?? '');
   for (const c of present('ACMG')) {

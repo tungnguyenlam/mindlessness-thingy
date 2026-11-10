@@ -18,14 +18,17 @@ const end = new Date();
 const start = new Date(end.getTime() - DAYS * 864e5);
 const range = `start=${day(start)}&end=${day(end)}`;
 
-async function get(path) {
-  const res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+async function get(path, fallback) {
+  const res = await fetch(`${API}${path}`, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+  });
+  if (res.status === 404 && fallback !== undefined) return fallback;
   if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
   return res.json();
 }
 
-const total = await get(`/stats/total?${range}`);
-const hits = await get(`/stats/hits?${range}&limit=${TOP}`);
+const total = await get(`/stats/total?${range}`, { total: 0 });
+const hits = await get(`/stats/hits?${range}&limit=${TOP}`, { hits: [] });
 
 const count = (h) => h.count ?? h.count_unique ?? 0;
 const cell = (s) => String(s).replace(/\|/g, '\\|');

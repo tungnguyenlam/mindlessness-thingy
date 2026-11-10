@@ -1,0 +1,8 @@
+title: "Affinity Pooling: Redundancy in Large Speech Language Models"
+short: Affinity Pooling
+authors: Affinity Pooling authors
+year: 2026
+url: https://arxiv.org/abs/2604.06871
+type: paper
+accessed: 2026-11-10
+notes: Training-free greedy adjacent speech token merging driven by adjacent cosine similarity thresholds, compressing redundant acoustic runs up to M_max tokens.

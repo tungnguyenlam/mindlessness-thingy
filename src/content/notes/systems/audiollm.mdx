@@ -1,0 +1,333 @@
+---
+title: AudioLLM (LFM2.5-230M)
+kind: system
+summary: "Encoder-free speech recognition on LFM2.5-230M: strided log-mel convolutions, scale-matched embeddings, implicit conv encoding with layer-2 affinity token merging, and LFM3 tokenizer grafting."
+domains: [llm, audio, speech, multimodal, efficiency]
+prerequisites: [hybrid-conv-attention, gated-short-conv, gqa, kv-cache, byte-level-bpe]
+builds_on: [lfm2-5-230m]
+contrasts_with: [lfm2-5-350m, lfm2-5-2-6b-base]
+related: [rope, layer-norm, lfm2-tokenizer]
+sources: [audiollm-repo, mel-llm-paper, affinity-pooling-paper, implicit-encoders-paper, atome-paper, lfm2-5-230m-config]
+status: draft
+updated: 2026-11-10
+---
+
+Most speech-enabled language models bolt a 300M to 600M pretrained acoustic encoder onto an LLM, making the front-end larger than a compact edge backbone. **AudioLLM** drops the external speech encoder altogether and teaches [[lfm2-5-230m|LFM2.5-230M-Base]] to read 80-bin HTK log-mel spectrograms through a 6.95M-parameter strided convolutional projector and 15.53M LoRA weights <Cite id="audiollm-repo" where="README.md, audiollm/model.py" />. Reaching $11.87\%$ word error rate (WER) on LibriSpeech `test-clean` required solving four alignment bottlenecks: embedding norm mismatch, LoRA gradient starvation, acoustic frame redundancy inside the [[hybrid-conv-attention]] stack, and [[byte-level-bpe]] fertility explosion on non-English scripts <Cite id="audiollm-repo" where="WORKLOG.md" />.
+
+<ModelOverview model="audiollm" />
+
+<Words>
+
+The pipeline converts a 16 kHz mono waveform into 100 Hz log-mel frames, downsamples them $8\times$ into 12.5 Hz embeddings of width $d = 1{,}024$, and prepends them to the text prompt `"Transcription:"` inside the frozen [[lfm2-5-230m]] backbone <Cite id="audiollm-repo" where="audiollm/features.py, audiollm/model.py" />. Only the convolutional projector ($6.95\text{M}$ parameters) and rank-$64$ LoRA adapters ($15.53\text{M}$ parameters across all linear projections) are updated during training, leaving $22.49\text{M}$ trainable parameters out of $252.56\text{M}$ total ($8.9\%$) <Cite id="audiollm-repo" where="audiollm/backbone.py, WORKLOG.md" />.
+
+During training, cross-entropy loss is evaluated only on the transcript and end-of-sequence tokens (`labels = -100` on the prefix), and the vocabulary head `lm_head` is sliced to run exclusively on target positions so the $[B, T_a, V]$ audio logit tensor is never materialized <Cite id="audiollm-repo" where="audiollm/model.py" />.
+
+</Words>
+
+## Strided log-mel projection and scale-matching initialization
+
+Feeding raw spectrograms into a decoder-only LLM fails when consecutive frames are flattened into a single linear layer (`STACK = 16`, 160 ms per token) or initialized with standard PyTorch weights <Cite id="audiollm-repo" where="docs/worklog_archive/2026-10.md" />. Following Mel-LLM <Cite id="mel-llm-paper" where="§2" />, AudioLLM replaces flat frame stacking with $S = \log_2(K)$ stages of strided temporal convolution followed by a two-layer MLP and embedding-scale initialization (`match_emb`) <Cite id="audiollm-repo" where="audiollm/projectors/conv.py, audiollm/projectors/base.py" />.
+
+<Scene
+  name="audiollm-align"
+  caption="From 100 Hz log-mel frames to layer-2 merged tokens: 15-frame strided convolutions, embedding norm matching (0.83 vs 0.89), implicit conv smoothing across layers 0–1, and affinity pooling before the 6 GQA layers."
+/>
+
+<Words>
+
+The acoustic front-end computes a 400-point short-time Fourier transform (25 ms Hann window, 10 ms hop, 201 bins) and projects magnitudes onto $F_m = 80$ triangular HTK mel filters with log compression $\log(\text{mel} + 10^{-6})$ and global per-bin mean-variance normalization (MVN) estimated over $2{,}000$ training utterances <Cite id="audiollm-repo" where="audiollm/config.py, audiollm/features.py" />. At downsampling factor $K = 8$ (12.5 Hz, 80 ms stride), `ConvAudioProjector` runs three stride-2, kernel-3 convolutional stages ($80 \to 512 \to 1{,}024 \to 1{,}024$, GELU) whose receptive field spans $2K - 1 = 15$ mel frames (150 ms), overlapping adjacent tokens by 70 ms so phoneme transitions are never split across hard block boundaries <Cite id="audiollm-repo" where="audiollm/projectors/conv.py" />.
+
+To prevent AMD ROCm MIOpen from stalling for over 8 seconds per step when compiling dynamic-length 1D convolutions, each strided convolution is implemented via `F.pad` + tensor `unfold` followed by `nn.Linear(3 * C_in, C_out)`, routing every layer through hipBLAS matrix multiplication <Cite id="audiollm-repo" where="audiollm/projectors/conv.py, WORKLOG.md" />.
+
+Standard Kaiming initialization on unit-variance MVN inputs produces audio vectors with per-dimension standard deviation $0.58$ and row norm $\|a\|_2 \approx 18.5$, which is $20\times$ larger than [[lfm2-5-230m]] token embeddings ($\sigma_{\text{emb}} = 0.028$, $\|e\|_2 \approx 0.89$) <Cite id="audiollm-repo" where="docs/worklog_archive/2026-10.md" />. The `match_emb` initializer sets the projector's output matrix to:
+
+$$W_{\text{out}} \sim \mathcal{N}\!\left(0,\; \frac{\sigma_{\text{emb}}^2}{d_{\text{in}}}\right), \qquad b_{\text{out}} = 0$$
+
+This brings step-0 audio tokens to $\|a\|_2 \approx 0.83$, matching the native residual stream scale of [[layer-norm|RMSNorm]] inside the frozen backbone <Cite id="audiollm-repo" where="audiollm/projectors/base.py" />.
+
+</Words>
+
+## Breaking the 120% WER text-prior regime
+
+Even with scale-matched embeddings, early linear-projector runs plateaued at validation loss $3.45\text{–}3.61$ and $112\text{–}125\%$ WER, producing identical error rates when audio tokens were randomly shuffled across time (`wer == wer_shuffle`) <Cite id="audiollm-repo" where="docs/worklog_archive/2026-10.md" />. The backbone ignored the acoustic prefix and functioned as an unconditional text language model, while unguarded greedy decoding occasionally fell into repetition loops that inflated single-utterance WER past $2{,}000\%$ <Cite id="audiollm-repo" where="docs/worklog_archive/2026-10.md" />.
+
+<ArchDiagram
+  title="Prefix-conditioned training and separate gradient clipping (symbols)"
+  caption="Audio frames pass through the unfolded conv pyramid and scale-matched MLP into the shared residual stream. Loss is computed only on target text positions, and gradients are clipped independently for LoRA and the projector so text-prior updates cannot starve acoustic alignment."
+  blocks={[
+    { id: 'mel', label: 'Log-mel + MVN', sub: 'T_m × F_m', role: 'activation', col: 0, row: 0 },
+    { id: 'conv', label: 'Unfolded conv stack', sub: 'F_m → d_p → d', role: 'weight', col: 0, row: 1 },
+    { id: 'mlp', label: 'Scale-matched MLP', sub: 'd → d (σ_emb)', role: 'weight', col: 0, row: 2 },
+    { id: 'aud', label: 'Audio embeddings', sub: 'T_a × d', role: 'activation', col: 0, row: 3 },
+    { id: 'txt', label: 'Prompt + target IDs', sub: '(T_p + T_y) × d', role: 'activation', col: 1, row: 3 },
+    { id: 'cat', label: 'Prefix concat', sub: '(T_a + T_p + T_y) × d', role: 'op', col: 0, row: 4 },
+    { id: 'lfm', label: 'Frozen LFM + LoRA', sub: 'L × (conv / GQA + FFN)', role: 'weight', link: 'lfm2-5-230m', col: 0, row: 5 },
+    { id: 'head', label: 'Target-only LM head', sub: 'T_y × d → T_y × V', role: 'op', col: 0, row: 6 },
+    { id: 'clip', label: 'Split grad clip', sub: 'clip(∇_proj), clip(∇_lora)', role: 'route', col: 1, row: 5 },
+  ]}
+  edges={[
+    { from: 'mel', to: 'conv' },
+    { from: 'conv', to: 'mlp' },
+    { from: 'mlp', to: 'aud' },
+    { from: 'aud', to: 'cat' },
+    { from: 'txt', to: 'cat' },
+    { from: 'cat', to: 'lfm' },
+    { from: 'lfm', to: 'head', label: 'slice T_y' },
+    { from: 'head', to: 'clip', dashed: true, side: 'right' },
+    { from: 'clip', to: 'mlp', dashed: true, side: 'right' },
+    { from: 'clip', to: 'lfm', dashed: true },
+  ]}
+/>
+
+<Words>
+
+Per-component gradient telemetry in `audiollm/trainer.py` exposed why shared gradient clipping stalled learning: early in training, LoRA parameter gradients averaged $\|\nabla_{\text{lora}}\|_2 \approx 2.2$ while projector gradients averaged $\|\nabla_{\text{proj}}\|_2 \approx 0.18$ <Cite id="audiollm-repo" where="docs/worklog_archive/2026-10.md, audiollm/trainer.py" />. Clipping the combined parameter vector to norm $1.0$ scaled the projector step down by more than $10\times$, allowing LoRA to rapidly fit the corpus text distribution before the projector moved.
+
+Clipping $\|\nabla_{\text{proj}}\|_2 \le 1.0$ and $\|\nabla_{\text{lora}}\|_2 \le 1.0$ separately (with learning rates $\eta_{\text{proj}} = 10^{-3}$ and $\eta_{\text{lora}} = 3 \times 10^{-4}$), switching to `ConvAudioProjector` at `STACK = 8`, and training beyond $3{,}000$ steps triggered a sharp phase transition where $\|\nabla_{\text{proj}}\|_2$ jumped $5\times$ (from $0.26$ to $1.3\text{–}2.3$) and validation loss dropped from $3.35$ to $2.03$ <Cite id="audiollm-repo" where="docs/worklog_archive/2026-10.md" />. At inference, capping generated tokens at $\min(256, \lceil 6.0 \cdot \text{sec} \rceil + 10)$ and blocking repeated 4-grams (`no_repeat_ngram_size = 4`) cut 9-set mean WER on the initial 544-hour checkpoint from $121.7\%$ to $95.3\%$ without retraining <Cite id="audiollm-repo" where="audiollm/model.py, docs/worklog_archive/2026-10.md" />.
+
+</Words>
+
+<Spec
+  title="Scaling acoustic diversity and multi-epoch convergence (100 h to 3,180 h)"
+  columns={['Checkpoint', 'Training hours', 'Steps (stage)', 'LS test-clean ↓', 'LS test-other ↓', 'OpenASR 7-set ↓', 'All 9-set test ↓']}
+  rows={[
+    {
+      label: 'ls100h (LibriSpeech-100 only)',
+      values: ['100.6 h', '12.8k', '84.00%', '91.42%', '—', '—'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (memorized train set: loss 0.035)',
+    },
+    {
+      label: 'mix544h (+LS-360 + AMI)',
+      values: ['544.1 h', '12.8k', '71.29%', '85.30%', '93.99%', '95.30%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md',
+    },
+    {
+      label: 'cont19k (continued on 544 h)',
+      values: ['544.1 h', '+19.2k', '36.92%', '66.18%', '76.83%', '82.13%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md',
+    },
+    {
+      label: 'B mix1040h (+LS-500)',
+      values: ['1,040.0 h', '+19.2k', '25.12%', '49.42%', '65.95%', '71.75%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (beats matched-compute 544 h control C by 6.68 pts on test-clean)',
+    },
+    {
+      label: 'D mix2000h (+VoxPopuli + TED-LIUM 3)',
+      values: ['1,982.6 h', '+19.2k', '19.99%', '44.58%', '50.83%', '59.24%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md',
+    },
+    {
+      label: 'E2 mix3200h (+GigaSpeech M + SPGISpeech S)',
+      values: ['3,179.4 h', '+19.2k (0.35 ep)', '18.18%', '41.90%', '41.36%', '49.15%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (1,783,428 unique utterances across 7 corpora)',
+    },
+    {
+      label: 'Stage A (full epoch 1, LR 2e-4 / 6e-5)',
+      values: ['3,179.4 h', '+55.7k (1.0 ep)', '14.37%', '34.97%', '34.11%', '41.85%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (8-dev mean 32.25%)',
+    },
+    {
+      label: 'Stage B (full epoch 2, LR 1e-4 / 3e-5)',
+      values: ['3,179.4 h', '+55.7k (1.0 ep)', '12.23%', '33.48%', '32.26%', '40.13%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (8-dev mean 30.31%)',
+    },
+    {
+      label: 'Stage C (full epoch 3, LR 5e-5 / 1.5e-5)',
+      values: ['3,179.4 h', '+55.7k (1.0 ep)', '11.87%', '32.73%', '31.42%', '39.26%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (SPGISpeech 24.07%, VoxPopuli 28.87%, GigaSpeech 33.23%, AMI 35.93%)',
+    },
+  ]}
+  note="All rows use ConvAudioProjector (STACK = 8, 12.5 Hz, 6.95M params) and LoRA r = 64 (15.53M params) on LFM2.5-230M-Base. OpenASR 7-set averages LS test-clean, LS test-other, VoxPopuli, TED-LIUM, GigaSpeech, SPGISpeech, and AMI; All 9-set adds CommonVoice and Earnings22."
+/>
+
+## Implicit acoustic encoding and layer-2 affinity token merging
+
+In encoder-free multimodal models, early decoder blocks act as an implicit modality encoder whose adjacent token representations grow progressively smoother with depth <Cite id="implicit-encoders-paper" where="§3" />. Probing mean-centered adjacent audio cosine similarity $\cos(\tilde{h}_i, \tilde{h}_{i+1})$ across all 14 layers of [[lfm2-5-230m]] confirms this inside a [[hybrid-conv-attention]] backbone: similarity climbs from $0.285$ at the projector output to $0.354$ after the first two [[gated-short-conv]] blocks (layers 0 and 1) and reaches $0.456\text{–}0.525$ in layers $9\text{–}13$ on `dev-clean` <Cite id="audiollm-repo" where="WORKLOG.md, scripts/probe_layer_redundancy.py" />.
+
+<LayerStrip
+  model="audiollm"
+  caption="The 14-layer LFM2.5-230M backbone interleaves 8 gated short-convolution layers (C, at indices 0, 1, 3, 5, 7, 9, 11, 13) and 6 grouped-query attention layers (A, at indices 2, 4, 6, 8, 10, 12). Merging audio tokens at layer k = 2 sits right after the two initial conv blocks and before all 6 attention layers."
+/>
+
+<Words>
+
+Because layers 0 and 1 are [[gated-short-conv]] blocks with $O(T)$ compute and a 3-token state, whereas all six [[gqa]] layers sit at indices $k \in \{2, 4, 6, 8, 10, 12\}$, applying training-free Affinity Pooling <Cite id="affinity-pooling-paper" where="§3" /> at layer $k = 2$ lets the two initial conv blocks smooth raw 12.5 Hz frames before **100% of the attention layers** run <Cite id="audiollm-repo" where="audiollm/layer_merging.py, WORKLOG.md" />. At layer $k$, greedy left-to-right pooling merges up to $M_{\max}$ consecutive audio hidden states whenever $\cos(h_i, h_{i+1}) \ge \tau$, while leaving prompt and transcript tokens untouched <Cite id="audiollm-repo" where="audiollm/merging.py" />.
+
+To compare merging at different depths $k \in \{0, \dots, 13\}$ under a single compute budget, AudioLLM defines the effective token ratio $E$ as the average fraction of audio tokens processed per layer across all $L = 14$ layers <Cite id="audiollm-repo" where="docs/in_llm_merging_plan.md" />:
+
+$$E = \frac{k + (L - k) R_k}{L} \quad \Longleftrightarrow \quad R_k = \frac{L \cdot E - k}{L - k}$$
+
+Here $R_k = T'_a / T_a$ is the retained audio token fraction after merging at layer $k$.
+
+</Words>
+
+<Calc
+  title="Audio token budget, layer-k effective ratio E, and GQA KV cache"
+  inputs={[
+    { id: 'sec', label: 'Utterance duration', min: 2, max: 16, step: 1, value: 10, unit: 's' },
+    { id: 'stack', label: 'Conv downsampling K', min: 4, max: 16, step: 4, value: 8, unit: 'frames' },
+    { id: 'k', label: 'Merge layer index k', min: 0, max: 10, step: 2, value: 2 },
+    { id: 'E', label: 'Target effective token ratio E', min: 0.75, max: 1.0, step: 0.01, value: 0.93 },
+  ]}
+  outputs={[
+    {
+      label: '100 Hz log-mel frames (T_m)',
+      expr: 'sec * 100',
+      format: 'number',
+      role: 'activation',
+    },
+    {
+      label: 'Unmerged audio tokens (T_a)',
+      expr: 'Math.ceil((sec * 100) / stack)',
+      format: 'number',
+      role: 'activation',
+    },
+    {
+      label: 'Post-merge retention fraction R_k = (14·E − k) / (14 − k)',
+      expr: 'Math.max(0.5, (14 * E - k) / (14 - k))',
+      format: 'percent',
+      role: 'route',
+    },
+    {
+      label: 'Merged audio tokens from layer k onward (T′_a)',
+      expr: 'Math.round(Math.ceil((sec * 100) / stack) * Math.max(0.5, (14 * E - k) / (14 - k)))',
+      format: 'number',
+      role: 'route',
+    },
+    {
+      label: 'Audio GQA KV cache across 6 attention layers (FP16)',
+      expr: '((k <= 2 ? 6 : Math.max(0, 6 - (k / 2))) * Math.round(Math.ceil((sec * 100) / stack) * Math.max(0.5, (14 * E - k) / (14 - k))) + (k <= 2 ? 0 : (k / 2) * Math.ceil((sec * 100) / stack))) * 2 * 8 * 64 * 2',
+      format: 'bytes',
+      role: 'cache',
+    },
+  ]}
+  note="Because GQA layers sit at indices 2, 4, 6, 8, 10, and 12, merging at k = 2 compresses all 6 attention caches just like input merging (k = 0), whereas merging at k = 4 or deeper leaves earlier attention caches uncompressed."
+/>
+
+<Spec
+  title="Training-free in-LLM token merging across layer k and effective ratio E"
+  columns={['Checkpoint & method', 'Merge layer k', 'Effective ratio E (R_k)', 'GQA layers compressed', 'LS dev-clean ↓', '8-dev mean WER ↓']}
+  rows={[
+    {
+      label: 'E2 baseline (unmerged)',
+      values: ['—', '1.00 (1.000)', '0 / 6', '17.87%', '39.68%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md',
+    },
+    {
+      label: 'E2 + Affinity (k = 0, input)',
+      values: ['k = 0', '0.93 (0.934)', '6 / 6', '16.69%', '39.77%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (τ = 0.65, M_max = 2)',
+    },
+    {
+      label: 'E2 + Affinity (k = 2, after conv 0–1)',
+      values: ['k = 2', '0.93 (0.918)', '6 / 6', '16.61%', '39.35%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (global optimum: −0.33% 8-dev mean, −1.26% dev-clean vs unmerged)',
+    },
+    {
+      label: 'E2 + Affinity (k = 6, mid-stack)',
+      values: ['k = 6', '0.93 (0.878)', '4 / 6', '18.08%', '40.06%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md',
+    },
+    {
+      label: 'Stage C baseline (unmerged)',
+      values: ['—', '1.00 (1.000)', '0 / 6', '11.87% (test)', '29.12%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md',
+    },
+    {
+      label: 'Stage C + Affinity (k = 0, E = 0.93)',
+      values: ['k = 0', '0.93 (0.923)', '6 / 6', '—', '29.21%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (+0.09% vs unmerged; beats uniform_matched 34.37% by 5.16 pts)',
+    },
+    {
+      label: 'Stage C + Affinity (k = 0, E = 0.87)',
+      values: ['k = 0', '0.87 (0.870)', '6 / 6', '—', '29.48%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (+0.36% vs unmerged; beats uniform_matched 38.27% by 8.79 pts)',
+    },
+    {
+      label: 'Stage C + Affinity (k = 0, E = 0.80)',
+      values: ['k = 0', '0.80 (0.803)', '6 / 6', '—', '31.26%'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (beats uniform_matched 42.84% by 11.58 pts)',
+    },
+  ]}
+  note="Affinity pooling merges adjacent audio tokens when cos(h_i, h_{i+1}) ≥ τ (up to M_max tokens); uniform_matched averages fixed-stride pairs to hit the exact same token count R_k."
+/>
+
+## Tokenizer fertility, cross-backbone transfer, and LFM3 grafting
+
+Applying AudioLLM to Vietnamese speech exposed a severe bottleneck in [[lfm2-tokenizer]]: because its 65,536-entry [[byte-level-bpe]] table was trained without Vietnamese merges, precomposed UTF-8 diacritics fragment into raw byte tokens at **$3.23$ tokens per word** ($221\%$ fertility overhead), requiring ~40 BPE tokens and $3.2\times$ more autoregressive decoding steps for a 4-second utterance <Cite id="audiollm-repo" where="WORKLOG.md, docs/idea_lfm3_tokenizer_graft.md" />.
+
+<Tokenizer model="audiollm" />
+
+<ArchDiagram
+  title="Cross-backbone projector transfer and merge-closed tokenizer graft"
+  caption="Because both LFM2.5-230M and Qwen3-0.6B use hidden width d, the English-trained ConvAudioProjector transfers directly via match_emb rescaling. Alternatively, grafting LFM3's multilingual BPE vocabulary onto LFM2.5-230M cuts Vietnamese fertility from 3.23 to 1.14 tokens/word."
+  blocks={[
+    { id: 'proj', label: 'Trained conv projector', sub: 'F_m → d', role: 'weight', col: 0, row: 0 },
+    { id: 'qwen', label: 'Target LM transfer', sub: 'd → d (rescale σ_emb)', role: 'weight', col: 0, row: 1 },
+    { id: 'graft', label: 'Pruned BPE graft', sub: 'V_old → V_new (sub-token μ)', role: 'weight', col: 1, row: 1 },
+    { id: 'corr', label: 'Prompt error repair', sub: 'draft + audio → clean text', role: 'op', col: 1, row: 2 },
+  ]}
+  edges={[
+    { from: 'proj', to: 'qwen', label: 'shared width d' },
+    { from: 'proj', to: 'graft', label: 'shared width d' },
+    { from: 'graft', to: 'corr', label: 'low fertility' },
+  ]}
+/>
+
+<Words>
+
+AudioLLM tests two remedies for high tokenizer fertility <Cite id="audiollm-repo" where="WORKLOG.md" />:
+
+1. **Cross-backbone projector transfer (`INIT_PROJ_FROM`)**: Because `Qwen3-0.6B-Base` shares hidden size $d = 1{,}024$ with [[lfm2-5-230m]] and tokenizes Vietnamese at $1.17$ tokens/word, the English `E2` `ConvAudioProjector` transfers directly into Qwen3 by rescaling its final linear layer to Qwen3's embedding spread ($\sigma_{\text{emb}} = 0.0256$) <Cite id="audiollm-repo" where="WORKLOG.md" />. On a 500-hour Vietnamese mixture (`223,115` utterances), Qwen3-0.6B reached $35.48\%$ WER on GigaSpeech2-vi ($11.64\%$ on PhoAudiobook, $11.88\%$ on LSVSC), beating the un-grafted LFM2.5-230M baseline by $12.89$ points <Cite id="audiollm-repo" where="WORKLOG.md" />.
+2. **Merge-closed `LFM3` tokenizer grafting**: To keep the fast 230M [[hybrid-conv-attention]] backbone, `scripts/graft_lfm3_tokenizer.py` replaces [[lfm2-tokenizer]] with `LFM3`'s multilingual tokenizer pruned to a merge-closed English+Vietnamese vocabulary of $45{,}755$ tokens <Cite id="audiollm-repo" where="WORKLOG.md, docs/idea_lfm3_tokenizer_graft.md" />. The $35{,}278$ shared tokens keep their exact `LFM2.5-230M` embeddings, while the $10{,}477$ new Vietnamese tokens are initialized as the mean of their constituent `LFM2.5` sub-token vectors and warmed up for $1{,}500$ steps before unfreezing the backbone <Cite id="audiollm-repo" where="WORKLOG.md" />. Combining this graft ($1.14$ tokens/word) with prompt-triggered ASR error correction (`CORRECTION_P = 0.2`, training the same model to both transcribe `[BOS][audio]["Transcription:"]` and repair tone/homophone errors via `[BOS][audio]["Draft: ... Correction:"]`) reached $16.33\%$ WER on the 300-utterance ZAC Vietnamese dev set at $6{,}000$ steps <Cite id="audiollm-repo" where="WORKLOG.md, audiollm/vietnamese.py" />.
+
+</Words>
+
+<Spec
+  title="Vietnamese tokenizer fertility and 500-hour multi-corpus results"
+  columns={['Backbone & tokenizer', 'Vocab size V', 'VI tokens / word ↓', 'GigaSpeech2-vi ↓', 'PhoAudiobook ↓', 'ZAC / LSVSC ↓']}
+  rows={[
+    {
+      label: 'LFM2.5-230M (native lfm2 tokenizer, 500 h)',
+      values: ['65,536', '3.23', '48.37%', '16.58%', '19.56% (LSVSC)'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (vi_mix500h_lfm2_5_230m, 19.2k steps)',
+    },
+    {
+      label: 'Qwen3-0.6B-Base + E2 projector transfer (500 h)',
+      values: ['151,936', '1.17', '35.48%', '11.64%', '11.88% (LSVSC)'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (vi_mix500h_qwen3_0_6b, 19.2k steps)',
+    },
+    {
+      label: 'LFM2.5-230M + LFM3 en/vi graft + correction',
+      values: ['45,755', '1.14', '—', '—', '16.33% (ZAC-300 @ 6k)'],
+      source: 'audiollm-repo',
+      where: 'WORKLOG.md (35,278 exact rows + 10,477 sub-token mean rows, CORRECTION_P = 0.2)',
+    },
+  ]}
+  note="Both 500-hour runs reuse the English E2 1,024-d ConvAudioProjector via INIT_PROJ_FROM and train for 19,200 steps (2.58 epochs over 223,115 utterances from GigaSpeech2-vi, VietMed, LSVSC, VIVOS, and PhoAudiobook)."
+/>
+
+## Full specification
+
+The specification below combines the inherited [[lfm2-5-230m]] backbone parameters with AudioLLM's acoustic front-end, convolutional projector, and LoRA adapter configuration <Cite id="audiollm-repo" where="audiollm/config.py, WORKLOG.md" />.
+
+<ModelSpec model="audiollm" />

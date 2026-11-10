@@ -221,3 +221,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: BigPicture draws where each note sits (LLM layer opened up: norm, mixer, position, cache, residual, FFN; a token dot travels to the lit part; other pipelines as rows), systems light every part their concepts touch; <Scene name> plays self-contained scene files (src/lib/scenes/*.mjs, kit.mjs helpers) with the shared player; RoPE leads with a rotating-dial scene; layer norm gains a block view (one token through one pre-norm layer)
 - files: src/components/{BigPicture,viz/Scene,viz/NormLab}.astro src/lib/{bigpicture,normlab}.mjs src/lib/scenes/ src/pages/notes/[slug].astro src/content/notes/concepts/{rope,layer-norm}.mdx scripts/checks/visual.mjs AGENTS.md
 - open: remaining concept notes still need scenes (in progress with subagents); no keep-place test for Scene restore yet; PRINCIPLES.md visual-first wording unchanged
+
+## 2026-11-10 · content(audiollm): add AudioLLM system note and fix stats CI 404
+- did: AudioLLM (LFM2.5-230M) system note with pipeline architecture, model data, and audio-text alignment scene; support hybrid backbones in pipeline overviews; handle GoatCounter 404 in readme-stats
+- files: src/content/notes/systems/audiollm.mdx src/content/models/audiollm.yaml src/lib/scenes/audiollm-align.mjs src/content/sources/{audiollm-repo,mel-llm-paper,affinity-pooling-paper,implicit-encoders-paper,atome-paper}.yaml research/audiollm-facts.md src/components/viz/ModelOverview.astro src/lib/models/overview.mjs scripts/readme-stats.mjs scripts/lib/browser.mjs
+- open: none

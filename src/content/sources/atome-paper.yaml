@@ -1,0 +1,8 @@
+title: "A-ToMe: Accelerating Transducers through Adjacent Token Merging"
+short: A-ToMe
+authors: Z. Li et al.
+year: 2023
+url: https://arxiv.org/abs/2306.16009
+type: paper
+accessed: 2026-11-10
+notes: Bipartite even-odd adjacent speech frame merging by cosine similarity.

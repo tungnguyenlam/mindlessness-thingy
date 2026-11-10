@@ -51,7 +51,7 @@ function launch(flags = []) {
   const bin = CHROMES.find((c) => fs.existsSync(c));
   if (!bin) throw new Error('No Chrome/Chromium found. Set CHROME=/path/to/chrome.');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shot-'));
-  const proc = spawn(bin, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', '--hide-scrollbars', ...flags, 'about:blank'], {
+  const proc = spawn(bin, ['--headless=new', '--no-sandbox', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', '--hide-scrollbars', ...flags, 'about:blank'], {
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   const cleanup = () => proc.kill();

@@ -65,12 +65,12 @@ const CAPTIONS: Record<string, string> = {
 if (pipeline) {
   const steps = m.values.sampling_steps ? ` and run ${z('sampling_steps', 'N')} times while sampling` : '';
   const k = m.values.tokens_per_step ? `${z('tokens_per_step', 'n_tok')} tokens per ${unit}` : `one token per ${unit}`;
-  Object.assign(CAPTIONS, {
-    model: `From input to output. Stages marked frozen are off-the-shelf models used as they are; the backbone is drawn from the model data${steps}.`,
-    layer: `One backbone block, sublayers in order. Each reads a normalized copy of the residual stream and adds its result back (the arrows on the left).${m.values.modulation ? ' The norms are adaptive: their scale and shift come from the conditioning vector m_t.' : ''} The sequence holds ${k}.`,
-    'mixer-A': `Every token attends to every other token of the sample, earlier or later, so there is no mask and nothing is cached between sampling steps.`,
-    'mixer-X': `The backbone’s tokens query the conditioning inputs${m.values.cross_inputs ? ` (${String(m.values.cross_inputs.v)})` : ''}. Keys and values come from those inputs, so the sequence keeps its length.`,
-  });
+  CAPTIONS.model = `From input to output. Stages marked frozen are off-the-shelf models used as they are; the backbone is drawn from the model data${steps}.`;
+  CAPTIONS['mixer-X'] = `The backbone’s tokens query the conditioning inputs${m.values.cross_inputs ? ` (${String(m.values.cross_inputs.v)})` : ''}. Keys and values come from those inputs, so the sequence keeps its length.`;
+  if (!m.values.kv_heads?.v && !m.values.conv_layers?.v) {
+    CAPTIONS.layer = `One backbone block, sublayers in order. Each reads a normalized copy of the residual stream and adds its result back (the arrows on the left).${m.values.modulation ? ' The norms are adaptive: their scale and shift come from the conditioning vector m_t.' : ''} The sequence holds ${k}.`;
+    CAPTIONS['mixer-A'] = `Every token attends to every other token of the sample, earlier or later, so there is no mask and nothing is cached between sampling steps.`;
+  }
 }
 
 const value = (key: string | null) => {
