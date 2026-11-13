@@ -9,10 +9,18 @@ contrasts_with: []
 related: [kv-cache]
 sources: [attention-is-all-you-need, deepseek-v2-report]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-12
 ---
 
 Attention lets every token look at every earlier token and pull in a weighted mix of their information. Multi-head attention (MHA) does this several times in parallel with different learned projections, then stitches the results together. It is the baseline that [[mqa]], [[gqa]] and [[mla]] all modify.
+
+## The idea in one picture
+
+<Scene
+  name="mha-heads"
+  title="One word reads the sentence, three ways at once"
+  caption="Toy numbers. Bars are one head's weights over the words; dots are values travelling into that head's output, sized by their weight."
+/>
 
 ## One head
 

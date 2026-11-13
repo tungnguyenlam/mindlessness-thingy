@@ -231,3 +231,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: GroupNorm concept note with 4D tensor slicing and batch/eval scenes, conditioned ResBlock diagram, norm comparisons (InstanceNorm, WeightNorm, WS, RMSNorm, AdaLN), pitfalls, and contested claims
 - files: src/content/notes/concepts/{group-norm,layer-norm}.mdx src/lib/scenes/{group-axes,group-batch}.mjs src/lib/bigpicture.mjs src/content/sources/{groupnorm,instancenorm,weightnorm,weight-standardization,ddpm,bit,santurkar-bn}-paper.yaml research/group-norm-facts.md
 - open: none
+
+## 2026-11-13 · content(mha): lead with a live multi-head attention scene
+- did: mha-heads scene: one query scores every word, softmax weights, values travel into each head output, three heads with different patterns, concat and W^O
+- files: src/lib/scenes/mha-heads.mjs src/content/notes/concepts/mha.mdx
+- open: none
