@@ -236,3 +236,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: mha-heads scene: one query scores every word, softmax weights, values travel into each head output, three heads with different patterns, concat and W^O
 - files: src/lib/scenes/mha-heads.mjs src/content/notes/concepts/mha.mdx
 - open: none
+
+## 2026-11-13 · content(gqa): lead with a key/value head merging scene
+- did: gqa-share scene: KV heads mean-pool pairwise 8 to 4 to 2 to 1 (MQA), query wiring follows, cache rows shrink by n_h/n_g against a ghost MHA row
+- files: src/lib/scenes/gqa-share.mjs src/content/notes/concepts/gqa.mdx
+- open: none

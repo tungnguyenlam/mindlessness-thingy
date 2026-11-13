@@ -9,10 +9,16 @@ contrasts_with: [mla]
 related: []
 sources: [gqa-paper]
 status: draft
-updated: 2026-10-16
+updated: 2026-11-12
 ---
 
 [[mqa]] cuts the [[kv-cache]] as far as it can go by giving all query heads a single shared key and value. That works, but quality can drop and training can become less stable. Grouped-query attention (GQA) picks a point in between: split the $n_h$ query heads into $n_g$ groups, and give each group its own key and value head <Cite id="gqa-paper" where="§2.2" />.
+
+<Scene
+  name="gqa-share"
+  title="Key and value heads merge, query heads share"
+  caption="Toy numbers, 8 query heads. Bars inside a key/value head are its numbers; merging heads averages them, as when the GQA paper converts an MHA checkpoint."
+/>
 
 - $n_g = n_h$: every head has its own key and value. This is [[mha]].
 - $n_g = 1$: one shared key and value. This is [[mqa]].
