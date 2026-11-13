@@ -9,12 +9,18 @@ contrasts_with: []
 related: []
 sources: [sparsely-gated-moe-paper]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-12
 ---
 
 The feed-forward network in a [[transformer-block]] carries most of a layer's parameters, and every token pays for all of them. The sparsely-gated MoE layer replaces that one network with $n$ expert networks and a small trainable router that computes a sparse gate per token, so only $k$ experts run <Cite id="sparsely-gated-moe-paper" where="§1.2, §2" />. Parameters then grow with $n$, while the work each token does grows only with $k$.
 
 ## The idea in one picture
+
+<Scene
+  name="moe-route"
+  title="Each token runs 2 of 8 experts"
+  caption="Toy numbers, 8 experts and 2 active per token. Dots are the token's copies travelling to its experts, sized by gate; the bottom row counts tokens per expert."
+/>
 
 <ArchDiagram
   title="One MoE layer"

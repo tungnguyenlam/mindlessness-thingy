@@ -246,3 +246,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: mla-latent scene: h_t squeezed by W^DKV into a latent plus shared RoPE key, rows fill the cache against a ghost MHA row, W^UK/W^UV rebuild shown then folded into the query that scores latents directly
 - files: src/lib/scenes/mla-latent.mjs src/content/notes/concepts/mla.mdx
 - open: none
+
+## 2026-11-13 · content(moe): lead with a top-k routing scene
+- did: moe-route scene: router scores 8 experts, top-2 softmax gates, token copies flow to the chosen experts and sum by gate, five tokens build a per-expert load that drifts to a favourite
+- files: src/lib/scenes/moe-route.mjs src/content/notes/concepts/moe.mdx
+- open: none
