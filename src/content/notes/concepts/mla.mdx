@@ -9,10 +9,18 @@ contrasts_with: [mqa]
 related: []
 sources: [deepseek-v2-report, deepseek-v3-config]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-12
 ---
 
 [[gqa]] shrinks the [[kv-cache]] by keeping fewer key/value heads. Multi-head latent attention (MLA), introduced in [[deepseek-v2]], takes a different route: keep all the heads, but don't store their keys and values at all. Store one compressed vector per token and rebuild the keys and values from it on the fly <Cite id="deepseek-v2-report" where="§2.1" />.
+
+## The idea in one picture
+
+<Scene
+  name="mla-latent"
+  title="Cache a small latent, never the keys"
+  caption="Toy sizes: hidden width 8, latent width 4, one RoPE number, 4 heads of width 2. Cell shade is a number's size."
+/>
 
 ## Low-rank joint compression
 

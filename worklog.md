@@ -241,3 +241,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: gqa-share scene: KV heads mean-pool pairwise 8 to 4 to 2 to 1 (MQA), query wiring follows, cache rows shrink by n_h/n_g against a ghost MHA row
 - files: src/lib/scenes/gqa-share.mjs src/content/notes/concepts/gqa.mdx
 - open: none
+
+## 2026-11-13 · content(mla): lead with a latent-cache scene
+- did: mla-latent scene: h_t squeezed by W^DKV into a latent plus shared RoPE key, rows fill the cache against a ghost MHA row, W^UK/W^UV rebuild shown then folded into the query that scores latents directly
+- files: src/lib/scenes/mla-latent.mjs src/content/notes/concepts/mla.mdx
+- open: none
