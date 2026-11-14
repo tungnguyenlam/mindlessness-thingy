@@ -127,6 +127,29 @@ async function scenario(mode) {
     const liveBack = await evaluate(`(() => { const lab = document.querySelectorAll('x-normlab')[2]; return { beat: lab.player.i, paused: lab.player.paused }; })()`);
     check('live animation reopens on the same beat', liveBack.beat === live.beat, `${liveBack.beat} vs ${live.beat}`);
     check('live animation is paused on return', liveBack.paused === true);
+
+    // ---- 1d. A <Scene> (async dynamic import + whenReady) keeps its beat, paused ----
+    await goto('/notes/rope/');
+    const scene = await evaluate(`(async () => {
+      const sc = document.querySelector('x-scene');
+      await sc.whenReady();
+      sc.scrollIntoView({ block: 'center' });
+      sc.querySelector('.beat-dot[data-i="2"]').click();
+      await new Promise((r) => setTimeout(r, 300));
+      const a = [...document.querySelectorAll('.prose a.wikilink')].find((l) => l.checkVisibility());
+      a.setAttribute('data-test-scene', '');
+      return { beat: sc.player.i };
+    })()`);
+    await click('[data-test-scene]', { navigates: true });
+    await click('.trail-back');
+    await backAt('/notes/rope/');
+    const sceneBack = await evaluate(`(async () => {
+      const sc = document.querySelector('x-scene');
+      await sc.whenReady();
+      return { beat: sc.player.i, paused: sc.player.paused };
+    })()`);
+    check('scene animation reopens on the same beat', sceneBack.beat === scene.beat, `${sceneBack.beat} vs ${scene.beat}`);
+    check('scene animation is paused on return', sceneBack.paused === true);
     await goto('/notes/mla/');
 
     // ---- 2. Two hops deep (prose, then side panel), unwind with the B key ----

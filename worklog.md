@@ -386,3 +386,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: stablehand-quality-flow scene: animates per-frame quality q̃_t driving mixed start x_0 = q̃·ȳ + (1−q̃)·ε and velocity scaling (1−q̃) across visible vs occluded hand frames
 - files: src/lib/scenes/stablehand-quality-flow.mjs src/content/notes/systems/stablehand.mdx
 - open: none
+
+## 2026-11-14 · test(place): cover <Scene> restoration across bfcache and reload
+- did: added 1d keep-place assertion verifying x-scene (async dynamic import + whenReady) restores its beat and pauses on return across both bfcache and reload (40/40 passing)
+- files: scripts/test-place.mjs
+- open: none
