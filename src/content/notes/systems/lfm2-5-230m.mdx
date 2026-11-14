@@ -9,7 +9,7 @@ contrasts_with: []
 related: [lfm2-5-1-2b-instruct]
 sources: [lfm2-5-230m-card, lfm2-5-230m-config, lfm2-5-230m-blog, lfm2-5-350m-config]
 status: draft
-updated: 2026-10-16
+updated: 2026-11-14
 ---
 
 LFM2.5-230M is a compressed [[lfm2-5-350m]]. It keeps the [[hybrid-conv-attention]] recipe — [[gated-short-conv]] plus [[gqa]] — but drops two convolution layers, narrows the feed-forward, and is distilled from the 350M rather than trained as a from-scratch sibling <Cite id="lfm2-5-230m-blog" />. This note is those cuts. The mixers are unchanged; follow the links.
@@ -23,6 +23,8 @@ LFM2.5-230M is a compressed [[lfm2-5-350m]]. It keeps the [[hybrid-conv-attentio
 
 <LayerStrip model="lfm2-5-230m" />
 
+<ModelDiagram model="lfm2-5-230m" />
+
 <ModelSpec model="lfm2-5-230m" />
 
 The 14-layer pattern in `layer_types` is two convolutions, then attention and convolution alternating, ending on a convolution <Cite id="lfm2-5-230m-config" where="layer_types" />. Attention layer count stays 6, the same as the 350M, so the [[kv-cache]] still grows with six GQA blocks.
@@ -34,6 +36,11 @@ The 14-layer pattern in `layer_types` is two convolutions, then attention and co
 ## What is new
 
 ### Distill, then a short post-train
+
+<Scene
+  name="lfm25-230m-compress"
+  caption="From the 16-layer 350M teacher to 14-layer 230M: drop 2 conv blocks (keeping all 6 GQA layers), narrow SwiGLU to 2,560, then distill with SFT, DPO, and RL."
+/>
 
 The 230M is not a from-scratch 14-layer LFM2. The blog's recipe is three stages after 19T tokens of pretraining (including a 32K context-extension phase): supervised fine-tuning with distillation from LFM2.5-350M, direct preference optimization, then multi-domain reinforcement learning <Cite id="lfm2-5-230m-blog" />.
 

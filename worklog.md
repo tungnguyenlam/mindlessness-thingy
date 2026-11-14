@@ -406,3 +406,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: lfm25-350m-recipe scene: animates LFM2.5-350M keeping LFM2's 350M conv+GQA layout while scaling pretraining from 10T to 28T tokens, adding multi-stage RL, and lifting IFBench, CaseReportBench, and BFCLv3 by >20 pts; added <ModelDiagram model="lfm2-5-350m" /> to clear visual-first warnings
 - files: src/lib/scenes/lfm25-350m-recipe.mjs src/content/notes/systems/lfm2-5-350m.mdx
 - open: none
+
+## 2026-11-14 · content(lfm2-5-230m): add compression-distillation scene and block diagram
+- did: lfm25-230m-compress scene: animates LFM2.5-230M dropping two gated conv blocks (10C+6A -> 8C+6A, keeping all 6 GQA KV caches), narrowing SwiGLU width 4608 -> 2560 (350M -> 230M), and running 19T pretraining + 350M distillation + DPO + RL; added <ModelDiagram model="lfm2-5-230m" />
+- files: src/lib/scenes/lfm25-230m-compress.mjs src/content/notes/systems/lfm2-5-230m.mdx
+- open: none
