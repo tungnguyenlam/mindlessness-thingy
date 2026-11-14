@@ -9,7 +9,7 @@ contrasts_with: []
 related: [stablehand, flowhoi, vla, vla-cpp, dit, mano]
 sources: [humanego-paper, humanego-repo, humanego-serve-bread-config, project-aria-paper, act-paper, wilor-paper]
 status: draft
-updated: 2026-10-19
+updated: 2026-11-14
 ---
 
 Training manipulation policies on robot teleoperation requires hundreds of hardware-specific demonstrations <Cite id="humanego-paper" where="§1" />. Human egocentric video is much faster to collect—a person wearing Project Aria smart glasses <Cite id="project-aria-paper" /> can record a task in $30\text{–}40\text{ s}$ anywhere—but human hands and robot grippers differ in both visual appearance and 3D kinematics <Cite id="humanego-paper" where="§1; App. D.2" />. HumanEgo bridges both sides of this embodiment gap without any robot demonstrations or internet-scale pretraining, reaching $92.5\%$ average real-world success from $30\text{ min}$ of human video per task ($75.0\%$ from $15\text{ min}$) and transferring zero-shot across Trossen, Franka, and UR10 arms <Cite id="humanego-paper" where="Abstract; §4.1; §4.3" />.
@@ -86,28 +86,10 @@ $$
 
 Unstructured 3D point clouds in camera coordinates leave hand–object relationships implicit and tie every coordinate to the camera viewpoint <Cite id="humanego-paper" where="§3.3; §4.1" />. HumanEgo treats each hand and object as an entity $k \in \{1, \dots, N_e\}$ and encodes its spatial state into an Interaction-Centric Token $\mathrm{ICT}_k \in \mathbb{R}^{29}$ <Cite id="humanego-paper" where="§3.3, Eq. 1" />.
 
-<ArchDiagram
-  title="Structure of one Interaction-Centric Token ICT_k (symbols)"
-  blocks={[
-    { id: "ref", label: "Episode frame REF", sub: "cam_init / static cam", role: "cache", col: 0, row: 0 },
-    { id: "ent", label: "Entity k pose T_E", sub: "hand or object pose", role: "activation", col: 1, row: 0 },
-    { id: "hands", label: "Hand poses T_LH, T_RH", sub: "both gripper poses", role: "activation", col: 2, row: 0 },
-    { id: "abs", label: "Reference pose ^REF T_E", sub: "pos + rot: D_pose", role: "activation", col: 0, row: 1 },
-    { id: "meta", label: "Type τ and grasp g", sub: "entity ID + aperture", role: "op", col: 1, row: 1 },
-    { id: "rel", label: "Local ^E T_LH, ^E T_RH", sub: "T_E⁻¹ T_H (view-invariant)", role: "route", col: 2, row: 1 },
-    { id: "ict", label: "Entity token ICT_k", sub: "concatenated: D_ict", role: "activation", col: 1, row: 2 },
-  ]}
-  edges={[
-    { from: "ref", to: "abs" },
-    { from: "ent", to: "abs" },
-    { from: "ent", to: "rel", label: "T_E⁻¹" },
-    { from: "hands", to: "rel" },
-    { from: "ent", to: "meta" },
-    { from: "abs", to: "ict" },
-    { from: "meta", to: "ict" },
-    { from: "rel", to: "ict" },
-  ]}
-  caption="Each entity k (a hand or an object) gets one token. Its pose in the episode reference frame (^REF T_E) anchors global placement, while the poses of both hands expressed in entity k's local coordinate frame (^E T_LH, ^E T_RH) cancel out the camera transform and are exact viewpoint-invariant."
+<Scene
+  name="humanego-ict"
+  title="Why Interaction-Centric Tokens cancel camera viewpoint motion"
+  caption="Each entity k gets one 29-D token. While raw camera coordinates jump when the head-mounted Aria camera moves or swaps to a robot camera, expressing both hands in entity k's local coordinate frame (^E T_LH, ^E T_RH) cancels the camera transform identically."
 />
 
 Each $\mathrm{SE}(3)$ transform is flattened into $9$ numbers by concatenating a $3\text{-D}$ normalized translation with a continuous $6\text{-D}$ rotation representation, giving the $29\text{-D}$ bimanual token ($20\text{-D}$ in single-hand tasks, which omit the second hand's $9\text{-D}$ block) <Cite id="humanego-paper" where="§3.3, Eq. 1" /><Cite id="humanego-repo" where="utils/ict.py; training/FlowMatchingModel.py" />:

@@ -366,3 +366,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: vla-obs-reuse scene: compares T*(P+E) naive observation recompute vs P + T*E pinned prefix cache across T=4 Euler steps and S<=H chunk execution; tightened Two kinds of action head prose to clear visual-first warning
 - files: src/lib/scenes/vla-obs-reuse.mjs src/content/notes/systems/vla-cpp.mdx
 - open: none
+
+## 2026-11-14 · content(humanego): add ICT viewpoint-invariance scene
+- did: humanego-ict scene: animates moving camera viewpoint cam 1 -> cam 2 shifting ^cam T_LH while ^E T_LH = T_E^{-1} T_LH stays locked in entity E's frame, plus the 29-D ICT_k token slice [tau, ^REF T_E, ^E T_LH, ^E T_RH, g]
+- files: src/lib/scenes/humanego-ict.mjs src/content/notes/systems/humanego.mdx
+- open: none
