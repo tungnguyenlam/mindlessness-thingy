@@ -9,10 +9,18 @@ contrasts_with: []
 related: [deepseek-v3]
 sources: [mtp-paper, deepseek-v3-report]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 Next-token prediction gives each position one learning signal: predict the token that follows. Multi-token prediction (MTP) asks every position for the next $n$ tokens at once, through several heads on a shared trunk — a denser signal during training, and extra heads that can later draft for faster inference <Cite id="mtp-paper" where="Abstract" />.
+
+<Scene
+  name="mtp-predict"
+  title="One trunk, n future-token heads"
+  caption="During training, heads for t+1, t+2, and t+3 share the trunk and sum their losses. At inference, the extra heads draft candidate continuations that one trunk forward pass verifies together."
+/>
+
+## The idea in one picture
 
 <ArchDiagram
   title="Each position predicts the next n tokens"

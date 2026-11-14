@@ -276,3 +276,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: deepseek-moe-split scene: 4 coarse experts slice into 16 narrower experts at identical FLOPs/params (455x more combinations), then 2 become always-on shared lanes while 14 routed specialists serve each token
 - files: src/lib/scenes/deepseek-moe-split.mjs src/content/notes/concepts/deepseek-moe.mdx
 - open: none
+
+## 2026-11-14 · content(mtp): lead with a multi-head prediction scene
+- did: mtp-predict scene: single next-token head expands to 3 parallel future heads summing L1+L2+L3 during training, then switches to self-speculative drafting and 1-pass verification at inference
+- files: src/lib/scenes/mtp-predict.mjs src/content/notes/concepts/mtp.mdx
+- open: none
