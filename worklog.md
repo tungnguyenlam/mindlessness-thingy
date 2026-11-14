@@ -341,3 +341,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - files: src/lib/scenes/vl-pixel-shuffle.mjs src/content/notes/concepts/vision-language-connector.mdx
 - open: none
 
+## 2026-11-14 · content(c-radio): add multi-teacher distillation lifecycle scene
+- did: c-radio-distill scene: 3 frozen teachers (CLIP/SigLIP2, DINOv2/v3, SAM/SAM3) aligning one student backbone via adaptor heads and cosine + smooth-L1 loss, then discarding teachers and adaptors at deployment
+- files: src/lib/scenes/c-radio-distill.mjs src/content/notes/concepts/c-radio.mdx
+- open: none
+

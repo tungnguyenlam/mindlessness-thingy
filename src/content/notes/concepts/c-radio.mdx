@@ -9,31 +9,17 @@ contrasts_with: []
 related: [vision-language-connector]
 sources: [am-radio-paper, c-radio-v4-report]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 CLIP-style training gives an encoder language-aligned features, DINO-style self-supervision gives dense features that hold up on segmentation, and SAM-style training gives features a mask decoder can consume. A multimodal system wants all three but can only afford one [[transformer-block]] backbone. AM-RADIO's answer is multi-teacher distillation: train one student to reproduce several teachers at once <Cite id="am-radio-paper" where="Abstract" />. C-RADIO is NVIDIA's current release of that idea, and the image encoder of the Nemotron vision-language models.
 
 ## The idea in one picture
 
-<ArchDiagram
-  title="Several teachers, one student backbone"
-  caption="Each teacher scores the same images with its own objective. The student is trained to match their features; afterwards the teachers and their adaptor heads are thrown away, and only the backbone and its patch features remain."
-  blocks={[
-    { id: 'tclip', label: 'CLIP-style teacher', sub: 'language-aligned', role: 'weight' },
-    { id: 'tdino', label: 'DINO-style teacher', sub: 'self-supervised', role: 'weight' },
-    { id: 'tsam', label: 'SAM-style teacher', sub: 'segmentation', role: 'weight' },
-    { id: 'loss', label: 'Distillation losses', sub: 'summary + patch features', role: 'op' },
-    { id: 'student', label: 'Student backbone', sub: 'patches → d per token', role: 'weight', link: 'transformer-block' },
-    { id: 'feat', label: 'Patch features', sub: 'T × d', role: 'activation', link: 'vision-language-connector' },
-  ]}
-  edges={[
-    { from: 'tclip', to: 'loss' },
-    { from: 'tdino', to: 'loss' },
-    { from: 'tsam', to: 'loss' },
-    { from: 'loss', to: 'student', label: 'distils' },
-    { from: 'student', to: 'feat' },
-  ]}
+<Scene
+  name="c-radio-distill"
+  title="Several teachers supervise one student, then get thrown away"
+  caption="During training, adaptor heads h_i align one student backbone to CLIP, DINO, and SAM teachers. At inference, teachers and adaptors are discarded — leaving one backbone and its patch features."
 />
 
 Each teacher watches the same stream of images; no labels are needed, the datasets are only sources of pixels <Cite id="am-radio-paper" where="§3.1" />. The student's patch features and its summary vector are pushed by the losses to match every teacher's, through small adaptor heads that exist only during training. What stays afterwards is one backbone whose features sit close enough to each teacher's to reuse that teacher's downstream tooling.
