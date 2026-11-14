@@ -9,7 +9,7 @@ contrasts_with: []
 related: [flow-matching, kv-cache, observation-reuse]
 sources: [vla-cpp-paper, vla-cpp-repo]
 status: draft
-updated: 2026-10-18
+updated: 2026-11-14
 ---
 
 A [[vla|VLA]] policy is trained in PyTorch, but a robot often can't run PyTorch, because its small computer is already busy with sensors and motor control. vla.cpp converts eleven such policies into one file format and serves them all from one C++ server, so PyTorch is needed only for the conversion <Cite id="vla-cpp-paper" where="Abstract, §I" />. It works because each policy splits in two. What every policy shares (loading weights, matrix math on each chip) lives in the runtime. What differs (the attention pattern, how actions are produced) lives in a small per-policy adapter.
@@ -79,21 +79,27 @@ The paper runs eleven policies this way: SmolVLA, Evo-1, π0, π0.5, GR00T-N1.5,
   ]}
 />
 
-The eleven policies produce actions in two different ways, and the server has to serve both through one interface. Both kinds take the same input and return the same output. The input is an observation $o = (I_{1:V}, \ell, s)$: $V$ camera images, the instruction $\ell$ and the robot state $s$. The output is an action chunk $A \in \mathbb{R}^{H \times d_a}$, which means $H$ future actions, each with $d_a$ numbers (one per joint or gripper command).
+Both heads take the same observation $o = (I_{1:V}, \ell, s)$ ($V$ images, instruction $\ell$, robot state $s$) and return an action chunk $A \in \mathbb{R}^{H \times d_a}$ of $H$ future actions.
 
-The robot executes only the first $S$ actions, where $1 \le S \le H$, and then observes again <Cite id="vla-cpp-paper" where="§III-A" />. Predicting $H$ actions but executing $S$ of them is [[action-chunking]].
+The robot executes only the first $S$ actions ($1 \le S \le H$) and then observes again <Cite id="vla-cpp-paper" where="§III-A" />. Predicting $H$ actions while executing $S$ is [[action-chunking]].
 
-An **iterative head** starts from a random chunk and improves it step by step. It first turns the observation into conditioning features $C = F_\theta(o)$. Then it starts from a noise chunk $X^0$ and applies $T$ Euler steps, each one moving the chunk a little in the direction a learned velocity field $v_\theta$ points <Cite id="vla-cpp-paper" where="§III-A, Eq. 1" />:
+An **iterative head** refines a random chunk step by step. It first encodes the observation into $C = F_\theta(o)$, then starts from noise $X^0$ and applies $T$ Euler steps along a learned velocity field $v_\theta$ <Cite id="vla-cpp-paper" where="§III-A, Eq. 1" />:
 
 $$
 X^{k+1} = X^k + (\tau_{k+1} - \tau_k)\, v_\theta(X^k, \tau_k, C, s)
 $$
 
-Here $\tau$ is a position along the path from noise to actions, not physical time, and the velocity field is trained with [[flow-matching]]. The checkpoints don't agree on direction: SmolVLA and π0 go from $\tau = 1$ to $0$, while GR00T-N1.7 goes from $0$ to $1$. So an adapter that reverses the direction must also flip the sign of the velocity <Cite id="vla-cpp-paper" where="§III-A" />.
+Here $\tau$ moves along the [[flow-matching]] path rather than physical time. Checkpoints differ in direction (SmolVLA and π0 run $1 \to 0$; GR00T-N1.7 runs $0 \to 1$), so reversing direction also flips the velocity sign <Cite id="vla-cpp-paper" where="§III-A" />.
 
-A **regression head** skips the loop and predicts the chunk in one pass, $A = R_\theta(o)$. BitVLA, OpenVLA-OFT and VLA-Adapter work this way <Cite id="vla-cpp-paper" where="§III-A" />. Since both heads return a chunk and its size through the same interface, the client never needs to know which kind of head it is talking to.
+A **regression head** skips the loop and predicts the chunk in one pass, $A = R_\theta(o)$, as in BitVLA, OpenVLA-OFT and VLA-Adapter <Cite id="vla-cpp-paper" where="§III-A" />. Because both return a chunk through one interface, the client needs no head-specific code.
 
 ## Observation reuse keeps iterative heads cheap
+
+<Scene
+  name="vla-obs-reuse"
+  title="Prefix observation reuse across T iterative solver steps"
+  caption="Toy T = 4 Euler loop: without reuse, every step recomputes the heavy observation prefix P alongside the small suffix E. Pinning P once into temporary cache cuts request work from T·(P + E) to P + T·E."
+/>
 
 <Calc
   title="What reusing the observation saves"

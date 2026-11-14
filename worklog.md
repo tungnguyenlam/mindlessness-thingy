@@ -361,3 +361,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: cwm-infomax scene: contrasts Dreamer pixel decoder loss on moving background distractors against CWM's decoder-free M x N patch InfoNCE scoring [s_t, a_{t:t+h}]^T W_theta e_{m,n}(o_{t+h}) vs batch negatives
 - files: src/lib/scenes/cwm-infomax.mjs src/content/notes/concepts/contrastive-world-models.mdx
 - open: none
+
+## 2026-11-14 · content(vla-cpp): add prefix observation reuse scene
+- did: vla-obs-reuse scene: compares T*(P+E) naive observation recompute vs P + T*E pinned prefix cache across T=4 Euler steps and S<=H chunk execution; tightened Two kinds of action head prose to clear visual-first warning
+- files: src/lib/scenes/vla-obs-reuse.mjs src/content/notes/systems/vla-cpp.mdx
+- open: none
