@@ -326,3 +326,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - files: src/lib/scenes/hybrid-ssm-flow.mjs src/content/notes/concepts/hybrid-ssm-attention.mdx scripts/baseline.json
 - open: none
 
+## 2026-11-14 · content(fp8-training): add per-tile scaling and FP32 promotion scene
+- did: fp8-tile-scale scene: global scale outlier collapse in Tile A vs fine-grained 1xN_c tile scaling, N_c x N_c weight block scaling in FP8 Tensor Core, and FP32 CUDA Core accumulation promotion
+- files: src/lib/scenes/fp8-tile-scale.mjs src/content/notes/concepts/fp8-training.mdx
+- open: none
+

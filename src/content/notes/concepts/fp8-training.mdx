@@ -9,10 +9,22 @@ contrasts_with: []
 related: []
 sources: [deepseek-v3-report]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 Matrix multiplies dominate training compute, and BF16 spends a full 16 bits on every one of them. FP8 training runs those multiplies in 8-bit floating point; DeepSeek-V3's report describes its three GEMMs per linear layer this way as theoretically twice as fast as the BF16 version <Cite id="deepseek-v3-report" where="§3.3.1" />. The catch is range: FP8 has too few exponent bits for tensors that contain outliers, so the fix is scaling — and the question is how often to rescale.
+
+<Scene
+  name="fp8-tile-scale"
+  title="Per-tile scaling isolates outliers; FP32 promotion keeps partial sums accurate"
+  caption="Toy 8-channel vector split into two 1 × N_c tiles. One global scale crushes Tile A to zero when Tile B holds an outlier; fine-grained tile and block scales isolate the range, and FP32 promotion prevents tensor-core rounding drift."
+/>
+
+$N_c$ is the group width: activations are cut into one-token tiles of $N_c$ channels, weights into $N_c \times N_c$ blocks. Every group carries a scale, so the usable range follows the local magnitudes instead of the whole tensor.
+
+## How it works
+
+The standard approach scales one tensor by its single maximum absolute value, which is exactly what makes low-precision training fragile: one outlier sets the scale, and everything smaller than it collapses toward zero <Cite id="deepseek-v3-report" where="§3.3.2, Fine-Grained Quantization" />. Scaling per group instead bounds that damage to the group the outlier lives in.
 
 <ArchDiagram
   title="Fine-grained scaling before every matmul"
@@ -33,12 +45,6 @@ Matrix multiplies dominate training compute, and BF16 spends a full 16 bits on e
     { from: 'ws', to: 'mm' },
   ]}
 />
-
-$N_c$ is the group width: activations are cut into one-token tiles of $N_c$ channels, weights into $N_c \times N_c$ blocks. Every group carries a scale, so the usable range follows the local magnitudes instead of the whole tensor.
-
-## How it works
-
-The standard approach scales one tensor by its single maximum absolute value, which is exactly what makes low-precision training fragile: one outlier sets the scale, and everything smaller than it collapses toward zero <Cite id="deepseek-v3-report" where="§3.3.2, Fine-Grained Quantization" />. Scaling per group instead bounds that damage to the group the outlier lives in.
 
 <Callout type="intuition">
 An outlier in one channel only wrecks the tile it sits in. Every other tile keeps a scale matched to its own magnitudes, so the error stays local instead of spreading across the tensor.
