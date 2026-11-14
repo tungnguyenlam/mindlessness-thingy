@@ -261,3 +261,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: mqa-share scene: 8 KV heads collapse to 1 shared K and V, 3 query heads still form distinct attention patterns over the shared keys, cache shrinks n_h times against MHA ghost
 - files: src/lib/scenes/mqa-share.mjs src/content/notes/concepts/mqa.mdx
 - open: none
+
+## 2026-11-14 · content(flow-matching): lead with a straight-paths and ODE scene
+- did: flow-paths scene: conditional straight line x_t = (1-t)x_0 + t*x_1 with constant velocity u_t = x_1 - x_0, marginal average velocity field across crossing pairs, and 4-step Euler sampling from noise to two data modes
+- files: src/lib/scenes/flow-paths.mjs src/content/notes/concepts/flow-matching.mdx
+- open: none

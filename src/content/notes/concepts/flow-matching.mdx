@@ -9,10 +9,18 @@ contrasts_with: []
 related: [dit]
 sources: [flow-matching-paper]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 Diffusion models learn by reversing a gradual noising process, and sampling means simulating that process step by step. Flow matching replaces the stochastic story with a fixed path: draw a noise point $x_0$ and a data point $x_1$, join them with a straight line, and train a network — typically a [[dit]] — to predict the velocity along it. Generation then becomes one ODE integration.
+
+<Scene
+  name="flow-paths"
+  title="Straight training paths and ODE sampling"
+  caption="During training each noise–data pair gives a constant target velocity x₁ − x₀. Averaged over pairs, the learned field carries fresh noise to the two data modes in a few Euler steps."
+/>
+
+## The idea in one picture
 
 <ArchDiagram
   title="One path per pair: the target velocity is the slope"
