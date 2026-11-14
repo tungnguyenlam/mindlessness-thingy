@@ -346,3 +346,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - files: src/lib/scenes/c-radio-distill.mjs src/content/notes/concepts/c-radio.mdx
 - open: none
 
+
+## 2026-11-14 · content(flashmoe): add LRU vs ml_cache eviction scene
+- did: flashmoe-evict scene: side-by-side toy 3-slot VRAM expert cache showing LRU evicting paused hot staple E1 while ml_cache FFN scores normalized recency/frequency to evict one-shot E9 and hit E1 on step t+1
+- files: src/lib/scenes/flashmoe-evict.mjs src/content/notes/concepts/flashmoe.mdx
+- open: none

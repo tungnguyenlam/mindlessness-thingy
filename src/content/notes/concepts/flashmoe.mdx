@@ -9,7 +9,7 @@ contrasts_with: []
 related: [kv-cache, deepseek-moe, aux-loss-free-balancing]
 sources: [flashmoe-paper, belady-1966-paper, fiddler-paper, daop-paper, olmoe-paper, qwen3-report]
 status: draft
-updated: 2026-10-18
+updated: 2026-11-14
 ---
 
 A [[moe]] layer cuts compute per token by running only $K_r$ of its $N_r$ routed experts, but all $N_r$ expert weight matrices still have to live somewhere. Prior offloading frameworks such as Fiddler <Cite id="fiddler-paper" /> and DAOP <Cite id="daop-paper" /> park inactive experts in system DRAM, which fails on edge desktops where 16 to 64 GB of RAM cannot hold models like Qwen3-30B-A3B (30.3B parameters total, 3.3B active per token <Cite id="qwen3-report" />) <Cite id="flashmoe-paper" where="§1, §2.2" />. FlashMoE moves inactive experts one tier lower to NVMe SSD and pairs per-expert file splitting with a small learned eviction policy that cuts SSD reads <Cite id="flashmoe-paper" where="Abstract, §3" />.
@@ -58,6 +58,12 @@ At startup, only the non-expert file is loaded into memory, with expert MLPs zer
 />
 
 ## Why LRU and LFU fail on expert routing
+
+<Scene
+  name="flashmoe-evict"
+  title="LRU vs FlashMoE eviction on a cache miss"
+  caption="Toy 3-slot cache trace: LRU only sees the gap r_t since last use, so it drops a paused recurring staple (E1) and keeps a one-shot expert (E9). FlashMoE scores normalized recency and frequency [1/r_t, f_t/max(f_t)] with its ml_cache FFN to evict E9 instead."
+/>
 
 <Calc
   title="Per-layer VRAM expert cache capacity and normalized features"
