@@ -271,3 +271,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: bias-balance scene: batch load c_i vs c_bar nudges b_i by +/- gamma, top-2 ranks s+b while output gate g reads affinity s alone, loads settle around c_bar
 - files: src/lib/scenes/bias-balance.mjs src/content/notes/concepts/aux-loss-free-balancing.mdx
 - open: none
+
+## 2026-11-14 · content(deepseek-moe): lead with a fine-grained and shared scene
+- did: deepseek-moe-split scene: 4 coarse experts slice into 16 narrower experts at identical FLOPs/params (455x more combinations), then 2 become always-on shared lanes while 14 routed specialists serve each token
+- files: src/lib/scenes/deepseek-moe-split.mjs src/content/notes/concepts/deepseek-moe.mdx
+- open: none

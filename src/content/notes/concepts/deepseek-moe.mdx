@@ -9,12 +9,18 @@ contrasts_with: []
 related: []
 sources: [deepseekmoe-paper, deepseek-v2-config]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 A [[moe]] layer grows parameters without growing compute per token, but the standard recipe — a few large experts and a top-$k$ router — spreads knowledge badly across experts. The DeepSeekMoE paper names two symptoms: knowledge hybridity, where an expert that receives many kinds of token stores unrelated things, and knowledge redundancy, where separate experts separately learn the same common facts <Cite id="deepseekmoe-paper" where="§1" />. Two changes address the two symptoms.
 
 ## The idea in one picture
+
+<Scene
+  name="deepseek-moe-split"
+  title="Fine-grained experts and a shared always-on lane"
+  caption="Slicing 4 coarse experts into 16 narrower ones (and activating 4) keeps total parameters and per-token compute constant while multiplying routing combinations. Moving 2 into a shared lane frees routed specialists from relearning common facts."
+/>
 
 <ArchDiagram
   title="A DeepSeekMoE layer"
