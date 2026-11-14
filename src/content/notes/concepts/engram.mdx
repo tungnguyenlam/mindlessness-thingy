@@ -18,6 +18,12 @@ Engram is conditional *memory*: the last few tokens address a huge embedding tab
 
 ## The idea in one picture
 
+<Scene
+  name="engram-lookup"
+  title="O(1) n-gram lookup into static tables, gated by the hidden state"
+  caption="Toy 6-feature retrieval. Hash heads index prime-sized static tables E in constant time without scanning past tokens; gate α_t passes matching context and shuts down hash collisions."
+/>
+
 <ArchDiagram
   title="One Engram lookup"
   caption="Suffix n-grams of the compressed token ids hash into static tables. The retrieved vector is gated by the current hidden state, mixed by a short dilated convolution, and added back. The tables are parameters, not a growing cache."

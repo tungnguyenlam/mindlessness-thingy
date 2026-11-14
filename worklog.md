@@ -316,3 +316,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: gated-short-conv-window scene: k=3 sliding cache frame advancing across tokens while evicting older entries, paired with Linear in split (B_t, h~_t, C_t), double elementwise gating, and depthwise 3-tap convolution
 - files: src/lib/scenes/gated-short-conv-window.mjs src/content/notes/concepts/gated-short-conv.mdx
 - open: none
+## 2026-11-14 · content(engram): add O(1) hashed lookup and gate scene
+- did: engram-lookup scene: suffix n-gram compression & mul-XOR hash heads jumping into K static tables, context gate passing coherent e_t and suppressing hash collisions toward zero
+- files: src/lib/scenes/engram-lookup.mjs src/content/notes/concepts/engram.mdx
+- open: none
+
