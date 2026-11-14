@@ -411,3 +411,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: lfm25-230m-compress scene: animates LFM2.5-230M dropping two gated conv blocks (10C+6A -> 8C+6A, keeping all 6 GQA KV caches), narrowing SwiGLU width 4608 -> 2560 (350M -> 230M), and running 19T pretraining + 350M distillation + DPO + RL; added <ModelDiagram model="lfm2-5-230m" />
 - files: src/lib/scenes/lfm25-230m-compress.mjs src/content/notes/systems/lfm2-5-230m.mdx
 - open: none
+
+## 2026-11-14 · content(lfm2-5-1-2b-instruct): add width-scaling and DSpark scene
+- did: lfm25-12b-scale-draft scene: animates doubling width (d=1024->2048, FFN=4608->8192) and Q heads (16->32) while keeping 8 KV heads pinned (2:1->4:1 GQA), plus 28T Instruct post-training and 296M DSpark speculative decoding (~2.1x SGLang); added <ModelDiagram model="lfm2-5-1-2b-instruct" />
+- files: src/lib/scenes/lfm25-12b-scale-draft.mjs src/content/notes/systems/lfm2-5-1-2b-instruct.mdx
+- open: none

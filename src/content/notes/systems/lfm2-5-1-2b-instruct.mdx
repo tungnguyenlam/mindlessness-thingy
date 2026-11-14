@@ -9,7 +9,7 @@ contrasts_with: []
 related: [lfm2-5-350m, lfm2-5-1-2b-thinking]
 sources: [lfm2-5-1-2b-instruct-card, lfm2-5-1-2b-instruct-config, lfm2-5-intro-blog, lfm2-report]
 status: draft
-updated: 2026-10-16
+updated: 2026-11-14
 ---
 
 LFM2.5-1.2B-Instruct is the general-purpose chat checkpoint in the 1.2B LFM2.5 family. The stack is the same [[hybrid-conv-attention]] interleaving as [[lfm2-5-350m]] — 10 [[gated-short-conv]] layers and 6 [[gqa]] layers — at twice the hidden width <Cite id="lfm2-5-1-2b-instruct-card" where="Number of layers" />. Pretraining is 28T tokens, up from the 10T LFM2 budget, then SFT, preference alignment, and multi-stage RL <Cite id="lfm2-5-intro-blog" />. [[lfm2-5-1-2b-thinking]] is this backbone with a reasoning post-train.
@@ -23,6 +23,8 @@ LFM2.5-1.2B-Instruct is the general-purpose chat checkpoint in the 1.2B LFM2.5 f
 
 <LayerStrip model="lfm2-5-1-2b-instruct" />
 
+<ModelDiagram model="lfm2-5-1-2b-instruct" />
+
 <ModelSpec model="lfm2-5-1-2b-instruct" />
 
 <Callout type="pitfall">
@@ -32,6 +34,11 @@ The LFM2 report lists feed-forward width 8192 for LFM2-1.2B <Cite id="lfm2-repor
 ## What is new
 
 ### Wider 16-layer hybrid, 28T, then instruct post-train
+
+<Scene
+  name="lfm25-12b-scale-draft"
+  caption="Widening from 350M to 1.17B doubles hidden size and query heads (16 to 32) while pinning KV heads at 8, followed by Instruct RL and optional 296M DSpark speculative decoding."
+/>
 
 Hidden size doubles from the 350M's 1024 to 2048, query heads from 16 to 32, KV heads stay 8, so the [[gqa]] group size is 4 rather than 2 <Cite id="lfm2-5-1-2b-instruct-config" where="num_attention_heads" />. `layer_types` matches the 350M interleaving exactly <Cite id="lfm2-5-1-2b-instruct-config" where="layer_types" />.
 
