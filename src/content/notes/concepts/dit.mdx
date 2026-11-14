@@ -14,6 +14,22 @@ updated: 2026-10-17
 
 A diffusion or flow model needs a network that maps a noisy sample and its noise level back to the clean signal. In vision that job went to a convolutional U-Net by default <Cite id="dit-paper" where="§1" />. DiT swaps it for a plain [[transformer-block]] over image patches: the latent becomes a sequence, the noise level and class label enter every block through [[adaln]], and a linear head turns the tokens back into a prediction.
 
+<Scene
+  name="dit-patches"
+  title="Patchify turns the latent into tokens; adaLN steers every block"
+  caption="Toy 4×4 latent grid. Halving patch size p quadruples sequence length T = (I/p)² and compute without pooling; t and class c steer every block via adaLN before unpatchify restores the spatial prediction."
+/>
+
+## Patches in, prediction out
+
+The input is a latent $z$ of shape $I \times I \times C$ — in the paper, a frozen VAE's compressed image. Patchify cuts it into $p \times p$ patches and embeds each with one linear layer, giving
+
+$$
+T = (I / p)^2
+$$
+
+tokens of width $d$, followed by a sine-cosine positional embedding <Cite id="dit-paper" where="§3.2, Fig. 4" />. Each block mixes them with self-attention and a feed-forward network, with [[transformer-block]]'s usual residuals, while [[adaln]] sets the scale and shift from the timestep and label. The final norm and a linear layer decode every token back into a patch, and the tokens are rearranged into the spatial grid <Cite id="dit-paper" where="§3.2" />. In the paper's diffusion setup the head predicts noise and covariance, $2C$ channels per patch.
+
 <ArchDiagram
   title="Image patches through the blocks, condition beside them"
   caption="Patchify decides the sequence length T = (I/p)². The timestep and label never join the tokens; they modulate each block through adaLN instead."
@@ -37,16 +53,6 @@ A diffusion or flow model needs a network that maps a noisy sample and its noise
     { from: 'head', to: 'out' },
   ]}
 />
-
-## Patches in, prediction out
-
-The input is a latent $z$ of shape $I \times I \times C$ — in the paper, a frozen VAE's compressed image. Patchify cuts it into $p \times p$ patches and embeds each with one linear layer, giving
-
-$$
-T = (I / p)^2
-$$
-
-tokens of width $d$, followed by a sine-cosine positional embedding <Cite id="dit-paper" where="§3.2, Fig. 4" />. Each block mixes them with self-attention and a feed-forward network, with [[transformer-block]]'s usual residuals, while [[adaln]] sets the scale and shift from the timestep and label. The final norm and a linear layer decode every token back into a patch, and the tokens are rearranged into the spatial grid <Cite id="dit-paper" where="§3.2" />. In the paper's diffusion setup the head predicts noise and covariance, $2C$ channels per patch.
 
 ## What changes from a U-Net
 

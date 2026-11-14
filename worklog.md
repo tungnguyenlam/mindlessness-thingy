@@ -291,3 +291,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: adaln-modulate scene: zero-init identity pass-through (gamma=1, beta=0, alpha=0), shared MLP regression of gamma/beta/alpha across all T=3 tokens in lockstep, and swapping condition c without adding tokens
 - files: src/lib/scenes/adaln-modulate.mjs src/content/notes/concepts/adaln.mdx
 - open: none
+
+## 2026-11-14 · content(dit): lead with a patchify and adaLN scene
+- did: dit-patches scene: 4x4 noisy latent sliced by patch size p into T=(I/p)^2 tokens, halving p quadrupling T and FLOPs at flat params, uniform-width L DiT blocks steered by adaLN-Zero, and unpatchified clean prediction
+- files: src/lib/scenes/dit-patches.mjs src/content/notes/concepts/dit.mdx
+- open: none
