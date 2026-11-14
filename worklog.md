@@ -296,3 +296,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: dit-patches scene: 4x4 noisy latent sliced by patch size p into T=(I/p)^2 tokens, halving p quadrupling T and FLOPs at flat params, uniform-width L DiT blocks steered by adaLN-Zero, and unpatchified clean prediction
 - files: src/lib/scenes/dit-patches.mjs src/content/notes/concepts/dit.mdx
 - open: none
+
+## 2026-11-14 · content(latent-moe): lead with a latent compression scene
+- did: latent-moe-compress scene: W_down shrinks routed tokens from d to l=d/4 (4x lighter weight loads and comms), then expands pool N->4N and K->4K within the same all-to-all budget before one shared W_up maps back to width d; removed stale latent-moe baseline entry
+- files: src/lib/scenes/latent-moe-compress.mjs src/content/notes/concepts/latent-moe.mdx scripts/baseline.json
+- open: none
