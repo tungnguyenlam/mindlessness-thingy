@@ -266,3 +266,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: flow-paths scene: conditional straight line x_t = (1-t)x_0 + t*x_1 with constant velocity u_t = x_1 - x_0, marginal average velocity field across crossing pairs, and 4-step Euler sampling from noise to two data modes
 - files: src/lib/scenes/flow-paths.mjs src/content/notes/concepts/flow-matching.mdx
 - open: none
+
+## 2026-11-14 · content(aux-loss-free-balancing): lead with a bias-update and score-split scene
+- did: bias-balance scene: batch load c_i vs c_bar nudges b_i by +/- gamma, top-2 ranks s+b while output gate g reads affinity s alone, loads settle around c_bar
+- files: src/lib/scenes/bias-balance.mjs src/content/notes/concepts/aux-loss-free-balancing.mdx
+- open: none

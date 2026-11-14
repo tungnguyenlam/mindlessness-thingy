@@ -9,12 +9,18 @@ contrasts_with: []
 related: []
 sources: [loss-free-balancing-paper, deepseek-v3-report]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 A [[moe]] router left to itself converges to sending most tokens to the same few favourite experts: those experts train faster and get picked even more. The usual fix is an auxiliary loss that penalises imbalance, but it adds gradients that pull against the language-modeling objective — a strong coefficient holds the load flat and costs quality, a weak one lets routing collapse <Cite id="loss-free-balancing-paper" where="§2.2" />. This design balances the load without adding anything to the loss.
 
 ## The idea in one picture
+
+<Scene
+  name="bias-balance"
+  title="Bias steers top-k selection while gates read affinity alone"
+  caption="Toy batch over 8 experts, top-2 routing. Overloaded experts get −γ on their bias b_i and underloaded ones get +γ; selection ranks s + b, while output gates keep the unbiased affinity s."
+/>
 
 <ArchDiagram
   title="Selecting with the bias, weighting without it"
