@@ -336,3 +336,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - files: src/lib/scenes/nvfp4-levels.mjs src/content/notes/concepts/nvfp4.mdx
 - open: none
 
+## 2026-11-14 · content(vision-language-connector): add pixel-shuffle and pair collapse scene
+- did: vl-pixel-shuffle scene: 4x4 vision patch grid grouped into 2x2 quadrants via zero-weight pixel shuffle, learned MLP projection to d_L, and quadratic attention pair reduction from 16x16 to 4x4
+- files: src/lib/scenes/vl-pixel-shuffle.mjs src/content/notes/concepts/vision-language-connector.mdx
+- open: none
+

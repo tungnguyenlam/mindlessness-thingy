@@ -9,10 +9,16 @@ contrasts_with: []
 related: []
 sources: [nemotron-3-nano-omni-report, nemotron-3-5-super-vl-config]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 [[c-radio]] hands over one feature vector per image patch: a grid of $T$ vectors, each of width $d$. A language model reads tokens of its own width $d_L$, and every extra token adds attention and cache over the rest of the sequence. The connector is the small module in between. It merges neighbouring patches into fewer, wider tokens, then projects them with an MLP <Cite id="nemotron-3-nano-omni-report" where="§2" />.
+
+<Scene
+  name="vl-pixel-shuffle"
+  title="Pixel shuffle folds neighbouring patches, then an MLP projects to language-model width"
+  caption="Toy 4×4 patch grid (T = 16) with n_merge = 4 (2×2 quadrants). Rearranging four width-d patches into one width-4d token uses zero weights; the learned MLP maps 4d → d_L and cuts quadratic attention pairs 16×."
+/>
 
 ## Patch features to language-model tokens
 
