@@ -331,3 +331,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - files: src/lib/scenes/fp8-tile-scale.mjs src/content/notes/concepts/fp8-training.mdx
 - open: none
 
+## 2026-11-14 · content(nvfp4): add two-level scaling and E2M1 bit-budget scene
+- did: nvfp4-levels scene: FP32 tensor scale, FP8 per-16-value block scales, 4-bit E2M1 code quantization, and proportional 256b vs 64b+8b (4.5 b/val) storage bar
+- files: src/lib/scenes/nvfp4-levels.mjs src/content/notes/concepts/nvfp4.mdx
+- open: none
+

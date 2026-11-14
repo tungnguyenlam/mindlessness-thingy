@@ -9,10 +9,16 @@ contrasts_with: []
 related: []
 sources: [nemotron-3-super-report, nemotron-3-5-report]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 Four bits per weight is half of what [[fp8-training]] uses and a quarter of BF16. NVFP4 stores each element as an E2M1 float — one sign bit, two exponent bits, one mantissa bit — and keeps the values usable with two levels of scaling: an FP8 scale per block of consecutive values, and one FP32 scale per tensor <Cite id="nemotron-3-super-report" where="§2.2, Table 3" />. Nemotron 3 Super is the first Nemotron model pretrained in this format <Cite id="nemotron-3-super-report" where="Abstract, §1" />, and Nemotron 3.5 ships its deployment checkpoints quantized with it <Cite id="nemotron-3-5-report" where="§4.1" />.
+
+<Scene
+  name="nvfp4-levels"
+  title="Two levels of scaling pack 16-value blocks into 4-bit E2M1"
+  caption="One FP32 tensor scale anchors overall range while one FP8 scale per 16 consecutive weights keeps each block accurate. Together they store 16 weights in 64 + 8 = 72 bits (4.5 bits per value)."
+/>
 
 ## The scale hierarchy
 
