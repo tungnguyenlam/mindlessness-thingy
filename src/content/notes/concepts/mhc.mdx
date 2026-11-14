@@ -16,6 +16,12 @@ A [[transformer-block]] keeps one residual stream of width $d$. Each sub-layer r
 
 ## The idea in one picture
 
+<Scene
+  name="mhc-sinkhorn"
+  title="Four residual copies mix through B_l without changing layer width d"
+  caption="Toy 4-stream vectors wrapped around Layer F at width d. Unconstrained mixing drifts off row/column sum 1 and explodes gain over depth; Sinkhorn-Knopp projects B_l onto doubly stochastic matrices so norm stays 1×."
+/>
+
 <ArchDiagram
   title="n_hc residual copies around an unchanged layer"
   caption="The layer F still sees width d. A mixes the n_hc copies into that input, B mixes the copies with each other, and C writes F's output back onto the stream."

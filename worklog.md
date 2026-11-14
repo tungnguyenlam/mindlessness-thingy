@@ -301,3 +301,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: latent-moe-compress scene: W_down shrinks routed tokens from d to l=d/4 (4x lighter weight loads and comms), then expands pool N->4N and K->4K within the same all-to-all budget before one shared W_up maps back to width d; removed stale latent-moe baseline entry
 - files: src/lib/scenes/latent-moe-compress.mjs src/content/notes/concepts/latent-moe.mdx scripts/baseline.json
 - open: none
+
+## 2026-11-14 · content(mhc): add a Sinkhorn doubly-stochastic scene
+- did: mhc-sinkhorn scene: 4 residual copies wrapping width-d Layer F, unconstrained 4x4 B_l exploding 6-layer gain (13.8x) vs Sinkhorn-Knopp projecting rows and cols to 1.0 (1.0x norm preserved)
+- files: src/lib/scenes/mhc-sinkhorn.mjs src/content/notes/concepts/mhc.mdx
+- open: none
