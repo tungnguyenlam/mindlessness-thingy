@@ -401,3 +401,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: nemotron-super-deltas scene: animates the four Nano 3 -> Super 3 upgrades (52L->88L scale gauge, 4096->1024 LatentMoE 4x projection with shared 4096, 2 shared-weight MTP layers reaching 3.45 @ draft 7, and NVFP4 + BF16/MXFP8 precision); cleared final baseline.json entry
 - files: src/lib/scenes/nemotron-super-deltas.mjs src/content/notes/systems/nemotron-3-super.mdx scripts/baseline.json
 - open: none
+
+## 2026-11-14 · content(lfm2-5-350m): add training-recipe scene and model block diagram
+- did: lfm25-350m-recipe scene: animates LFM2.5-350M keeping LFM2's 350M conv+GQA layout while scaling pretraining from 10T to 28T tokens, adding multi-stage RL, and lifting IFBench, CaseReportBench, and BFCLv3 by >20 pts; added <ModelDiagram model="lfm2-5-350m" /> to clear visual-first warnings
+- files: src/lib/scenes/lfm25-350m-recipe.mjs src/content/notes/systems/lfm2-5-350m.mdx
+- open: none

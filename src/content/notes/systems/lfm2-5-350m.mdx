@@ -9,7 +9,7 @@ contrasts_with: []
 related: [lfm2-5-230m, lfm2-5-1-2b-instruct]
 sources: [lfm2-5-350m-card, lfm2-5-350m-config, lfm2-5-350m-blog, lfm2-report]
 status: draft
-updated: 2026-10-16
+updated: 2026-11-14
 ---
 
 LFM2.5-350M is the 350M LFM2 hybrid trained further. The block recipe is still [[hybrid-conv-attention]]: 10 [[gated-short-conv]] layers and 6 [[gqa]] layers, then SwiGLU. What changed from LFM2-350M is the training budget — pretraining extended from 10T to 28T tokens — and a larger post-training stack with reinforcement learning <Cite id="lfm2-5-350m-blog" />. This note is that checkpoint. Follow the architecture links for the mixer.
@@ -22,6 +22,8 @@ LFM2.5-350M is the 350M LFM2 hybrid trained further. The block recipe is still [
 />
 
 <LayerStrip model="lfm2-5-350m" />
+
+<ModelDiagram model="lfm2-5-350m" />
 
 <ModelSpec model="lfm2-5-350m" />
 
@@ -43,6 +45,11 @@ Information still travels far, but not through the convolution. Each conv layer 
 ## What is new
 
 ### More pretraining, then RL
+
+<Scene
+  name="lfm25-350m-recipe"
+  caption="Same 350M architecture as LFM2-350M, trained on 28T pretraining tokens (up from 10T) and multi-stage reinforcement learning."
+/>
 
 LFM2 dense models were pretrained for 10T tokens at 4K context, then 1T of mid-training at 32K <Cite id="lfm2-report" where="§3.2" />. The 350M LFM2.5 blog describes the 2.5 generation as that same architecture with pretraining extended from 10T to 28T, plus large-scale reinforcement learning <Cite id="lfm2-5-350m-blog" />. The card lists the training budget as 28T tokens <Cite id="lfm2-5-350m-card" where="Training budget" />.
 
