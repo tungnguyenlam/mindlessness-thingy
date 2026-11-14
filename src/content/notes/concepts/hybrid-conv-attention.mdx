@@ -9,10 +9,16 @@ contrasts_with: [hybrid-ssm-attention, mla]
 related: []
 sources: [lfm2-report, lfm2-5-350m-config, lfm2-5-350m-card, lfm2-5-2-6b-config]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 A full-attention stack pays for a [[kv-cache]] in every layer. Liquid's LFM2 search, run against on-device latency and peak memory, kept a simpler hybrid: most mixers are [[gated-short-conv]] blocks, plus a small number of [[gqa]] layers, and no extra state-space or linear-attention operator <Cite id="lfm2-report" where="§2.1" />. [[hybrid-ssm-attention]] answers the same cache problem by swapping in Mamba-2 instead of the convolution.
+
+<Scene
+  name="hybrid-conv-flow"
+  title="Mostly rolling-window conv layers, plus sparse attention anchors"
+  caption="Toy 8-mixer slice matching LFM2's 5:3 ratio (5 conv, 3 GQA anchors). Conv layers hold only the last k=3 tokens in a fixed buffer while GQA layers grow a KV cache with context T."
+/>
 
 ## The layout
 

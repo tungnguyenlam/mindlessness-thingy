@@ -371,3 +371,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: humanego-ict scene: animates moving camera viewpoint cam 1 -> cam 2 shifting ^cam T_LH while ^E T_LH = T_E^{-1} T_LH stays locked in entity E's frame, plus the 29-D ICT_k token slice [tau, ^REF T_E, ^E T_LH, ^E T_RH, g]
 - files: src/lib/scenes/humanego-ict.mjs src/content/notes/systems/humanego.mdx
 - open: none
+
+## 2026-11-14 · content(hybrid-conv-attention): add rolling-window vs GQA cache scene
+- did: hybrid-conv-flow scene: animates LFM2's 5:3 conv-to-GQA slice showing fixed 3-slot rolling conv windows vs linearly growing KV caches across T=4..16 and total cache savings at every T
+- files: src/lib/scenes/hybrid-conv-flow.mjs src/content/notes/concepts/hybrid-conv-attention.mdx
+- open: none
