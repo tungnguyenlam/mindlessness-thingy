@@ -381,3 +381,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: flowhoi-two-stage scene: animates Stage 1 static-object grasp prefix (0..49, 108-D) feeding Stage 2 subsequence soft inpainting (M=0 paste x^g for tau < 0.9, bidirectional attention across t_g=49, and unmasked full-clip refinement for tau >= 0.9)
 - files: src/lib/scenes/flowhoi-two-stage.mjs src/content/notes/systems/flowhoi.mdx
 - open: none
+
+## 2026-11-14 · content(stablehand): add quality-aware flow schedule scene
+- did: stablehand-quality-flow scene: animates per-frame quality q̃_t driving mixed start x_0 = q̃·ȳ + (1−q̃)·ε and velocity scaling (1−q̃) across visible vs occluded hand frames
+- files: src/lib/scenes/stablehand-quality-flow.mjs src/content/notes/systems/stablehand.mdx
+- open: none

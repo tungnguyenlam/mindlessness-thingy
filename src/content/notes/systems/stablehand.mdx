@@ -9,7 +9,7 @@ contrasts_with: []
 related: [rope, adaln, flowhoi, humanego]
 sources: [stablehand-paper, stablehand-repo, stablehand-enhanced-docs, stablehand-dit-hot3d-config, wilor-paper, depth-anything-3-paper, hot3d-paper, arctic-paper]
 status: draft
-updated: 2026-10-19
+updated: 2026-11-14
 ---
 
 StableHand isn't a language model. It reads first-person (egocentric) video and outputs a 3D trajectory for both hands in world coordinates. Per-frame hand estimators fail exactly when the data is most useful: when a hand leaves the view or is hidden behind the object it is holding. StableHand fills those gaps from a learned prior of two-handed motion, so that large collections of human video can supervise robot learning <Cite id="stablehand-repo" where="README, Highlight" />.
@@ -59,6 +59,12 @@ During training, a score comes from the measured error $e$ through $q = \exp(-e/
 At test time there is no ground truth, so a small transformer, the quality network, predicts the error in millimetres from the world-frame observation, a detection flag and the camera pose. It is deliberately not shown WiLoR's visual features, which let it learn a dataset-specific shortcut. It is trained on about 10M frames from 8 egocentric datasets, with an extra Wasserstein loss that keeps its predictions from collapsing toward the mean <Cite id="stablehand-paper" where="§3.2, Eqs. 5–7" />.
 
 ## Quality-aware flow matching
+
+<Scene
+  name="stablehand-quality-flow"
+  title="Per-coordinate quality schedule across visible and occluded frames"
+  caption="Toy 8-frame wrist/finger curve. Frames with high quality q̃ start pinned near the observation ȳ and barely move; occluded frames with q̃ ≈ 0 start from noise ε and travel full speed to bridge the gap."
+/>
 
 This is what's new. Standard [[flow-matching]] moves every coordinate from noise $\varepsilon$ to data $x_1$ along the same straight line, $x_\tau = \tau x_1 + (1-\tau)\varepsilon$, and trains the network to predict the velocity $x_1 - \varepsilon$. StableHand broadcasts the four scores to all 108 coordinates as $\tilde q$ and gives each coordinate its own schedule <Cite id="stablehand-paper" where="Eq. 8" />:
 
