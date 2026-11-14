@@ -9,7 +9,7 @@ contrasts_with: []
 related: [nvfp4, deepseek-v4-1-flash]
 sources: [nemotron-3-5-report, nemotron-3-5-super-vl-config, nemotron-3-5-super-vl-card, nemotron-3-nano-omni-report, nemotron-3-super-report, nemotron-3-nano-report, nemotron-3-ultra-report]
 status: draft
-updated: 2026-10-16
+updated: 2026-11-14
 ---
 
 The language backbone is [[nemotron-3-super]], unchanged. The config lists the same 88-layer pattern of Mamba-2, MoE and attention layers <Cite id="nemotron-3-5-super-vl-config" where="llm_config.layers_block_type" />. The tech report has no architecture section and defers to the Nemotron 3 Super report <Cite id="nemotron-3-5-report" where="§1" />. What is new is around the backbone: image and video input, the speculative-decoding head, a longer training pipeline, and how it's quantized for release.
@@ -37,7 +37,7 @@ The language backbone is [[nemotron-3-super]], unchanged. The config lists the s
     { from: 'seq', to: 'bb' },
     { from: 'bb', to: 'head' },
     { from: 'bb', to: 'mtp', label: 'drafts' },
-    { from: 'mtp', to: 'head', dashed: true, label: 'shares' },
+    { from: 'mtp', to: 'head', dashed: true },
   ]}
 />
 
@@ -66,15 +66,19 @@ The language backbone is [[nemotron-3-super]], unchanged. The config lists the s
 
 The base model is text-only. Vision joins during supervised fine-tuning: first a warm-up stage for the vision projector, then two SFT stages that train the language and vision parts together, on packed sequences of up to 524,288 tokens <Cite id="nemotron-3-5-report" where="§3.1" />.
 
-The encoder is a [[c-radio]] vision transformer, a ViT-H with 16-pixel patches <Cite id="nemotron-3-5-super-vl-config" where="vision_config" />. A [[vision-language-connector]] turns its patch features into backbone tokens. The config only gives `downsample_ratio: 0.5` and a 20480-wide projector. The sibling Nemotron 3 Nano Omni documents the design: a pixel shuffle that merges patches for 4× fewer tokens, MLP projectors, and a 3D convolution that folds every two video frames into one <Cite id="nemotron-3-nano-omni-report" where="§2" />.
-
-<Callout type="note">
-Neither the report nor the model card names the C-RADIO version or describes the connector's layers. The patch limits (1024 to 13312) match Nano Omni, which uses C-RADIOv4-H. That suggests the same encoder but doesn't confirm it.
-</Callout>
+The encoder is a [[c-radio]] vision transformer, a ViT-H with 16-pixel patches <Cite id="nemotron-3-5-super-vl-config" where="vision_config" />. A [[vision-language-connector]] turns its patch features into backbone tokens. The config gives `downsample_ratio: 0.5` and a 20480-wide projector, without naming the C-RADIO version or connector layers. The sibling Nemotron 3 Nano Omni uses the same 1024–13312 patch range with C-RADIOv4-H, 4× pixel-shuffle merging, MLP projectors, and a 3D convolution that folds every two video frames into one <Cite id="nemotron-3-nano-omni-report" where="§2" />.
 
 ### One MTP head, applied recursively
 
-Nemotron 3 Super was trained with two MTP layers. For 3.5, the team takes the first, drops the second, and ships one head that is applied repeatedly to draft several tokens. It has one attention layer and one MoE layer and reuses the main LM head <Cite id="nemotron-3-5-report" where="§1, §2.1, §4.7" />. The head gets a 100B-token warm-up with the backbone frozen, where each step's input is mixed from several earlier MTP steps, not only the previous one. After post-training, "MTP boosting" trains it again against the frozen final backbone. At draft length 7 and temperature 1, average accepted length rises from 3.787 to 4.612 tokens <Cite id="nemotron-3-5-report" where="§3.7, Table 8" />. See [[mtp]] for the idea itself.
+<Scene
+  name="nemotron-mtp-recursive"
+  title="One recursive MTP head plus post-training boosting"
+  caption="Unlike Super 3's two MTP layers, 3.5 VL runs one head (1 attention + 1 MoE) recursively while sharing the main LM head. Re-fitting it after SFT, RL, and vision raises accepted length from 3.787 to 4.612 tokens at draft 7, T = 1."
+/>
+
+Nemotron 3 Super was trained with two MTP layers. For 3.5, the team keeps the first head and applies it repeatedly to draft several tokens, using one attention layer, one MoE layer, and the shared main LM head <Cite id="nemotron-3-5-report" where="§1, §2.1, §4.7" />.
+
+The head gets a 100B-token warm-up with the backbone frozen, mixing earlier MTP steps as input rather than only the previous step. After post-training, "MTP boosting" retrains it against the final frozen backbone, lifting average accepted length at draft 7 and temperature 1 from 3.787 to 4.612 tokens <Cite id="nemotron-3-5-report" where="§3.7, Table 8" />. See [[mtp]] for the idea itself.
 
 <Callout type="pitfall">
 The sources disagree on whether Super 3's two MTP layers shared weights. The Super 3 report says they did (Table 1, §2.1.2). The 3.5 report calls them "two non-shared MTP heads" in §1, yet "shared-weight" in §3.1. The safe statement is the one above: 3.5 ships a single head, applied recursively.

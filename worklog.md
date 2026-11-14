@@ -391,3 +391,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: added 1d keep-place assertion verifying x-scene (async dynamic import + whenReady) restores its beat and pauses on return across both bfcache and reload (40/40 passing)
 - files: scripts/test-place.mjs
 - open: none
+
+## 2026-11-14 · content(nemotron-3-5-super-vl): add recursive MTP scene and clear diagram overlap
+- did: nemotron-mtp-recursive scene: animates single-head recursive MTP drafting (1 Attn + 1 MoE + shared LM head) and post-training MTP boosting (3.787 -> 4.612 accepted tokens at draft 7, T=1); removed overlapping 'shares' edge label and resolved baseline entry + visual-first warnings
+- files: src/lib/scenes/nemotron-mtp-recursive.mjs src/content/notes/systems/nemotron-3-5-super-vl.mdx scripts/baseline.json
+- open: none
