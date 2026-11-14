@@ -306,3 +306,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: mhc-sinkhorn scene: 4 residual copies wrapping width-d Layer F, unconstrained 4x4 B_l exploding 6-layer gain (13.8x) vs Sinkhorn-Knopp projecting rows and cols to 1.0 (1.0x norm preserved)
 - files: src/lib/scenes/mhc-sinkhorn.mjs src/content/notes/concepts/mhc.mdx
 - open: none
+
+## 2026-11-14 · content(mamba-2): add recurrent state vs matrix dual scene
+- did: mamba2-duality scene: fixed-size recurrent state h_t overwritten in place per token vs growing KV ghost, paired with its exact lower-triangular matrix dual Y = M X for parallel training
+- files: src/lib/scenes/mamba2-duality.mjs src/content/notes/concepts/mamba-2.mdx
+- open: none

@@ -16,6 +16,12 @@ A [[transformer-block]]'s attention reads every past token, so its [[kv-cache]] 
 
 ## The idea in one picture
 
+<Scene
+  name="mamba2-duality"
+  title="One fixed state while decoding; one triangular matrix while training"
+  caption="Left: during decode, each token overwrites the same n × d_s state h_t in place instead of appending to a growing KV cache. Right: unrolling the recurrence over T tokens gives a lower-triangular matrix Y = M X that runs in parallel."
+/>
+
 <ArchDiagram
   title="One Mamba-2 layer: a state carried along the sequence"
   caption="Only the state is kept between steps; the dashed edge is the decoding loop, where the state written at one step is read at the next. Every other block is recomputed for the new token."
