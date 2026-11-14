@@ -18,6 +18,12 @@ Liquid's LFM2 search kept this operator as the local mixer and dropped the extra
 
 ## The idea in one picture
 
+<Scene
+  name="gated-short-conv-window"
+  title="Gate in, slide a 3-token window per channel, gate out"
+  caption="Toy 4-channel vectors. Each decoding step slides a fixed k = 3 window forward and evicts older tokens—unlike a KV cache, memory never grows with sequence length."
+/>
+
 <ArchDiagram
   title="One gated short convolution"
   caption="A position-wise linear map splits the hidden state into two gates and a value. The value is gated, mixed along the sequence by a depthwise convolution with a short kernel, gated again, and projected back. Sizes are symbols: T tokens, width d, kernel k."

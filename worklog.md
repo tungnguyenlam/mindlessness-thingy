@@ -311,3 +311,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: mamba2-duality scene: fixed-size recurrent state h_t overwritten in place per token vs growing KV ghost, paired with its exact lower-triangular matrix dual Y = M X for parallel training
 - files: src/lib/scenes/mamba2-duality.mjs src/content/notes/concepts/mamba-2.mdx
 - open: none
+
+## 2026-11-14 · content(gated-short-conv): add sliding window cache scene
+- did: gated-short-conv-window scene: k=3 sliding cache frame advancing across tokens while evicting older entries, paired with Linear in split (B_t, h~_t, C_t), double elementwise gating, and depthwise 3-tap convolution
+- files: src/lib/scenes/gated-short-conv-window.mjs src/content/notes/concepts/gated-short-conv.mdx
+- open: none
