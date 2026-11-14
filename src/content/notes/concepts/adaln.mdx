@@ -14,6 +14,16 @@ updated: 2026-10-17
 
 A [[transformer-block]] applies the same function to every token, so a single conditioning vector — a noise level, a class label, a quality score — has nowhere natural to enter. Appending it as an extra token works, but it changes the sequence itself. Adaptive layer norm (adaLN) takes a different route: a small MLP maps the condition to the scale and shift that follow each normalization, so the condition reaches every sublayer of every block <Cite id="dit-paper" where="§3.2" />.
 
+<Scene
+  name="adaln-modulate"
+  title="One condition vector modulates every token in lockstep"
+  caption="Toy 5-feature vectors across T = 3 tokens. One MLP maps condition c to shared γ, β, and gate α applied identically to every token; at zero init, α = 0 leaves the block as the identity."
+/>
+
+## How it works
+
+Plain [[layer-norm|layer norm]] computes statistics per token and then scales and shifts with two learned constants. adaLN keeps the normalization and makes those two vectors functions of the condition $c$, of width $d_c$; they carry the hidden width $d$.
+
 <ArchDiagram
   title="The condition becomes the scale and shift after every normalization"
   caption="The condition never joins the token sequence. It only produces the two vectors that follow Norm, so the block runs the same weights on the same tokens but normalizes them to the condition."
@@ -33,10 +43,6 @@ A [[transformer-block]] applies the same function to every token, so a single co
     { from: 'mod', to: 'out' },
   ]}
 />
-
-## How it works
-
-Plain [[layer-norm|layer norm]] computes statistics per token and then scales and shifts with two learned constants. adaLN keeps the normalization and makes those two vectors functions of the condition $c$, of width $d_c$; they carry the hidden width $d$.
 
 $$
 \mathrm{adaLN}(h, c) = \gamma(c) \odot \mathrm{Norm}(h) + \beta(c)

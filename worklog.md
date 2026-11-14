@@ -286,3 +286,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: dsa-index scene: 10 cached latents scored by a ReLU lightning indexer I_{t,s}, top-3 selection above threshold, and Stage 2 MLA softmax weights over survivors alone for O(L*k) core attention
 - files: src/lib/scenes/dsa-index.mjs src/content/notes/concepts/dsa.mdx
 - open: none
+
+## 2026-11-14 · content(adaln): lead with an adaLN-Zero conditioning scene
+- did: adaln-modulate scene: zero-init identity pass-through (gamma=1, beta=0, alpha=0), shared MLP regression of gamma/beta/alpha across all T=3 tokens in lockstep, and swapping condition c without adding tokens
+- files: src/lib/scenes/adaln-modulate.mjs src/content/notes/concepts/adaln.mdx
+- open: none
