@@ -256,3 +256,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: transformer-flow scene: token residual vector flows down the stream while attention (cross-token) and FFN (per-token) compute deltas added at each + junction
 - files: src/lib/scenes/transformer-flow.mjs src/content/notes/concepts/transformer-block.mdx
 - open: none
+
+## 2026-11-14 · content(mqa): lead with a shared key/value scene
+- did: mqa-share scene: 8 KV heads collapse to 1 shared K and V, 3 query heads still form distinct attention patterns over the shared keys, cache shrinks n_h times against MHA ghost
+- files: src/lib/scenes/mqa-share.mjs src/content/notes/concepts/mqa.mdx
+- open: none

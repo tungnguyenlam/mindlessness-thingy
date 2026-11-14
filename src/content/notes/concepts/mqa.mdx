@@ -9,10 +9,18 @@ contrasts_with: [gqa]
 related: []
 sources: [mqa-paper]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 The [[kv-cache]] grows with the number of key and value heads, and for [[mha]] there is one pair per query head. Multi-query attention (MQA) keeps all $n_h$ query heads and gives them one key head and one value head to share <Cite id="mqa-paper" where="§3" />. What each decoding step has to reload shrinks by a factor of $n_h$.
+
+<Scene
+  name="mqa-share"
+  title="Eight query heads sharing one key and one value head"
+  caption="All 8 query heads still compute distinct attention weights against the shared keys, while each token writes only one K and one V slice into the cache."
+/>
+
+## The idea in one picture
 
 <ArchDiagram
   title="n_h query heads against one shared key and value"
