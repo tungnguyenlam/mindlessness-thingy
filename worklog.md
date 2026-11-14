@@ -356,3 +356,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: mano-skinning scene: animates T̄ -> T̄+B_S(β) and joint regressor J(β) -> +B_P(θ) pre-bulge -> linear blend skinning W(θ) comparing smooth knuckle volume against dashed plain LBS pinch
 - files: src/lib/scenes/mano-skinning.mjs src/content/notes/concepts/mano.mdx
 - open: none
+
+## 2026-11-14 · content(cwm): add pixel-loss vs patch InfoNCE scene
+- did: cwm-infomax scene: contrasts Dreamer pixel decoder loss on moving background distractors against CWM's decoder-free M x N patch InfoNCE scoring [s_t, a_{t:t+h}]^T W_theta e_{m,n}(o_{t+h}) vs batch negatives
+- files: src/lib/scenes/cwm-infomax.mjs src/content/notes/concepts/contrastive-world-models.mdx
+- open: none

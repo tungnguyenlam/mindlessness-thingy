@@ -9,7 +9,7 @@ contrasts_with: []
 related: [vla, action-chunking, flowhoi]
 sources: [contrastive-world-models-paper, planet-paper, dreamer-paper, cpc-paper, deep-infomax-paper, byol-paper, dbc-paper]
 status: draft
-updated: 2026-10-19
+updated: 2026-11-14
 ---
 
 World models such as Dreamer <Cite id="dreamer-paper" /> train a [[rssm|recurrent state-space model (RSSM)]] <Cite id="planet-paper" /> by decoding every latent state back into camera pixels, so an actor-critic policy can learn inside imagined trajectories <Cite id="contrastive-world-models-paper" where="Abstract, §1" />. When the scene contains moving distractors or natural video backgrounds, reconstructing every background pixel dominates the loss and crowds out the small state changes needed for control <Cite id="contrastive-world-models-paper" where="Abstract, §1" />. Contrastive World Models remove the pixel decoder and instead maximize mutual information between state-action sequences and spatial patch features of future observations <Cite id="contrastive-world-models-paper" where="Abstract, §2.2" />.
@@ -65,6 +65,12 @@ $$
 Replacing pixel reconstruction with a mutual information lower bound trains the same encoder $e$, posterior $g$, and transition $f$ without decoding pixels <Cite id="contrastive-world-models-paper" where="§2.2, Fig. 1" />.
 
 ## Patch-level Deep InfoMax across time
+
+<Scene
+  name="cwm-infomax"
+  title="Dreamer pixel reconstruction vs Contrastive World Model patch InfoNCE"
+  caption="Toy 4×4 patch illustration: a moving distractor dominates pixel reconstruction loss J_O^t, whereas Patch InfoNCE drops the decoder and scores [s_t, a_{t:t+h}]ᵀ W_θ e_{m,n}(o_{t+h}) against batch negative frames o_b across every local patch."
+/>
 
 <Stepper title="How a Contrastive World Model computes its per-step loss">
   <Step title="1. Encode images into local patch grids and posterior states">
