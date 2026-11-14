@@ -281,3 +281,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: mtp-predict scene: single next-token head expands to 3 parallel future heads summing L1+L2+L3 during training, then switches to self-speculative drafting and 1-pass verification at inference
 - files: src/lib/scenes/mtp-predict.mjs src/content/notes/concepts/mtp.mdx
 - open: none
+
+## 2026-11-14 · content(dsa): lead with a lightning-indexer scene
+- did: dsa-index scene: 10 cached latents scored by a ReLU lightning indexer I_{t,s}, top-3 selection above threshold, and Stage 2 MLA softmax weights over survivors alone for O(L*k) core attention
+- files: src/lib/scenes/dsa-index.mjs src/content/notes/concepts/dsa.mdx
+- open: none

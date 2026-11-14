@@ -9,10 +9,16 @@ contrasts_with: []
 related: [kv-cache, hybrid-ssm-attention]
 sources: [deepseek-v3-2-report, deepseek-v3-2-config]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 [[mla]] shrinks what each token stores in the [[kv-cache]], but a query still scores every cached latent, so core attention work grows with the square of the context length <Cite id="deepseek-v3-2-report" where="§2.3" />. DeepSeek Sparse Attention (DSA), introduced in [[deepseek-v3-2]], changes which keys are read instead: a small lightning indexer scores the past cheaply, and full attention runs only on the $k$ best-scoring tokens of it.
+
+<Scene
+  name="dsa-index"
+  title="Score cheaply with the indexer, attend only to top-k"
+  caption="Toy sequence of 10 cached latents with k = 3. The ReLU indexer ranks every past token without softmax; full MLA attention then runs only over the 3 survivors."
+/>
 
 <MaskGrid
   title="Which keys each query reads"
