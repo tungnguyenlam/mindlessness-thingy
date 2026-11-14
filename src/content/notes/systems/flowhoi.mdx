@@ -9,7 +9,7 @@ contrasts_with: []
 related: [stablehand, humanego, vla]
 sources: [flowhoi-paper, flowhoi-repo, flowhoi-hot3d-config, flowhoi-grasp-config, grab-paper, diffh2o-paper]
 status: draft
-updated: 2026-10-19
+updated: 2026-11-14
 ---
 
 Generating dexterous hand-object interactions (HOI) for robot manipulation requires trajectories that satisfy both fine-grained finger contact on the object surface and collision-free object transport through the surrounding 3D workspace <Cite id="flowhoi-paper" where="§I" />. Prior diffusion generators such as DiffH2O <Cite id="diffh2o-paper" /> condition only on the target object and rely on test-time gradient guidance that takes over $6\text{ s}$ per clip <Cite id="flowhoi-paper" where="§I; Tab. I" />. FlowHOI replaces single-stage guided diffusion with a two-stage [[flow-matching]] [[dit]] that grounds bimanual [[mano]] hands and 6D object poses in a 3D Gaussian Splatting (3DGS) scene and a language instruction in $0.16\text{ s}$ <Cite id="flowhoi-paper" where="§IV; Tab. I" />.
@@ -108,6 +108,12 @@ Here $\boldsymbol{r}_t^h$ is the global wrist 6D orientation, $\boldsymbol{\thet
 ## Two-stage flow matching and soft inpainting
 
 Training a single network to synthesize both millimeter-accurate pre-grasp closure and long-horizon 3D object transport entangles local object geometry with global scene layout <Cite id="flowhoi-paper" where="§I; §IV-C" />. FlowHOI splits generation at the grasp completion frame $t_g = N_g - 1 = 49$: Stage 1 generates the $N_g = 50$-frame grasping prefix $\mathbf{x}^g \in \mathbb{R}^{N_g \times 108}$ on a static object, and Stage 2 generates the full $N = 200$-frame manipulation trajectory $\mathbf{x}^m \in \mathbb{R}^{N \times 117}$ conditioned on the 3DGS scene <Cite id="flowhoi-paper" where="§IV-C, Eqs. 17–25" />.
+
+<Scene
+  name="flowhoi-two-stage"
+  title="Stage 1 grasping and Stage 2 soft inpainting across t_g = 49"
+  caption="Stage 1 denoises 50 pre-grasp hand frames on a static object. Stage 2 overwrites prefix 0..49 with x^g via mask M while denoising manipulation frames 50..199, then lifts M at τ = 0.9 to smooth velocities across t_g."
+/>
 
 <Stepper title="Two-stage x₁-predicted flow matching with subsequence soft inpainting">
   <Step title="Stage 1 grasp synthesis (τ: 0 → 1)">

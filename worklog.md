@@ -376,3 +376,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: hybrid-conv-flow scene: animates LFM2's 5:3 conv-to-GQA slice showing fixed 3-slot rolling conv windows vs linearly growing KV caches across T=4..16 and total cache savings at every T
 - files: src/lib/scenes/hybrid-conv-flow.mjs src/content/notes/concepts/hybrid-conv-attention.mdx
 - open: none
+
+## 2026-11-14 · content(flowhoi): add two-stage grasping & soft-inpainting scene
+- did: flowhoi-two-stage scene: animates Stage 1 static-object grasp prefix (0..49, 108-D) feeding Stage 2 subsequence soft inpainting (M=0 paste x^g for tau < 0.9, bidirectional attention across t_g=49, and unmasked full-clip refinement for tau >= 0.9)
+- files: src/lib/scenes/flowhoi-two-stage.mjs src/content/notes/systems/flowhoi.mdx
+- open: none
