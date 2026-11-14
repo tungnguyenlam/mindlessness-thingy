@@ -351,3 +351,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: flashmoe-evict scene: side-by-side toy 3-slot VRAM expert cache showing LRU evicting paused hot staple E1 while ml_cache FFN scores normalized recency/frequency to evict one-shot E9 and hit E1 on step t+1
 - files: src/lib/scenes/flashmoe-evict.mjs src/content/notes/concepts/flashmoe.mdx
 - open: none
+
+## 2026-11-14 · content(mano): add shape, pose bulge, and LBS skinning scene
+- did: mano-skinning scene: animates T̄ -> T̄+B_S(β) and joint regressor J(β) -> +B_P(θ) pre-bulge -> linear blend skinning W(θ) comparing smooth knuckle volume against dashed plain LBS pinch
+- files: src/lib/scenes/mano-skinning.mjs src/content/notes/concepts/mano.mdx
+- open: none

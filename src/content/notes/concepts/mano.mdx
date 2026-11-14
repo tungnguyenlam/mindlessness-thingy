@@ -9,27 +9,15 @@ contrasts_with: []
 related: []
 sources: [mano-paper]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 Hand-pose estimators rarely output a triangle mesh directly. They output a small vector of numbers, and a fixed model turns that vector into a mesh — the way [[stablehand]] predicts a hand's parameters rather than its geometry. MANO is that model: pose and shape parameters in, a posed hand mesh out <Cite id="mano-paper" where="§3" />.
 
-<ArchDiagram
-  title="Pose and shape parameters become a hand mesh"
-  caption="One learned model sits in the middle: it deforms a template by shape and pose, regresses joint locations from the vertices, and skins the result to the skeleton."
-  blocks={[
-    { id: 'theta', label: 'Pose parameters θ', sub: 'joint rotations', role: 'activation' },
-    { id: 'beta', label: 'Shape parameters β', sub: 'PCA coefficients', role: 'activation' },
-    { id: 'fwd', label: 'MANO forward pass', sub: 'θ, β → vertices', role: 'weight' },
-    { id: 'mesh', label: 'Hand mesh', sub: 'posed surface', role: 'activation' },
-    { id: 'joints', label: 'Joint locations', sub: 'kinematic tree', role: 'activation' },
-  ]}
-  edges={[
-    { from: 'theta', to: 'fwd' },
-    { from: 'beta', to: 'fwd' },
-    { from: 'fwd', to: 'mesh' },
-    { from: 'mesh', to: 'joints' },
-  ]}
+<Scene
+  name="mano-skinning"
+  title="From shape β and pose θ to a skinned hand mesh"
+  caption="Toy 2D finger cross-section showing MANO's forward equation: shape offsets B_S(β) rescale the template T̄ and shift regressed joints J(β), pose offsets B_P(θ) pre-bulge vertices around the knuckles, and linear blend skinning W rotates by θ without pinching."
 />
 
 ## How it works
