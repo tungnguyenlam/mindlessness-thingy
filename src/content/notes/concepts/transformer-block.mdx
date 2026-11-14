@@ -9,10 +9,18 @@ contrasts_with: []
 related: [mha, layer-norm]
 sources: [attention-is-all-you-need, lfm2-report]
 status: draft
-updated: 2026-10-17
+updated: 2026-11-14
 ---
 
 A transformer model is one block, repeated: the original stacks six identical layers, each with two sub-layers <Cite id="attention-is-all-you-need" where="§3.1" />. The whole layer is one idea: run a sub-layer, add its output back onto the stream it was given, and do it twice. Everything a layer changes, it changes in the stream that flows past it.
+
+<Scene
+  name="transformer-flow"
+  title="One token moving down the residual stream"
+  caption="Toy vector of width d = 5 for the token “sat”. Attention mixes information across tokens; the feed-forward network expands to d_ff and shrinks back on each token alone."
+/>
+
+## The block diagram
 
 <ArchDiagram
   title="One layer, two sub-layers, two residual adds"

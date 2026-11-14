@@ -251,3 +251,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: moe-route scene: router scores 8 experts, top-2 softmax gates, token copies flow to the chosen experts and sum by gate, five tokens build a per-expert load that drifts to a favourite
 - files: src/lib/scenes/moe-route.mjs src/content/notes/concepts/moe.mdx
 - open: none
+
+## 2026-11-14 · content(transformer-block): lead with a live residual-stream scene
+- did: transformer-flow scene: token residual vector flows down the stream while attention (cross-token) and FFN (per-token) compute deltas added at each + junction
+- files: src/lib/scenes/transformer-flow.mjs src/content/notes/concepts/transformer-block.mdx
+- open: none
