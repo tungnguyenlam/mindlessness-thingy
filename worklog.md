@@ -396,3 +396,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: nemotron-mtp-recursive scene: animates single-head recursive MTP drafting (1 Attn + 1 MoE + shared LM head) and post-training MTP boosting (3.787 -> 4.612 accepted tokens at draft 7, T=1); removed overlapping 'shares' edge label and resolved baseline entry + visual-first warnings
 - files: src/lib/scenes/nemotron-mtp-recursive.mjs src/content/notes/systems/nemotron-3-5-super-vl.mdx scripts/baseline.json
 - open: none
+
+## 2026-11-14 · content(nemotron-3-super): add Nano-to-Super delta scene
+- did: nemotron-super-deltas scene: animates the four Nano 3 -> Super 3 upgrades (52L->88L scale gauge, 4096->1024 LatentMoE 4x projection with shared 4096, 2 shared-weight MTP layers reaching 3.45 @ draft 7, and NVFP4 + BF16/MXFP8 precision); cleared final baseline.json entry
+- files: src/lib/scenes/nemotron-super-deltas.mjs src/content/notes/systems/nemotron-3-super.mdx scripts/baseline.json
+- open: none

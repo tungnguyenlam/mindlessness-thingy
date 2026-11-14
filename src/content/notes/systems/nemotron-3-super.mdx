@@ -9,7 +9,7 @@ contrasts_with: []
 related: [aux-loss-free-balancing, deepseek-v3]
 sources: [nemotron-3-super-report, nemotron-3-super-config, nemotron-3-nano-report, nemotron-3-ultra-report, latentmoe-paper, primer-paper]
 status: draft
-updated: 2026-10-16
+updated: 2026-11-14
 ---
 
 Nemotron 3 Super "scales up the hybrid Mamba-Attention MoE architecture introduced in Nemotron-3 Nano" <Cite id="nemotron-3-super-report" where="§2.1" />. The layer recipe is the one described in [[hybrid-ssm-attention]]: mostly Mamba-2 layers, a few attention layers, and MoE feed-forward layers between them. It is also the first Nemotron model with three additions: [[latent-moe]], [[mtp]] and pretraining in [[nvfp4]] <Cite id="nemotron-3-super-report" where="Abstract, §1" />. This note covers those three and the scale-up. Follow the links for everything else.
@@ -65,6 +65,12 @@ Nemotron 3 Super "scales up the hybrid Mamba-Attention MoE architecture introduc
 />
 
 ## What changed from Nemotron 3 Nano
+
+<Scene
+  name="nemotron-super-deltas"
+  title="Four changes from Nemotron 3 Nano to Nemotron 3 Super"
+  caption="Super scales Nano in depth, hidden width, and expert count, adds LatentMoE (1,024-D bottleneck) and shared-weight MTP drafting, and trains in NVFP4 mixed precision instead of BF16."
+/>
 
 ### Bigger in every direction
 
