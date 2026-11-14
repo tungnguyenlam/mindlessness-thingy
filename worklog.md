@@ -321,3 +321,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - files: src/lib/scenes/engram-lookup.mjs src/content/notes/concepts/engram.mdx
 - open: none
 
+## 2026-11-14 · content(hybrid-ssm-attention): add stack cache scaling scene
+- did: hybrid-ssm-flow scene: 6 Mamba-2 constant-state layers plus 2 GQA anchor layers with exact distant recall arc, contrasting flat SSM floor vs linear KV growth across short and long context, and removed stale baseline.json entry
+- files: src/lib/scenes/hybrid-ssm-flow.mjs src/content/notes/concepts/hybrid-ssm-attention.mdx scripts/baseline.json
+- open: none
+

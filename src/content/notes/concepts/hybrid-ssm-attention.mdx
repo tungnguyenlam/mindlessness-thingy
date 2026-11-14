@@ -9,10 +9,16 @@ contrasts_with: [mla, dsa]
 related: []
 sources: [mamba2-paper, nemotron-h-paper, nemotron-3-super-report, nemotron-3-super-config, nemotron-3-5-report]
 status: draft
-updated: 2026-10-16
+updated: 2026-11-14
 ---
 
 Every attention layer adds to the [[kv-cache]] for every token of context. A [[mamba-2]] layer works differently. It folds the past into a recurrent state whose size doesn't depend on sequence length, while attention "requires a cache of size linear in sequence length" <Cite id="mamba2-paper" where="§1" />. A hybrid stack uses mostly the cheap kind and keeps a few of the expensive kind.
+
+<Scene
+  name="hybrid-ssm-flow"
+  title="Mostly constant-state Mamba-2 layers, plus sparse attention anchors"
+  caption="Toy 8-mixer stack (6 Mamba-2, 2 GQA anchors). Every Mamba layer keeps a fixed-size state upfront, while only the anchors append KV slots as context T grows."
+/>
 
 ## The layout
 
