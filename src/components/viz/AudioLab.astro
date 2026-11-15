@@ -1,0 +1,1398 @@
+---
+// Interactive audio DSP & visualization lab (src/lib/audiolab.mjs). One view per use:
+//   waveform:    live PCM waveform inspector with sample rate (Nyquist), bit depth (quantization),
+//                gain (clipping), zoom window, and Web Audio playback.
+//   spectrogram: live STFT explorer comparing Linear Hz · Linear |X|, Linear Hz · Log (dB), and
+//                Mel · Log-Mel, with N_FFT, overlap, Hann/Rect taper, dB floor, STFT scan animation,
+//                synchronized 1D frame slice, and audio playback.
+//   anatomy:     interactive visual terminology decoder mapping spectrogram & waveform patterns
+//                (vertical transients, horizontal harmonics, formants, fricative haze, dark floor,
+//                Nyquist ceiling) to what each term means in the picture.
+// Restorable: active preset, DSP knobs, selected frame/region, and format tab come back on Back.
+import { PRESETS, ANATOMY_ITEMS } from '../../lib/audiolab.mjs';
+
+type View = 'waveform' | 'spectrogram' | 'anatomy';
+interface Props {
+  view: View;
+  title: string;
+  caption?: string;
+  preset?: string;
+}
+const { view, title, caption, preset = 'speech' } = Astro.props;
+if (!['waveform', 'spectrogram', 'anatomy'].includes(view)) {
+  throw new Error(`<AudioLab title="${title}">: view must be waveform, spectrogram or anatomy`);
+}
+const config = JSON.stringify({ view, preset, presets: PRESETS, anatomy: ANATOMY_ITEMS });
+---
+
+<x-audiolab class="audiolab ui" data-restorable data-view={view}>
+  <script type="application/json" set:html={config} />
+  <div class="al-head-row">
+    <p class="al-title">{title}</p>
+    <div class="al-actions">
+      <button type="button" class="al-btn al-play" aria-pressed="false">
+        <span class="al-play-icon" aria-hidden="true">▶</span>
+        <span class="al-play-lbl">Listen</span>
+      </button>
+      {
+        view === 'spectrogram' && (
+          <button type="button" class="al-btn al-scan" aria-pressed="false">
+            <span aria-hidden="true">⟳</span>
+            <span class="al-scan-lbl">Animate STFT scan</span>
+          </button>
+        )
+      }
+    </div>
+  </div>
+
+  {(view === 'waveform' || view === 'spectrogram') && (
+    <div class="al-tabs al-presets" role="tablist" aria-label="Audio signal preset">
+      {PRESETS.map((p) => (
+        <button type="button" role="tab" data-preset={p.id} aria-selected={p.id === preset ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+  )}
+
+  {view === 'waveform' && (
+    <div class="al-body">
+      <div class="al-panel">
+        <p class="al-sub">Full 1.0 s waveform (shaded band = zoomed window below)</p>
+        <svg class="al-svg al-wave-full" viewBox="0 0 600 110" role="img" aria-label="Full 1 second waveform overview"></svg>
+      </div>
+      <div class="al-panel">
+        <p class="al-sub">Zoomed sample-level view (10 ms window · stems = PCM samples x[n])</p>
+        <svg class="al-svg al-wave-zoom" viewBox="0 0 600 176" role="img" aria-label="Zoomed waveform showing discrete samples, quantization steps, and clipping"></svg>
+        <ul class="al-legend">
+          <li><i class="k-analog"></i>analog wave</li>
+          <li><i class="k-stem"></i>sample instant</li>
+          <li><i class="k-quant"></i>quantized PCM</li>
+          <li><i class="k-clip"></i>clipping rail ±1.0</li>
+        </ul>
+      </div>
+      <div class="al-controls">
+        <label>
+          <span>Sample rate <em>f</em><sub>s</sub></span>
+          <input type="range" name="srIdx" min="0" max="3" step="1" value="3" />
+          <output data-for="srIdx">16 kHz</output>
+        </label>
+        <label>
+          <span>Bit depth <em>B</em></span>
+          <input type="range" name="bitIdx" min="0" max="3" step="1" value="3" />
+          <output data-for="bitIdx">16-bit</output>
+        </label>
+        <label>
+          <span>Gain (clip past 1.0×)</span>
+          <input type="range" name="gain" min="0.5" max="1.8" step="0.1" value="1.0" />
+          <output data-for="gain">1.0×</output>
+        </label>
+        <label>
+          <span>Zoom time <em>t</em></span>
+          <input type="range" name="zoomT" min="0.02" max="0.92" step="0.01" value="0.22" />
+          <output data-for="zoomT">0.22 s</output>
+        </label>
+      </div>
+      <dl class="al-stats" aria-live="polite">
+        <div><dt>Sample rate</dt><dd data-stat="sr">16,000 Hz</dd></div>
+        <div><dt>Nyquist limit</dt><dd data-stat="nyq">8,000 Hz</dd></div>
+        <div><dt>Amplitude levels</dt><dd data-stat="levels">65,536</dd></div>
+        <div><dt>Quantization SNR</dt><dd data-stat="sqnr">96.0 dB</dd></div>
+        <div><dt>Clipped samples</dt><dd data-stat="clip">0</dd></div>
+        <div><dt>Zero crossings</dt><dd data-stat="zcr">0 / s</dd></div>
+      </dl>
+    </div>
+  )}
+
+  {view === 'spectrogram' && (
+    <div class="al-body">
+      <div class="al-tabs al-formats" role="tablist" aria-label="Spectrogram format">
+        <button type="button" role="tab" data-format="lin-lin" aria-selected="false">Linear Hz · Linear |X|</button>
+        <button type="button" role="tab" data-format="lin-db" aria-selected="false">Linear Hz · Log (dB)</button>
+        <button type="button" role="tab" data-format="mel-db" aria-selected="true">Mel · Log-Mel</button>
+      </div>
+
+      <div class="al-panel">
+        <p class="al-sub">1. Waveform with active STFT window (width <em>N</em><sub>FFT</sub>, Hann/Rect taper)</p>
+        <svg class="al-svg al-spec-wave" viewBox="0 0 640 84" role="img" aria-label="Waveform aligned with spectrogram frames"></svg>
+      </div>
+
+      <div class="al-spec-grid">
+        <div class="al-panel al-spec-main">
+          <p class="al-sub al-spec-sub">2. 2D Spectrogram (click or hover any cell to inspect that frame &amp; frequency)</p>
+          <div class="al-canvas-wrap">
+            <canvas class="al-canvas" width="480" height="220"></canvas>
+            <svg class="al-svg al-spec-overlay" viewBox="0 0 560 250" role="img" aria-label="2D Spectrogram with time and frequency axes"></svg>
+          </div>
+          <div class="al-colorbar">
+            <span data-cb="lo">−60 dB (quiet)</span>
+            <i class="al-cb-ramp"></i>
+            <span data-cb="hi">0 dB (peak)</span>
+          </div>
+        </div>
+
+        <div class="al-panel al-slice-panel">
+          <p class="al-sub">3. Single frame slice at <span class="tm" data-stat="frameTime">t = 0.30 s</span></p>
+          <svg class="al-svg al-slice" viewBox="0 0 240 250" role="img" aria-label="1D frequency spectrum slice at selected time frame"></svg>
+        </div>
+      </div>
+
+      <div class="al-controls">
+        <label>
+          <span>Window <em>N</em><sub>FFT</sub></span>
+          <input type="range" name="nfftIdx" min="0" max="4" step="1" value="3" />
+          <output data-for="nfftIdx">512 (32 ms)</output>
+        </label>
+        <label>
+          <span>Overlap</span>
+          <input type="range" name="overlapIdx" min="0" max="2" step="1" value="2" />
+          <output data-for="overlapIdx">75%</output>
+        </label>
+        <label>
+          <span>dB floor</span>
+          <input type="range" name="dbFloor" min="-80" max="-30" step="10" value="-60" />
+          <output data-for="dbFloor">−60 dB</output>
+        </label>
+        <div class="al-taper-row">
+          <span>Window taper</span>
+          <div class="al-tabs al-mini" role="tablist" aria-label="Window taper function">
+            <button type="button" role="tab" data-win="hann" aria-selected="true">Hann (smooth)</button>
+            <button type="button" role="tab" data-win="rect" aria-selected="false">Rectangular (leaks)</button>
+          </div>
+        </div>
+      </div>
+
+      <dl class="al-stats" aria-live="polite">
+        <div><dt>Frame spacing (hop)</dt><dd data-stat="dt">8.0 ms (125 Hz)</dd></div>
+        <div><dt>Bin width Δ<em>f</em></dt><dd data-stat="df">31.3 Hz</dd></div>
+        <div><dt>Selected cell</dt><dd data-stat="cell">300 ms · 500 Hz</dd></div>
+        <div><dt>Energy</dt><dd data-stat="val">−12.4 dB</dd></div>
+        <div><dt>Tensor shape</dt><dd data-stat="shape">122 × 48</dd></div>
+      </dl>
+    </div>
+  )}
+
+  {view === 'anatomy' && (
+    <div class="al-body">
+      <div class="al-tabs al-anatomy-tabs" role="tablist" aria-label="Visual pattern in spectrogram">
+        {ANATOMY_ITEMS.map((item, idx) => (
+          <button type="button" role="tab" data-item={item.id} aria-selected={idx === 0 ? 'true' : 'false'}>
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      <div class="al-panel">
+        <p class="al-sub">Waveform (amplitude vs time)</p>
+        <svg class="al-svg al-anat-wave" viewBox="0 0 600 84" role="img" aria-label="Speech waveform with highlighted feature region"></svg>
+      </div>
+      <div class="al-panel">
+        <p class="al-sub">Log-Mel spectrogram (frequency vs time, brightness = dB energy)</p>
+        <div class="al-canvas-wrap">
+          <canvas class="al-canvas al-anat-canvas" width="520" height="200"></canvas>
+          <svg class="al-svg al-anat-overlay" viewBox="0 0 600 230" role="img" aria-label="Annotated log-mel spectrogram highlighting acoustic terminology"></svg>
+        </div>
+      </div>
+
+      <div class="al-anat-card" aria-live="polite">
+        <p class="al-anat-term" data-anat="term">{ANATOMY_ITEMS[0].term}</p>
+        <p class="al-anat-where" data-anat="where">{ANATOMY_ITEMS[0].where}</p>
+        <p class="al-anat-why" data-anat="why">{ANATOMY_ITEMS[0].why}</p>
+      </div>
+    </div>
+  )}
+
+  {caption && <p class="al-caption">{caption}</p>}
+</x-audiolab>
+
+<script>
+  import { generatePreset, quantizeWave, computeSpectrogram, hzToMel, melToHz } from '../../lib/audiolab.mjs';
+
+  const SRS = [2000, 4000, 8000, 16000];
+  const BITS = [3, 4, 8, 16];
+  const NFFTS = [64, 128, 256, 512, 1024];
+  const OVERLAPS = [0.25, 0.5, 0.75];
+
+  // Scientific perceptual colormap: deep ink -> steel blue -> teal -> amber -> warm cream
+  const CMAP_STOPS = [
+    [0.0, [20, 33, 61]],
+    [0.28, [34, 72, 138]],
+    [0.54, [15, 139, 141]],
+    [0.78, [216, 132, 22]],
+    [1.0, [252, 241, 194]],
+  ] as const;
+
+  const CMAP_LUT = (() => {
+    const lut = new Uint8ClampedArray(256 * 3);
+    for (let i = 0; i < 256; i++) {
+      const t = i / 255;
+      let a = CMAP_STOPS[0];
+      let b = CMAP_STOPS[CMAP_STOPS.length - 1];
+      for (let k = 0; k < CMAP_STOPS.length - 1; k++) {
+        if (t >= CMAP_STOPS[k][0] && t <= CMAP_STOPS[k + 1][0]) {
+          a = CMAP_STOPS[k];
+          b = CMAP_STOPS[k + 1];
+          break;
+        }
+      }
+      const u = b[0] === a[0] ? 0 : (t - a[0]) / (b[0] - a[0]);
+      lut[i * 3] = Math.round(a[1][0] + (b[1][0] - a[1][0]) * u);
+      lut[i * 3 + 1] = Math.round(a[1][1] + (b[1][1] - a[1][1]) * u);
+      lut[i * 3 + 2] = Math.round(a[1][2] + (b[1][2] - a[1][2]) * u);
+    }
+    return lut;
+  })();
+
+  function paintSpectrogram(canvas: HTMLCanvasElement, spec: ReturnType<typeof computeSpectrogram>) {
+    const { nFrames, nBins, display } = spec;
+    const w = Math.max(1, nFrames);
+    const h = Math.max(1, nBins);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const img = ctx.createImageData(w, h);
+    const data = img.data;
+    for (let x = 0; x < w; x++) {
+      for (let b = 0; b < h; b++) {
+        const y = h - 1 - b; // row 0 = top (highest freq)
+        const val = display[x * nBins + b];
+        const idx = Math.max(0, Math.min(255, Math.round(val * 255))) * 3;
+        const p = (y * w + x) * 4;
+        data[p] = CMAP_LUT[idx];
+        data[p + 1] = CMAP_LUT[idx + 1];
+        data[p + 2] = CMAP_LUT[idx + 2];
+        data[p + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  class XAudioLab extends HTMLElement {
+    cfg: any = null;
+    state: Record<string, any> = {};
+    defaults: Record<string, any> = {};
+    playRaf = 0;
+    scanRaf = 0;
+    audioCtx: AudioContext | null = null;
+    audioSrc: AudioBufferSourceNode | null = null;
+    playing = false;
+    scanning = false;
+    playHead = -1;
+    currentSamples: Float32Array = new Float32Array(0);
+    currentSr = 16000;
+    lastSpec: ReturnType<typeof computeSpectrogram> | null = null;
+
+    connectedCallback() {
+      const json = this.querySelector('script[type="application/json"]')?.textContent ?? '{}';
+      this.cfg = JSON.parse(json);
+      const view = this.cfg.view;
+
+      if (view === 'waveform') {
+        this.defaults = { preset: this.cfg.preset ?? 'speech', srIdx: 3, bitIdx: 3, gain: 1.0, zoomT: 0.22 };
+      } else if (view === 'spectrogram') {
+        this.defaults = {
+          preset: this.cfg.preset ?? 'speech',
+          format: 'mel-db',
+          nfftIdx: 3,
+          overlapIdx: 2,
+          winType: 'hann',
+          dbFloor: -60,
+          cursorT: 0.3,
+          cursorF: 0.25,
+        };
+      } else {
+        this.defaults = { item: this.cfg.anatomy[0].id };
+      }
+      this.state = { ...this.defaults };
+      this.bindEvents();
+      this.render();
+    }
+
+    disconnectedCallback() {
+      this.stopPlay();
+      this.stopScan();
+    }
+
+    snapshot() {
+      const diff: Record<string, any> = {};
+      let changed = false;
+      for (const k of Object.keys(this.defaults)) {
+        if (this.state[k] !== this.defaults[k]) {
+          diff[k] = this.state[k];
+          changed = true;
+        }
+      }
+      return changed ? diff : null;
+    }
+
+    restore(saved: unknown) {
+      if (!saved || typeof saved !== 'object') return;
+      this.state = { ...this.defaults, ...(saved as Record<string, any>) };
+      this.syncControls();
+      this.render();
+    }
+
+    syncControls() {
+      for (const btn of this.querySelectorAll<HTMLButtonElement>('[data-preset]')) {
+        btn.setAttribute('aria-selected', btn.dataset.preset === this.state.preset ? 'true' : 'false');
+      }
+      for (const btn of this.querySelectorAll<HTMLButtonElement>('[data-format]')) {
+        btn.setAttribute('aria-selected', btn.dataset.format === this.state.format ? 'true' : 'false');
+      }
+      for (const btn of this.querySelectorAll<HTMLButtonElement>('[data-win]')) {
+        btn.setAttribute('aria-selected', btn.dataset.win === this.state.winType ? 'true' : 'false');
+      }
+      for (const btn of this.querySelectorAll<HTMLButtonElement>('[data-item]')) {
+        btn.setAttribute('aria-selected', btn.dataset.item === this.state.item ? 'true' : 'false');
+      }
+      for (const inp of this.querySelectorAll<HTMLInputElement>('input[type="range"]')) {
+        if (inp.name in this.state) inp.value = String(this.state[inp.name]);
+      }
+    }
+
+    bindEvents() {
+      this.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((btn) =>
+        btn.addEventListener('click', () => {
+          this.stopPlay();
+          this.state.preset = btn.dataset.preset;
+          this.syncControls();
+          this.render();
+        }),
+      );
+      this.querySelectorAll<HTMLButtonElement>('[data-format]').forEach((btn) =>
+        btn.addEventListener('click', () => {
+          this.state.format = btn.dataset.format;
+          this.syncControls();
+          this.render();
+        }),
+      );
+      this.querySelectorAll<HTMLButtonElement>('[data-win]').forEach((btn) =>
+        btn.addEventListener('click', () => {
+          this.state.winType = btn.dataset.win;
+          this.syncControls();
+          this.render();
+        }),
+      );
+      this.querySelectorAll<HTMLButtonElement>('[data-item]').forEach((btn) =>
+        btn.addEventListener('click', () => {
+          this.state.item = btn.dataset.item;
+          this.syncControls();
+          this.render();
+        }),
+      );
+      this.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((inp) =>
+        inp.addEventListener('input', () => {
+          this.state[inp.name] = Number(inp.value);
+          this.render();
+        }),
+      );
+      this.querySelector<HTMLButtonElement>('.al-play')?.addEventListener('click', () => {
+        if (this.playing) this.stopPlay();
+        else this.startPlay();
+      });
+      this.querySelector<HTMLButtonElement>('.al-scan')?.addEventListener('click', () => {
+        if (this.scanning) this.stopScan();
+        else this.startScan();
+      });
+
+      // Spectrogram hover/click inspection
+      const overlay = this.querySelector<SVGSVGElement>('.al-spec-overlay');
+      if (overlay) {
+        const inspectAt = (ev: PointerEvent) => {
+          const rect = overlay.getBoundingClientRect();
+          // Plot area inside viewBox 0..560 x 0..250: x = 56..544, y = 12..218
+          const vx = ((ev.clientX - rect.left) / rect.width) * 560;
+          const vy = ((ev.clientY - rect.top) / rect.height) * 250;
+          const u = Math.max(0, Math.min(1, (vx - 56) / (544 - 56)));
+          const v = Math.max(0, Math.min(1, (218 - vy) / (218 - 12)));
+          this.state.cursorT = u;
+          this.state.cursorF = v;
+          this.renderSpectrogramOverlays();
+        };
+        let down = false;
+        overlay.addEventListener('pointerdown', (e) => {
+          down = true;
+          this.stopScan();
+          inspectAt(e);
+        });
+        overlay.addEventListener('pointermove', (e) => {
+          if (down || e.pointerType === 'mouse') {
+            if (!this.scanning && !this.playing) inspectAt(e);
+          }
+        });
+        addEventListener('pointerup', () => (down = false));
+      }
+
+      // Waveform click to jump zoom window
+      const waveFull = this.querySelector<SVGSVGElement>('.al-wave-full');
+      if (waveFull) {
+        waveFull.addEventListener('pointerdown', (e) => {
+          const r = waveFull.getBoundingClientRect();
+          const u = Math.max(0.02, Math.min(0.92, ((e.clientX - r.left) / r.width) * 0.96));
+          this.state.zoomT = Number(u.toFixed(2));
+          this.syncControls();
+          this.render();
+        });
+      }
+    }
+
+    startPlay() {
+      this.stopPlay();
+      if (!this.currentSamples.length) return;
+      this.playing = true;
+      const btn = this.querySelector<HTMLButtonElement>('.al-play');
+      if (btn) {
+        btn.setAttribute('aria-pressed', 'true');
+        btn.querySelector('.al-play-lbl')!.textContent = 'Stop';
+        btn.querySelector('.al-play-icon')!.textContent = '■';
+      }
+
+      const sr = this.currentSr;
+      const samples = this.currentSamples;
+      try {
+        const AC = window.AudioContext || (window as any).webkitAudioContext;
+        if (AC) {
+          if (!this.audioCtx) this.audioCtx = new AC();
+          if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+          const buf = this.audioCtx.createBuffer(1, samples.length, sr);
+          buf.copyToChannel(new Float32Array(samples), 0);
+          const src = this.audioCtx.createBufferSource();
+          src.buffer = buf;
+          src.connect(this.audioCtx.destination);
+          src.start();
+          this.audioSrc = src;
+        }
+      } catch {
+        // Fallback to visual playhead only if audio device is unavailable
+      }
+
+      const t0 = performance.now();
+      const durMs = (samples.length / sr) * 1000;
+      const tick = () => {
+        if (!this.playing) return;
+        const frac = (performance.now() - t0) / durMs;
+        if (frac >= 1) {
+          this.stopPlay();
+          return;
+        }
+        this.playHead = frac;
+        this.updatePlayhead();
+        this.playRaf = requestAnimationFrame(tick);
+      };
+      this.playRaf = requestAnimationFrame(tick);
+    }
+
+    stopPlay() {
+      this.playing = false;
+      this.playHead = -1;
+      cancelAnimationFrame(this.playRaf);
+      try {
+        this.audioSrc?.stop();
+      } catch {
+        // already stopped
+      }
+      this.audioSrc = null;
+      const btn = this.querySelector<HTMLButtonElement>('.al-play');
+      if (btn) {
+        btn.setAttribute('aria-pressed', 'false');
+        btn.querySelector('.al-play-lbl')!.textContent = 'Listen';
+        btn.querySelector('.al-play-icon')!.textContent = '▶';
+      }
+      this.updatePlayhead();
+    }
+
+    startScan() {
+      this.stopScan();
+      this.scanning = true;
+      const btn = this.querySelector<HTMLButtonElement>('.al-scan');
+      if (btn) {
+        btn.setAttribute('aria-pressed', 'true');
+        btn.querySelector('.al-scan-lbl')!.textContent = 'Pause scan';
+      }
+      let last = performance.now();
+      const step = (now: number) => {
+        if (!this.scanning) return;
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        this.state.cursorT = (this.state.cursorT + dt * 0.22) % 1;
+        this.renderSpectrogramOverlays();
+        this.scanRaf = requestAnimationFrame(step);
+      };
+      this.scanRaf = requestAnimationFrame(step);
+    }
+
+    stopScan() {
+      this.scanning = false;
+      cancelAnimationFrame(this.scanRaf);
+      const btn = this.querySelector<HTMLButtonElement>('.al-scan');
+      if (btn) {
+        btn.setAttribute('aria-pressed', 'false');
+        btn.querySelector('.al-scan-lbl')!.textContent = 'Animate STFT scan';
+      }
+    }
+
+    updatePlayhead() {
+      const lines = this.querySelectorAll<SVGLineElement>('.al-playhead');
+      lines.forEach((l) => {
+        if (this.playHead < 0) {
+          l.setAttribute('visibility', 'hidden');
+        } else {
+          const x0 = Number(l.dataset.x0 ?? 0);
+          const x1 = Number(l.dataset.x1 ?? 600);
+          const x = x0 + this.playHead * (x1 - x0);
+          l.setAttribute('x1', x.toFixed(1));
+          l.setAttribute('x2', x.toFixed(1));
+          l.setAttribute('visibility', 'visible');
+        }
+      });
+    }
+
+    render() {
+      const view = this.cfg.view;
+      if (view === 'waveform') this.renderWaveform();
+      else if (view === 'spectrogram') this.renderSpectrogram();
+      else this.renderAnatomy();
+    }
+
+    renderWaveform() {
+      const sr = SRS[this.state.srIdx] ?? 16000;
+      const bits = BITS[this.state.bitIdx] ?? 16;
+      const gain = this.state.gain ?? 1.0;
+      const zoomT = this.state.zoomT ?? 0.22;
+
+      const raw = generatePreset(this.state.preset, sr, 1.0);
+      const refHi = generatePreset(this.state.preset, 16000, 1.0);
+      const q = quantizeWave(raw, bits, gain);
+      this.currentSamples = q.samples;
+      this.currentSr = sr;
+
+      // Update outputs
+      const outSr = this.querySelector('[data-for="srIdx"]');
+      if (outSr) outSr.textContent = sr >= 1000 ? `${sr / 1000} kHz` : `${sr} Hz`;
+      const outBit = this.querySelector('[data-for="bitIdx"]');
+      if (outBit) outBit.textContent = `${bits}-bit`;
+      const outGain = this.querySelector('[data-for="gain"]');
+      if (outGain) outGain.textContent = `${gain.toFixed(1)}×`;
+      const outZoom = this.querySelector('[data-for="zoomT"]');
+      if (outZoom) outZoom.textContent = `${zoomT.toFixed(2)} s`;
+
+      this.setStat('sr', `${sr.toLocaleString('en-US')} Hz`);
+      this.setStat('nyq', `${(sr / 2).toLocaleString('en-US')} Hz`);
+      this.setStat('levels', q.levels.toLocaleString('en-US'));
+      this.setStat('sqnr', bits >= 16 ? '96 dB (16-bit)' : `${q.sqnrDb.toFixed(1)} dB`);
+      this.setStat('clip', q.clipped ? `${q.clipped} (${((q.clipped / raw.length) * 100).toFixed(1)}%)` : '0');
+      this.setStat('zcr', `${q.zcr.toLocaleString('en-US')} / s`);
+
+      // Draw full waveform (600x110)
+      const fullSvg = this.querySelector<SVGSVGElement>('.al-wave-full')!;
+      const x0 = 42;
+      const x1 = 588;
+      const fw = x1 - x0;
+      const cy = 54;
+      const amp = 40;
+      const zoomDur = 0.012; // 12 ms window
+      const zx0 = x0 + zoomT * fw;
+      const zw = Math.max(8, zoomDur * fw);
+
+      const envPtsTop: string[] = [];
+      const envPtsBot: string[] = [];
+      const cols = 220;
+      for (let c = 0; c < cols; c++) {
+        const i0 = Math.floor((c / cols) * q.samples.length);
+        const i1 = Math.max(i0 + 1, Math.floor(((c + 1) / cols) * q.samples.length));
+        let mn = 1;
+        let mx = -1;
+        for (let i = i0; i < i1; i++) {
+          if (q.samples[i] < mn) mn = q.samples[i];
+          if (q.samples[i] > mx) mx = q.samples[i];
+        }
+        const x = x0 + ((c + 0.5) / cols) * fw;
+        envPtsTop.push(`${x.toFixed(1)},${(cy - mx * amp).toFixed(1)}`);
+        envPtsBot.unshift(`${x.toFixed(1)},${(cy - mn * amp).toFixed(1)}`);
+      }
+      fullSvg.innerHTML = `
+        <rect x="${x0}" y="8" width="${fw}" height="92" rx="3" class="al-box"/>
+        <line x1="${x0}" y1="${cy}" x2="${x1}" y2="${cy}" class="al-axis"/>
+        <text x="${x0 - 5}" y="17" class="al-lbl te">+1</text>
+        <text x="${x0 - 5}" y="${cy + 3}" class="al-lbl te">0</text>
+        <text x="${x0 - 5}" y="98" class="al-lbl te">−1</text>
+        <polygon points="${envPtsTop.join(' ')} ${envPtsBot.join(' ')}" class="al-wave-fill"/>
+        <rect x="${zx0.toFixed(1)}" y="8" width="${zw.toFixed(1)}" height="92" class="al-zoom-box"/>
+        <text x="${x0}" y="108" class="al-lbl">0.0 s</text>
+        <text x="${x0 + fw / 2}" y="108" class="al-lbl tc">0.5 s</text>
+        <text x="${x1}" y="108" class="al-lbl te">1.0 s</text>
+        <line class="al-playhead" data-x0="${x0}" data-x1="${x1}" x1="${x0}" x2="${x0}" y1="8" y2="100" visibility="hidden"/>
+      `;
+
+      // Draw zoomed 12 ms sample-level inspector (600x176)
+      const zoomSvg = this.querySelector<SVGSVGElement>('.al-wave-zoom')!;
+      const zcy = 86;
+      const zamp = 62;
+      const tStart = zoomT;
+      const tEnd = Math.min(1.0, zoomT + zoomDur);
+
+      let qGrid = '';
+      if (bits <= 4) {
+        const lvls = Math.pow(2, bits);
+        for (let l = 0; l < lvls; l++) {
+          const v = -1 + (2 * l) / (lvls - 1);
+          const y = zcy - v * zamp;
+          qGrid += `<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" class="al-qgrid"/>`;
+        }
+      }
+
+      // Smooth analog reference (16 kHz * gain, clipped view or unclipped dashed)
+      const aPts: string[] = [];
+      const iRef0 = Math.floor(tStart * 16000);
+      const iRef1 = Math.min(refHi.length - 1, Math.ceil(tEnd * 16000));
+      for (let i = iRef0; i <= iRef1; i++) {
+        const u = (i / 16000 - tStart) / (tEnd - tStart);
+        const x = x0 + u * fw;
+        const v = Math.max(-1.25, Math.min(1.25, refHi[i] * gain));
+        const y = zcy - v * zamp;
+        aPts.push(`${i === iRef0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
+      }
+
+      // Discrete PCM samples & quantized staircase
+      const iS0 = Math.max(0, Math.floor(tStart * sr));
+      const iS1 = Math.min(q.samples.length - 1, Math.ceil(tEnd * sr));
+      let stems = '';
+      const stairPts: string[] = [];
+      for (let i = iS0; i <= iS1; i++) {
+        const u = (i / sr - tStart) / (tEnd - tStart);
+        const uNext = Math.min(1, ((i + 1) / sr - tStart) / (tEnd - tStart));
+        const x = x0 + u * fw;
+        const xNext = x0 + uNext * fw;
+        const v = q.samples[i];
+        const y = zcy - v * zamp;
+        const isClip = Math.abs(raw[i] * gain) > 1.0;
+        if (u >= 0 && u <= 1) {
+          stems += `<line x1="${x.toFixed(1)}" y1="${zcy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" class="${isClip ? 'al-stem-clip' : 'al-stem'}"/>`;
+          stems += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${sr <= 4000 ? 3.5 : 2.2}" class="${isClip ? 'al-dot-clip' : 'al-dot'}"/>`;
+        }
+        stairPts.push(`${i === iS0 ? 'M' : 'L'}${Math.max(x0, x).toFixed(1)},${y.toFixed(1)} L${Math.min(x1, xNext).toFixed(1)},${y.toFixed(1)}`);
+      }
+
+      zoomSvg.innerHTML = `
+        <rect x="${x0}" y="10" width="${fw}" height="150" rx="3" class="al-box"/>
+        ${qGrid}
+        <line x1="${x0}" y1="${zcy - zamp}" x2="${x1}" y2="${zcy - zamp}" class="al-rail"/>
+        <line x1="${x0}" y1="${zcy + zamp}" x2="${x1}" y2="${zcy + zamp}" class="al-rail"/>
+        <line x1="${x0}" y1="${zcy}" x2="${x1}" y2="${zcy}" class="al-axis"/>
+        <text x="${x0 - 5}" y="${zcy - zamp + 4}" class="al-lbl te">+1.0</text>
+        <text x="${x0 - 5}" y="${zcy + 4}" class="al-lbl te">0.0</text>
+        <text x="${x0 - 5}" y="${zcy + zamp + 4}" class="al-lbl te">−1.0</text>
+        <path d="${aPts.join(' ')}" class="al-analog"/>
+        <path d="${stairPts.join(' ')}" class="al-stair"/>
+        ${stems}
+        <text x="${x0}" y="172" class="al-lbl">${(tStart * 1000).toFixed(0)} ms</text>
+        <text x="${x0 + fw / 2}" y="172" class="al-lbl tc">${((tStart + tEnd) * 500).toFixed(0)} ms</text>
+        <text x="${x1}" y="172" class="al-lbl te">${(tEnd * 1000).toFixed(0)} ms</text>
+      `;
+    }
+
+    renderSpectrogram() {
+      const sr = 16000;
+      const nFft = NFFTS[this.state.nfftIdx] ?? 512;
+      const overlap = OVERLAPS[this.state.overlapIdx] ?? 0.75;
+      const hop = Math.max(16, Math.round(nFft * (1 - overlap)));
+      const dbFloor = this.state.dbFloor ?? -60;
+      const format = this.state.format ?? 'mel-db';
+      const freqScale = format === 'mel-db' ? 'mel' : 'linear';
+      const magScale = format === 'lin-lin' ? 'linear' : 'db';
+
+      const outNfft = this.querySelector('[data-for="nfftIdx"]');
+      if (outNfft) outNfft.textContent = `${nFft} (${((nFft * 1000) / sr).toFixed(0)} ms)`;
+      const outOv = this.querySelector('[data-for="overlapIdx"]');
+      if (outOv) outOv.textContent = `${Math.round(overlap * 100)}%`;
+      const outDb = this.querySelector('[data-for="dbFloor"]');
+      if (outDb) outDb.textContent = `${dbFloor} dB`.replace('-', '−');
+
+      const raw = generatePreset(this.state.preset, sr, 1.0);
+      this.currentSamples = raw;
+      this.currentSr = sr;
+
+      const spec = computeSpectrogram(raw, {
+        sr,
+        nFft,
+        hop,
+        winType: this.state.winType ?? 'hann',
+        freqScale,
+        magScale,
+        nMels: 48,
+        dbFloor,
+      });
+      this.lastSpec = spec;
+
+      // Paint spectrogram canvas
+      const canvas = this.querySelector<HTMLCanvasElement>('.al-canvas')!;
+      paintSpectrogram(canvas, spec);
+
+      // Colorbar labels
+      const cbLo = this.querySelector('[data-cb="lo"]');
+      const cbHi = this.querySelector('[data-cb="hi"]');
+      if (cbLo && cbHi) {
+        if (magScale === 'linear') {
+          cbLo.textContent = '0.00 (silent)';
+          cbHi.textContent = `${spec.refMax.toFixed(2)} (peak)`;
+        } else {
+          cbLo.textContent = `${dbFloor} dB (floor)`.replace('-', '−');
+          cbHi.textContent = '0 dB (peak)';
+        }
+      }
+
+      this.setStat('dt', `${(spec.dt * 1000).toFixed(1)} ms (${(1 / spec.dt).toFixed(0)} Hz)`);
+      this.setStat('df', freqScale === 'mel' ? '48 mel bands' : `${spec.df.toFixed(1)} Hz`);
+      this.setStat('shape', `${spec.nFrames} × ${spec.nBins}`);
+
+      this.renderSpectrogramOverlays();
+    }
+
+    renderSpectrogramOverlays() {
+      const spec = this.lastSpec;
+      if (!spec) return;
+      const samples = this.currentSamples;
+      const cursorT = this.state.cursorT ?? 0.3;
+      const cursorF = this.state.cursorF ?? 0.25;
+      const frameIdx = Math.max(0, Math.min(spec.nFrames - 1, Math.round(cursorT * (spec.nFrames - 1))));
+      const binIdx = Math.max(0, Math.min(spec.nBins - 1, Math.round(cursorF * (spec.nBins - 1))));
+      const tCenter = spec.times[frameIdx];
+      const freqHz = spec.freqs[binIdx];
+      const cellIdx = frameIdx * spec.nBins + binIdx;
+      const valNorm = spec.display[cellIdx];
+      const valDb = spec.rawDb[cellIdx];
+      const valLin = spec.rawEnergy[cellIdx];
+
+      this.setStat('frameTime', `t = ${tCenter.toFixed(2)} s`);
+      this.setStat('cell', `${(tCenter * 1000).toFixed(0)} ms · ${freqHz >= 1000 ? `${(freqHz / 1000).toFixed(2)} kHz` : `${Math.round(freqHz)} Hz`}`);
+      const format = this.state.format ?? 'mel-db';
+      this.setStat('val', format === 'lin-lin' ? `|X| = ${valLin.toFixed(3)}` : `${valDb.toFixed(1).replace('-', '−')} dB`);
+
+      // 1. Waveform SVG (640x84) aligned with spectrogram plot width (56..544 out of 560 -> mapped nicely to 56..626 out of 640)
+      const waveSvg = this.querySelector<SVGSVGElement>('.al-spec-wave')!;
+      const wx0 = 52;
+      const wx1 = 626;
+      const ww = wx1 - wx0;
+      const wcy = 40;
+      const cols = 220;
+      const topPts: string[] = [];
+      const botPts: string[] = [];
+      for (let c = 0; c < cols; c++) {
+        const i0 = Math.floor((c / cols) * samples.length);
+        const i1 = Math.max(i0 + 1, Math.floor(((c + 1) / cols) * samples.length));
+        let mn = 1;
+        let mx = -1;
+        for (let i = i0; i < i1; i++) {
+          if (samples[i] < mn) mn = samples[i];
+          if (samples[i] > mx) mx = samples[i];
+        }
+        const x = wx0 + ((c + 0.5) / cols) * ww;
+        topPts.push(`${x.toFixed(1)},${(wcy - mx * 30).toFixed(1)}`);
+        botPts.unshift(`${x.toFixed(1)},${(wcy - mn * 30).toFixed(1)}`);
+      }
+      const winDur = spec.nFft / spec.sr;
+      const winX0 = wx0 + Math.max(0, tCenter - winDur / 2) * ww;
+      const winX1 = wx0 + Math.min(1, tCenter + winDur / 2) * ww;
+      const winW = Math.max(4, winX1 - winX0);
+      const bellPts: string[] = [];
+      for (let i = 0; i <= 24; i++) {
+        const u = i / 24;
+        const h = this.state.winType === 'rect' ? 1 : 0.5 * (1 - Math.cos(2 * Math.PI * u));
+        bellPts.push(`${i === 0 ? 'M' : 'L'}${(winX0 + u * winW).toFixed(1)},${(74 - h * 64).toFixed(1)}`);
+      }
+      waveSvg.innerHTML = `
+        <rect x="${wx0}" y="6" width="${ww}" height="68" rx="3" class="al-box"/>
+        <line x1="${wx0}" y1="${wcy}" x2="${wx1}" y2="${wcy}" class="al-axis"/>
+        <polygon points="${topPts.join(' ')} ${botPts.join(' ')}" class="al-wave-fill"/>
+        <rect x="${winX0.toFixed(1)}" y="6" width="${winW.toFixed(1)}" height="68" class="al-win-box"/>
+        <path d="${bellPts.join(' ')}" class="al-win-bell"/>
+        <line class="al-playhead" data-x0="${wx0}" data-x1="${wx1}" x1="${wx0}" x2="${wx0}" y1="6" y2="74" visibility="hidden"/>
+      `;
+
+      // 2. Spectrogram axes + crosshair overlay (560x250, canvas sits inside 56..544 x 12..218)
+      const overlay = this.querySelector<SVGSVGElement>('.al-spec-overlay')!;
+      const sx0 = 56;
+      const sx1 = 544;
+      const sy0 = 12;
+      const sy1 = 218;
+      const sw = sx1 - sx0;
+      const sh = sy1 - sy0;
+      const cx = sx0 + (frameIdx / Math.max(1, spec.nFrames - 1)) * sw;
+      const cy = sy1 - (binIdx / Math.max(1, spec.nBins - 1)) * sh;
+
+      // Y ticks
+      const yTicks =
+        format === 'mel-db'
+          ? [200, 500, 1000, 2000, 4000, 8000].map((hz) => {
+              const u = hzToMel(hz) / hzToMel(8000);
+              return { y: sy1 - u * sh, label: hz >= 1000 ? `${hz / 1000}k` : `${hz}` };
+            })
+          : [0, 2000, 4000, 6000, 8000].map((hz) => ({
+              y: sy1 - (hz / 8000) * sh,
+              label: hz === 0 ? '0' : `${hz / 1000}k`,
+            }));
+
+      overlay.innerHTML = `
+        ${yTicks
+          .map(
+            (tk) => `
+          <line x1="${sx0 - 4}" y1="${tk.y.toFixed(1)}" x2="${sx0}" y2="${tk.y.toFixed(1)}" class="al-tick"/>
+          <text x="${sx0 - 7}" y="${(tk.y + 3.5).toFixed(1)}" class="al-lbl te">${tk.label}</text>
+        `,
+          )
+          .join('')}
+        <text x="12" y="${(sy0 + sy1) / 2}" class="al-lbl tc" transform="rotate(-90 12 ${(sy0 + sy1) / 2})">${format === 'mel-db' ? 'Mel frequency (Hz)' : 'Linear frequency (Hz)'}</text>
+        ${[0, 0.25, 0.5, 0.75, 1.0]
+          .map((t) => {
+            const tx = sx0 + t * sw;
+            const cls = t === 0 ? 'al-lbl' : t === 1 ? 'al-lbl te' : 'al-lbl tc';
+            return `<line x1="${tx.toFixed(1)}" y1="${sy1}" x2="${tx.toFixed(1)}" y2="${sy1 + 4}" class="al-tick"/>
+                    <text x="${tx.toFixed(1)}" y="${sy1 + 16}" class="${cls}">${t.toFixed(2)}s</text>`;
+          })
+          .join('')}
+        <rect x="${sx0}" y="${sy0}" width="${sw}" height="${sh}" fill="none" class="al-frame-border"/>
+        <line x1="${cx.toFixed(1)}" y1="${sy0}" x2="${cx.toFixed(1)}" y2="${sy1}" class="al-crosshair"/>
+        <line x1="${sx0}" y1="${cy.toFixed(1)}" x2="${sx1}" y2="${cy.toFixed(1)}" class="al-crosshair"/>
+        <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" class="al-cross-dot"/>
+        <line class="al-playhead" data-x0="${sx0}" data-x1="${sx1}" x1="${sx0}" x2="${sx0}" y1="${sy0}" y2="${sy1}" visibility="hidden"/>
+      `;
+
+      // 3. Single-frame 1D spectrum slice (240x250) aligned vertically with spectrogram y-axis!
+      const sliceSvg = this.querySelector<SVGSVGElement>('.al-slice')!;
+      const lx0 = 34;
+      const lx1 = 228;
+      const lw = lx1 - lx0;
+      const pts: string[] = [];
+      for (let b = 0; b < spec.nBins; b++) {
+        const y = sy1 - (b / Math.max(1, spec.nBins - 1)) * sh;
+        const val = spec.display[frameIdx * spec.nBins + b];
+        const x = lx0 + val * lw;
+        pts.push(`${b === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
+      }
+      const selY = sy1 - (binIdx / Math.max(1, spec.nBins - 1)) * sh;
+      const selX = lx0 + valNorm * lw;
+      sliceSvg.innerHTML = `
+        <rect x="${lx0}" y="${sy0}" width="${lw}" height="${sh}" rx="3" class="al-box"/>
+        <path d="M${lx0},${sy1} ${pts.join(' ')} L${lx0},${sy0} Z" class="al-slice-fill"/>
+        <path d="${pts.join(' ')}" class="al-slice-line"/>
+        <line x1="${lx0}" y1="${selY.toFixed(1)}" x2="${selX.toFixed(1)}" y2="${selY.toFixed(1)}" class="al-crosshair"/>
+        <circle cx="${selX.toFixed(1)}" cy="${selY.toFixed(1)}" r="3.5" class="al-cross-dot"/>
+        <text x="${lx0}" y="${sy1 + 16}" class="al-lbl">${format === 'lin-lin' ? '0' : `${this.state.dbFloor} dB`.replace('-', '−')}</text>
+        <text x="${lx1}" y="${sy1 + 16}" class="al-lbl te">${format === 'lin-lin' ? 'peak' : '0 dB'}</text>
+      `;
+    }
+
+    renderAnatomy() {
+      const sr = 16000;
+      const raw = generatePreset('speech', sr, 1.0);
+      this.currentSamples = raw;
+      this.currentSr = sr;
+      const spec = computeSpectrogram(raw, {
+        sr,
+        nFft: 512,
+        hop: 128,
+        winType: 'hann',
+        freqScale: 'mel',
+        magScale: 'db',
+        nMels: 48,
+        dbFloor: -60,
+      });
+
+      const canvas = this.querySelector<HTMLCanvasElement>('.al-anat-canvas')!;
+      paintSpectrogram(canvas, spec);
+
+      const item = this.cfg.anatomy.find((a: any) => a.id === this.state.item) ?? this.cfg.anatomy[0];
+      this.querySelector('[data-anat="term"]')!.textContent = item.term;
+      this.querySelector('[data-anat="where"]')!.textContent = item.where;
+      this.querySelector('[data-anat="why"]')!.textContent = item.why;
+
+      // Waveform (600x84)
+      const wSvg = this.querySelector<SVGSVGElement>('.al-anat-wave')!;
+      const wx0 = 52;
+      const wx1 = 588;
+      const ww = wx1 - wx0;
+      const wcy = 40;
+      const cols = 220;
+      const topPts: string[] = [];
+      const botPts: string[] = [];
+      for (let c = 0; c < cols; c++) {
+        const i0 = Math.floor((c / cols) * raw.length);
+        const i1 = Math.max(i0 + 1, Math.floor(((c + 1) / cols) * raw.length));
+        let mn = 1;
+        let mx = -1;
+        for (let i = i0; i < i1; i++) {
+          if (raw[i] < mn) mn = raw[i];
+          if (raw[i] > mx) mx = raw[i];
+        }
+        const x = wx0 + ((c + 0.5) / cols) * ww;
+        topPts.push(`${x.toFixed(1)},${(wcy - mx * 30).toFixed(1)}`);
+        botPts.unshift(`${x.toFixed(1)},${(wcy - mn * 30).toFixed(1)}`);
+      }
+      const hx0 = wx0 + item.t0 * ww;
+      const hw = Math.max(8, (item.t1 - item.t0) * ww);
+      wSvg.innerHTML = `
+        <rect x="${wx0}" y="6" width="${ww}" height="68" rx="3" class="al-box"/>
+        <line x1="${wx0}" y1="${wcy}" x2="${wx1}" y2="${wcy}" class="al-axis"/>
+        <polygon points="${topPts.join(' ')} ${botPts.join(' ')}" class="al-wave-fill"/>
+        <rect x="${hx0.toFixed(1)}" y="6" width="${hw.toFixed(1)}" height="68" class="al-anat-box"/>
+        <line class="al-playhead" data-x0="${wx0}" data-x1="${wx1}" x1="${wx0}" x2="${wx0}" y1="6" y2="74" visibility="hidden"/>
+      `;
+
+      // Spectrogram overlay (600x230, canvas inside 52..588 x 10..200)
+      const oSvg = this.querySelector<SVGSVGElement>('.al-anat-overlay')!;
+      const sx0 = 52;
+      const sx1 = 588;
+      const sy0 = 10;
+      const sy1 = 200;
+      const sw = sx1 - sx0;
+      const sh = sy1 - sy0;
+      const melMax = hzToMel(8000);
+      const yFromHz = (f: number) => sy1 - (hzToMel(f) / melMax) * sh;
+      const bx = sx0 + item.t0 * sw;
+      const bw = Math.max(10, (item.t1 - item.t0) * sw);
+      const byTop = yFromHz(item.f1);
+      const byBot = yFromHz(item.f0);
+      const bh = Math.max(12, byBot - byTop);
+
+      const yTicks = [200, 500, 1000, 2000, 4000, 8000].map((hz) => ({
+        y: yFromHz(hz),
+        label: hz >= 1000 ? `${hz / 1000}k` : `${hz}`,
+      }));
+
+      oSvg.innerHTML = `
+        ${yTicks
+          .map(
+            (tk) => `
+          <line x1="${sx0 - 4}" y1="${tk.y.toFixed(1)}" x2="${sx0}" y2="${tk.y.toFixed(1)}" class="al-tick"/>
+          <text x="${sx0 - 7}" y="${(tk.y + 3.5).toFixed(1)}" class="al-lbl te">${tk.label}</text>
+        `,
+          )
+          .join('')}
+        ${[0, 0.25, 0.5, 0.75, 1.0]
+          .map((t) => {
+            const cls = t === 0 ? 'al-lbl' : t === 1 ? 'al-lbl te' : 'al-lbl tc';
+            return `<text x="${(sx0 + t * sw).toFixed(1)}" y="${sy1 + 16}" class="${cls}">${t.toFixed(2)}s</text>`;
+          })
+          .join('')}
+        <rect x="${sx0}" y="${sy0}" width="${sw}" height="${sh}" fill="none" class="al-frame-border"/>
+        <rect x="${bx.toFixed(1)}" y="${byTop.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" class="al-anat-box"/>
+        <line class="al-playhead" data-x0="${sx0}" data-x1="${sx1}" x1="${sx0}" x2="${sx0}" y1="${sy0}" y2="${sy1}" visibility="hidden"/>
+      `;
+    }
+
+    setStat(key: string, val: string) {
+      const el = this.querySelector(`[data-stat="${key}"]`);
+      if (el) el.textContent = val;
+    }
+  }
+  customElements.define('x-audiolab', XAudioLab);
+</script>
+
+<style>
+  .audiolab {
+    display: block;
+    margin: 1.8rem 0;
+    padding: 1rem 1.1rem;
+    width: min(100%, var(--wide));
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-panel);
+    font-size: var(--step--1);
+  }
+  .al-head-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 0.8rem;
+    margin-bottom: 0.6rem;
+  }
+  .al-title {
+    margin: 0;
+    font-weight: 600;
+    font-size: var(--step-0);
+  }
+  .al-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .al-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font: inherit;
+    font-weight: 500;
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--paper-raised);
+    cursor: pointer;
+  }
+  .al-btn[aria-pressed='true'] {
+    background: var(--role-route);
+    border-color: var(--role-route);
+  }
+  .al-btn.al-scan {
+    background: var(--paper);
+    color: var(--ink);
+    border-color: var(--rule);
+  }
+  .al-btn.al-scan[aria-pressed='true'] {
+    background: var(--role-activation);
+    border-color: var(--role-activation);
+    color: var(--paper-raised);
+  }
+  .al-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.65rem;
+  }
+  .al-tabs button {
+    font: inherit;
+    padding: 0.22rem 0.65rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .al-tabs button[aria-selected='true'] {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper-raised);
+  }
+  .al-body {
+    display: grid;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+  .al-panel {
+    min-width: 0;
+  }
+  .al-sub {
+    margin: 0 0 0.25rem;
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+  .al-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .al-spec-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2.35fr) minmax(0, 1fr);
+    gap: 0.8rem;
+    align-items: start;
+  }
+  .al-canvas-wrap {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .al-spec-main .al-canvas-wrap {
+    aspect-ratio: 560 / 250;
+  }
+  .audiolab[data-view='anatomy'] .al-canvas-wrap {
+    aspect-ratio: 600 / 230;
+  }
+  .al-canvas {
+    position: absolute;
+    image-rendering: pixelated;
+    border-radius: 2px;
+  }
+  .al-spec-main .al-canvas {
+    left: calc(56 / 560 * 100%);
+    top: calc(12 / 250 * 100%);
+    width: calc(488 / 560 * 100%);
+    height: calc(206 / 250 * 100%);
+  }
+  .al-anat-canvas {
+    left: calc(52 / 600 * 100%);
+    top: calc(10 / 230 * 100%);
+    width: calc(536 / 600 * 100%);
+    height: calc(190 / 230 * 100%);
+  }
+  .al-spec-overlay,
+  .al-anat-overlay {
+    position: relative;
+    z-index: 2;
+    cursor: crosshair;
+  }
+  .al-colorbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+  }
+  .al-cb-ramp {
+    flex: 1;
+    height: 0.5rem;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #14213d 0%, #22488a 28%, #0f8b8d 54%, #d88416 78%, #fcf1c2 100%);
+    border: 1px solid var(--rule-soft);
+  }
+  .al-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: 0.55rem 1.2rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .al-controls label {
+    display: grid;
+    grid-template-columns: 8.2rem 1fr 6.2rem;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .al-controls input[type='range'] {
+    width: 100%;
+    min-width: 0;
+    accent-color: var(--ink);
+  }
+  .al-controls output {
+    font-family: var(--font-mono);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .al-taper-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .al-mini {
+    margin-bottom: 0;
+  }
+  .al-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 0.35rem 0.9rem;
+    margin: 0;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .al-stats dt {
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+  }
+  .al-stats dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .al-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.9rem;
+    margin: 0.3rem 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+  }
+  .al-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .al-legend i {
+    display: inline-block;
+    width: 1rem;
+    height: 0;
+    border-top: 2px solid;
+  }
+  .al-legend .k-analog {
+    border-top: 1.5px dashed var(--ink-faint);
+  }
+  .al-legend .k-stem {
+    border-top: 2px solid var(--role-cache);
+  }
+  .al-legend .k-quant {
+    border-top: 2px solid var(--role-weight);
+  }
+  .al-legend .k-clip {
+    border-top: 2px solid var(--role-route);
+  }
+  .al-anat-card {
+    padding: 0.7rem 0.85rem;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--role-route);
+    border-radius: var(--radius-block);
+  }
+  .al-anat-term {
+    margin: 0 0 0.2rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .al-anat-where {
+    margin: 0 0 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--role-activation);
+  }
+  .al-anat-why {
+    margin: 0;
+    color: var(--ink-soft);
+  }
+  .al-caption {
+    margin: 0.7rem 0 0;
+    color: var(--ink-soft);
+  }
+
+  /* SVG styling inside AudioLab */
+  .audiolab :global(svg .al-box) {
+    fill: var(--paper);
+    stroke: var(--rule);
+    stroke-width: 1;
+  }
+  .audiolab :global(svg .al-frame-border) {
+    stroke: var(--ink-soft);
+    stroke-width: 1;
+  }
+  .audiolab :global(svg .al-axis) {
+    stroke: var(--rule);
+    stroke-width: 1;
+  }
+  .audiolab :global(svg .al-tick) {
+    stroke: var(--ink-soft);
+    stroke-width: 1;
+  }
+  .audiolab :global(svg .al-qgrid) {
+    stroke: var(--role-weight);
+    stroke-opacity: 0.24;
+    stroke-width: 0.8;
+  }
+  .audiolab :global(svg .al-rail) {
+    stroke: var(--role-route);
+    stroke-dasharray: 4 3;
+    stroke-width: 1;
+    stroke-opacity: 0.7;
+  }
+  .audiolab :global(svg .al-wave-fill) {
+    fill: var(--role-activation);
+    fill-opacity: 0.38;
+    stroke: var(--role-activation);
+    stroke-width: 1;
+  }
+  .audiolab :global(svg .al-zoom-box) {
+    fill: var(--role-route-wash);
+    fill-opacity: 0.45;
+    stroke: var(--role-route);
+    stroke-width: 1.4;
+  }
+  .audiolab :global(svg .al-win-box) {
+    fill: var(--role-weight-wash);
+    fill-opacity: 0.45;
+    stroke: var(--role-weight);
+    stroke-width: 1.3;
+  }
+  .audiolab :global(svg .al-win-bell) {
+    fill: none;
+    stroke: var(--role-weight);
+    stroke-width: 1.8;
+  }
+  .audiolab :global(svg .al-analog) {
+    fill: none;
+    stroke: var(--ink-faint);
+    stroke-dasharray: 3 3;
+    stroke-width: 1.3;
+  }
+  .audiolab :global(svg .al-stair) {
+    fill: none;
+    stroke: var(--role-weight);
+    stroke-width: 1.8;
+  }
+  .audiolab :global(svg .al-stem) {
+    stroke: var(--role-cache);
+    stroke-width: 1.2;
+  }
+  .audiolab :global(svg .al-stem-clip) {
+    stroke: var(--role-route);
+    stroke-width: 1.6;
+  }
+  .audiolab :global(svg .al-dot) {
+    fill: var(--role-activation);
+  }
+  .audiolab :global(svg .al-dot-clip) {
+    fill: var(--role-route);
+  }
+  .audiolab :global(svg .al-crosshair) {
+    stroke: #ffffff;
+    stroke-opacity: 0.8;
+    stroke-dasharray: 3 3;
+    stroke-width: 1.2;
+  }
+  .audiolab :global(svg.al-slice .al-crosshair) {
+    stroke: var(--role-route);
+  }
+  .audiolab :global(svg .al-cross-dot) {
+    fill: var(--role-route);
+    stroke: #ffffff;
+    stroke-width: 1.5;
+  }
+  .audiolab :global(svg .al-slice-fill) {
+    fill: var(--role-activation);
+    fill-opacity: 0.25;
+  }
+  .audiolab :global(svg .al-slice-line) {
+    fill: none;
+    stroke: var(--role-activation);
+    stroke-width: 2;
+  }
+  .audiolab :global(svg .al-playhead) {
+    stroke: var(--role-route);
+    stroke-width: 2;
+  }
+  .audiolab :global(svg .al-anat-box) {
+    fill: var(--role-route);
+    fill-opacity: 0.14;
+    stroke: #fff3c4;
+    stroke-width: 2;
+  }
+  .audiolab :global(svg.al-anat-wave .al-anat-box) {
+    stroke: var(--role-route);
+  }
+  .audiolab :global(svg .al-lbl) {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    fill: var(--ink-soft);
+  }
+  .audiolab :global(svg .al-lbl.tc) {
+    text-anchor: middle;
+  }
+  .audiolab :global(svg .al-lbl.te) {
+    text-anchor: end;
+  }
+
+  @media (max-width: 720px) {
+    .al-spec-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 560px) {
+    .al-controls label {
+      grid-template-columns: 1fr auto;
+    }
+    .al-controls label input[type='range'] {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+</style>

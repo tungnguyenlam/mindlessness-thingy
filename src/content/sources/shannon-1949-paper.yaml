@@ -1,0 +1,8 @@
+title: "Communication in the Presence of Noise"
+short: Shannon 1949
+authors: Claude E. Shannon
+year: 1949
+url: https://webusers.imj-prg.fr/~antoine.chambert-loir/enseignement/2020-21/shannon/shannon1949.pdf
+type: paper
+accessed: 2026-11-15
+notes: States and proves the Nyquist–Shannon sampling theorem (a bandlimited signal with maximum frequency W is uniquely determined by samples spaced 1/(2W) seconds apart).

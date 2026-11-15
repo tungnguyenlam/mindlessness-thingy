@@ -1,0 +1,8 @@
+title: "On the Use of Windows for Harmonic Analysis with the Discrete Fourier Transform"
+short: Harris 1978
+authors: Fredric J. Harris
+year: 1978
+url: http://ftp.demec.ufpr.br/disciplinas/EMEC7026/FJHarris_IEEE_1978.pdf
+type: paper
+accessed: 2026-11-15
+notes: Classic IEEE survey analyzing rectangular, Hann, Hamming, and Blackman tapers, spectral leakage sidelobes, and main-lobe resolution tradeoffs in DFT analysis.

@@ -1,0 +1,8 @@
+title: "Comparison of Parametric Representations for Monosyllabic Word Recognition in Continuously Spoken Sentences"
+short: Davis & Mermelstein 1980
+authors: Steven B. Davis, Paul Mermelstein
+year: 1980
+url: https://courses.physics.illinois.edu/ece417/fa2017/davis80.pdf
+type: paper
+accessed: 2026-11-15
+notes: Introduces triangular mel-spaced bandpass filterbanks and log-mel filterbank energies for speech recognition.

@@ -4,7 +4,7 @@
 import { maskComponents } from '../lib/mdx-props.mjs';
 import { PLACES } from '../../src/lib/bigpicture.mjs';
 
-const VISUALS = ['ArchDiagram', 'BiasVariance', 'NormLab', 'DecodeGrid', 'Scene', 'ModelDiagram', 'LayerStrip', 'Compare', 'Calc', 'Stepper', 'Figure', 'MaskGrid', 'ShapeFlow', 'Timeline', 'ModelOverview', 'TokenizerFlow', 'TokenizerCompare', 'Tokenizer'];
+const VISUALS = ['ArchDiagram', 'AudioLab', 'BiasVariance', 'NormLab', 'DecodeGrid', 'Scene', 'ModelDiagram', 'LayerStrip', 'Compare', 'Calc', 'Stepper', 'Figure', 'MaskGrid', 'ShapeFlow', 'Timeline', 'ModelOverview', 'TokenizerFlow', 'TokenizerCompare', 'Tokenizer'];
 const TABLES = ['Spec', 'ModelSpec'];
 const ALL = [...VISUALS, ...TABLES];
 const MARK = '\u0000VISUAL\u0000';

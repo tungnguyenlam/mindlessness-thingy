@@ -416,3 +416,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: lfm25-12b-scale-draft scene: animates doubling width (d=1024->2048, FFN=4608->8192) and Q heads (16->32) while keeping 8 KV heads pinned (2:1->4:1 GQA), plus 28T Instruct post-training and 296M DSpark speculative decoding (~2.1x SGLang); added <ModelDiagram model="lfm2-5-1-2b-instruct" />
 - files: src/lib/scenes/lfm25-12b-scale-draft.mjs src/content/notes/systems/lfm2-5-1-2b-instruct.mdx
 - open: none
+
+## 2026-11-15 · feat(audio): add AudioLab and audio processing concept note
+- did: Added <AudioLab> component (live Web Audio playback, PCM sampling/quantization/clipping inspector, STFT linear-vs-log spectrogram explorer, visual terminology decoder), pure-JS DSP engine (audiolab.mjs), three <Scene> animations (audio-sampling, audio-stft, audio-linear-vs-log), five sources, and /notes/audio-processing/
+- files: src/content/notes/concepts/audio-processing.mdx src/components/viz/AudioLab.astro src/lib/audiolab.mjs src/lib/scenes/audio-*.mjs src/content/sources/{shannon-1949-paper,harris-1978-windows,stevens-1937-mel,davis-1980-mfcc,whisper-paper}.yaml AGENTS.md scripts/test-place.mjs scripts/checks/visual.mjs src/lib/bigpicture.mjs src/components/viz/index.ts
+- open: none

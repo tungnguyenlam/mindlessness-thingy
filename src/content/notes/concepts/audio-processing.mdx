@@ -1,0 +1,251 @@
+---
+title: "Audio processing: waveforms and spectrograms"
+kind: concept
+summary: "How air-pressure waveforms are sampled and quantized, turned by sliding STFT windows into linear and log-mel spectrograms, and read from their visual patterns."
+domains: [audio, speech, signal-processing, multimodal]
+prerequisites: []
+builds_on: []
+contrasts_with: []
+related: [audiollm]
+sources: [shannon-1949-paper, harris-1978-windows, stevens-1937-mel, davis-1980-mfcc, whisper-paper, audiollm-repo]
+status: draft
+updated: 2026-11-15
+---
+
+A microphone captures sound as a single 1D sequence of air-pressure numbers over time. At 16,000 samples per second, a short sentence is tens of thousands of numbers where low bass, vocal harmonics, and sharp consonants are all added together on one line. Audio front-ends convert that 1D **waveform** into a 2D **spectrogram** that separates frequencies over time so both humans and models (such as [[audiollm|AudioLLM]]) can read pitch, timbre, and rhythm at a glance.
+
+## The whole conversion in one picture
+
+<ArchDiagram
+  title="From 1D waveform to 2D log-mel spectrogram (symbols)"
+  caption="A 1D waveform of T_s samples is sliced into T_m overlapping windows of width N_FFT, tapered and transformed by FFT into complex frequency bins, squared into power, projected through F_m triangular mel filters, and compressed with a logarithm."
+  blocks={[
+    { id: 'wav', label: 'Waveform x[n]', sub: 'T_s', role: 'activation', col: 0, row: 0 },
+    { id: 'frame', label: 'Sliding frames', sub: 'T_m × N_FFT', role: 'op', col: 0, row: 1 },
+    { id: 'fft', label: 'Hann + FFT', sub: 'T_m × F_bin', role: 'op', col: 0, row: 2 },
+    { id: 'pow', label: 'Power spectrum', sub: 'T_m × F_bin', role: 'activation', col: 0, row: 3 },
+    { id: 'melw', label: 'Mel filterbank M', sub: 'F_bin → F_m', role: 'weight', col: 1, row: 3 },
+    { id: 'log', label: 'Log + normalize', sub: 'T_m × F_m', role: 'activation', col: 1, row: 4 },
+  ]}
+  edges={[
+    { from: 'wav', to: 'frame', label: 'hop H' },
+    { from: 'frame', to: 'fft', label: 'taper w[n]' },
+    { from: 'fft', to: 'pow', label: '|X|²' },
+    { from: 'pow', to: 'melw' },
+    { from: 'melw', to: 'log', label: 'log(· + ε)' },
+  ]}
+/>
+
+<Words>
+
+Every box above tracks the tensor shape. Here $T_s$ is the waveform length in samples, $T_m$ is the number of time frames, $N_{\text{FFT}}$ is the window length, $F_{\text{bin}} = N_{\text{FFT}}/2 + 1$ is the number of positive frequency bins, and $F_m$ is the number of mel bands.
+
+Notice that the pipeline throws away phase when it computes power $|X|^2$ and compresses high frequencies into broader mel bins. That trade gives a compact, smooth 2D image where phonemes and notes form clear visual shapes.
+
+</Words>
+
+## Waveform format: time, amplitude, sample rate, and bit depth
+
+Before any frequency math happens, continuous sound waves in air must become a finite list of numbers $x[n]$ in memory. Watch how sampling and quantization discretize both axes, and how two classic failures—clipping and aliasing—change the wave.
+
+<Scene
+  name="audio-sampling"
+  title="Sampling, quantization, clipping, and aliasing on one wave"
+  caption="Continuous air pressure becomes discrete samples every 1/f_s seconds (vertical stems), rounded to 2^B amplitude steps. Exceeding ±1.0 clips peaks flat; sampling slower than twice the signal frequency creates a fake low-frequency alias."
+/>
+
+Now test those parameters on real synthesized sound. Lower the sample rate to hear and see aliasing, drop the bit depth to 3-bit to see staircase quantization error, or push gain above $1.0\times$ to clip peaks.
+
+<AudioLab
+  view="waveform"
+  title="Interactive waveform & PCM format lab"
+  caption="Click Listen to play the exact processed waveform in your browser, or click anywhere on the top overview to move the 10 ms zoomed window."
+/>
+
+<Words>
+
+A digital waveform stores sound directly in the **time domain** as a 1D array (or `[C, T_s]` for $C$ channels such as mono $C=1$ or stereo $C=2$). Four terms define its format:
+
+- **Sample rate $f_s$ (Hz):** how many pressure snapshots are taken per second, spaced $T_s = 1/f_s$ seconds apart. Common speech pipelines resample to $16{,}000\text{ Hz}$ <Cite id="whisper-paper" where="§2.1" /> <Cite id="audiollm-repo" where="audiollm/config.py" />, while music CDs use $44{,}100\text{ Hz}$.
+- **Nyquist limit ($f_s / 2$):** Shannon proved that samples spaced $1/(2W)$ seconds apart uniquely determine any signal bandlimited below frequency $W$ <Cite id="shannon-1949-paper" where="Theorem 1" />. Frequencies above $f_s/2$ fold back as **aliasing** (false low pitches) unless filtered out before sampling.
+- **Bit depth $B$ and sample type:** integer **PCM** (such as 16-bit signed `int16` with $2^{16} = 65{,}536$ levels from $-32{,}768$ to $+32{,}767$) vs normalized `float32` in $[-1.0, +1.0]$. Fewer bits leave coarse rounding steps called quantization noise.
+- **Amplitude and clipping:** distance from the center line $0$ represents instantaneous air-pressure deviation (loudness grows with root-mean-square amplitude). Values pushed past $[-1, +1]$ hit the ceiling and flatten (**clip**), adding harsh high harmonics.
+
+</Words>
+
+<Figure caption="Waveform terminology mapped to the axes and shapes visible in time-domain plots.">
+
+| Waveform term | Symbol / unit | What it controls | What it looks like visually |
+| --- | --- | --- | --- |
+| Time axis | $t = n / f_s$ (s) | Horizontal position in the clip | Left-to-right progress of events |
+| Amplitude | $x[n] \in [-1, 1]$ | Instantaneous pressure displacement | Vertical height from center line $0$ |
+| Sample rate | $f_s$ (Hz) | Snapshots per second; sets Nyquist $f_s / 2$ | Horizontal spacing between sample dots |
+| Bit depth | $B$ (bits) | Number of amplitude levels $2^B$ | Vertical staircase precision vs rounding step |
+| Zero-crossing rate | ZCR (crossings/s) | How often $x[n]$ changes sign | Smooth sparse waves vs dense fuzzy noise |
+| Clipping | $\|x[n]\| \ge 1$ | Saturation past full scale | Flat-topped squared peaks at $\pm 1.0$ |
+
+</Figure>
+
+## How a waveform is converted into a spectrogram (STFT)
+
+A single Fourier transform over a whole audio clip averages all frequencies together, so it tells you *which* notes occurred but not *when*. To keep time order, the **Short-Time Fourier Transform (STFT)** slides a short window across the waveform and takes an FFT on each chunk.
+
+<Scene
+  name="audio-stft"
+  title="Sliding a Hann window across x[n] to stack a 2D spectrogram"
+  caption="Each window of N_FFT samples is tapered by a smooth Hann bell, decomposed by FFT into one column of frequency energies, and stepped forward by hop H to build the time–frequency matrix."
+/>
+
+<Stepper title="The four steps from waveform x[n] to STFT matrix X[m, k]">
+  <Step title="1. Slice overlapping frames of length N_FFT">
+    Move a frame bracket forward by **hop size** $H$ samples each step, starting at $n = mH$. Frame center time is $t_m = (mH + N_{\text{FFT}}/2)/f_s$, so smaller $H$ gives denser time columns (for example $H = 160$ at $16\text{ kHz}$ yields $100\text{ frames/s}$ <Cite id="whisper-paper" where="§2.1" />).
+  </Step>
+  <Step title="2. Taper each chunk with a window w[n]">
+    Multiply the slice by a bell curve such as the **Hann window**, $w[n] = \tfrac{1}{2}\big(1 - \cos(2\pi n / N_{\text{FFT}})\big)$, which smoothly drops to zero at both ends. Without tapering (a rectangular box), abrupt cutoffs create fake side ripples across neighboring frequencies called **spectral leakage** <Cite id="harris-1978-windows" where="§II–III" />.
+  </Step>
+  <Step title="3. Compute the FFT of each windowed frame">
+    Correlate the tapered slice against $N_{\text{FFT}}$ complex sinusoids:
+    $$X[m, k] = \sum_{n=0}^{N_{\text{FFT}}-1} x[mH + n]\, w[n]\, e^{-i 2\pi k n / N_{\text{FFT}}}$$
+    Because real waveforms are symmetric in frequency, we keep only bins $k = 0 \dots N_{\text{FFT}}/2$ covering $0$ to $f_s / 2$, spaced by $\Delta f = f_s / N_{\text{FFT}}$ Hz.
+  </Step>
+  <Step title="4. Split magnitude from phase and square to power">
+    Each complex entry $X[m,k] = |X[m,k]| e^{i\phi[m,k]}$ holds both **magnitude** $|X|$ (how strong that frequency is) and **phase** $\phi$ (where the wave sits in its cycle). Spectrograms discard phase and plot magnitude $|X|$ or **power** $P[m,k] = |X[m,k]|^2$.
+  </Step>
+</Stepper>
+
+<Words>
+
+Window size $N_{\text{FFT}}$ creates a fundamental **time–frequency tradeoff**. A wide window ($N_{\text{FFT}} = 1024$, $64\text{ ms}$ at $16\text{ kHz}$) gives narrow frequency bins ($\Delta f = 15.6\text{ Hz}$) so closely spaced harmonics stay crisp, but blurs fast drum hits in time. A narrow window ($N_{\text{FFT}} = 64$, $4\text{ ms}$) pinpoints when a click happened, at the cost of wide, blurry frequency bands ($\Delta f = 250\text{ Hz}$).
+
+</Words>
+
+## Linear vs log spectrograms: both axes explained
+
+People say "linear spectrogram" and "log spectrogram" to contrast **two different axes**: how energy is colored (linear power vs decibels) and how frequency bins are spaced (linear Hz vs mel or log-Hz). Both log steps exist because human ears hear loudness and pitch logarithmically.
+
+<Scene
+  name="audio-linear-vs-log"
+  title="Why spectrograms take the logarithm on both amplitude and frequency"
+  caption="Left: linear power buries quiet overtones near zero, whereas decibels (dB) lift them out of the floor. Right: linear Hz crowds four musical octaves into the bottom quarter, whereas mel filters widen with frequency to match pitch perception."
+/>
+
+Switch between **Linear Hz · Linear |X|**, **Linear Hz · Log (dB)**, and **Mel · Log-Mel** in the interactive lab below. Try the **Harmonics** preset to see quiet overtones appear in dB mode, the **Chirp** preset to watch a straight sweep curve under Mel spacing, and **Rectangular** vs **Hann** taper to watch spectral leakage smear energy vertically.
+
+<AudioLab
+  view="spectrogram"
+  title="Interactive STFT & linear-vs-log spectrogram explorer"
+  caption="Hover or click any cell to align the waveform window, the 2D spectrogram crosshair, and the 1D frequency slice on the right. Click Animate STFT scan to watch the window walk across the sound."
+/>
+
+<Words>
+
+**1. Color / magnitude axis: linear vs log (decibels).** In a raw linear spectrogram, a loud bass fundamental can hold $100\times$ to $10{,}000\times$ more power than upper harmonics that distinguish vowels. Log compression maps huge ratios onto an even visual scale:
+
+$$\text{dB}[m,k] = 10 \log_{10}\!\left(\frac{|X[m,k]|^2}{P_{\text{ref}}}\right) = 20 \log_{10}\!\left(\frac{|X[m,k]|}{A_{\text{ref}}}\right)$$
+
+A drop of $20\text{ dB}$ means $10\times$ smaller amplitude ($100\times$ smaller power). Any cell quieter than a chosen floor (such as $-60\text{ dB}$ or $-80\text{ dB}$) is clamped to the darkest color. Speech models often write $\log(\text{mel} + \epsilon)$ with a tiny floor like $\epsilon = 10^{-6}$ <Cite id="audiollm-repo" where="audiollm/features.py" />.
+
+**2. Frequency axis: linear Hz vs log-Hz / Mel.** Linear FFT bins sit at fixed steps $\Delta f = f_s / N_{\text{FFT}}$ Hz. Yet human pitch doubles per octave ($200 \to 400 \to 800 \to 1{,}600\text{ Hz}$). Stevens et al. measured perceived pitch judgments to define the **mel scale** <Cite id="stevens-1937-mel" where="p. 188" />, and Davis & Mermelstein turned it into overlapping **triangular mel filterbanks** <Cite id="davis-1980-mfcc" where="§II" />:
+
+$$m(f) = 2595 \log_{10}\!\left(1 + \frac{f}{700}\right)$$
+
+Multiplying the $F_{\text{bin}}$ power bins by a matrix $M \in \mathbb{R}^{F_m \times F_{\text{bin}}}$ merges dozens of crowded high-Hz bins into wide upper bands while keeping sharp resolution below $1{,}000\text{ Hz}$.
+
+</Words>
+
+<Spec
+  title="Standard 16 kHz log-mel front-end settings in speech models"
+  columns={['Parameter', 'Value', 'What it sets']}
+  rows={[
+    {
+      label: 'Sample rate f_s',
+      values: ['16,000 Hz', 'Nyquist ceiling at 8,000 Hz'],
+      source: 'whisper-paper',
+      where: '§2.1',
+    },
+    {
+      label: 'Window width (25 ms)',
+      values: ['N_FFT = 400 samples', 'Linear bin spacing Δf = 40 Hz (201 bins)'],
+      source: 'audiollm-repo',
+      where: 'audiollm/config.py (SR=16000, N_FFT=400)',
+    },
+    {
+      label: 'Hop stride (10 ms)',
+      values: ['H = 160 samples', '100 frames/s (60% window overlap)'],
+      source: 'whisper-paper',
+      where: '§2.1',
+    },
+    {
+      label: 'Mel channels F_m',
+      values: ['80 log-mel bands', 'Compresses 201 linear bins into 80 perceptual bands'],
+      source: 'whisper-paper',
+      where: '§2.1',
+    },
+    {
+      label: 'Log floor & normalization',
+      values: ['log(mel + 1e-6) + MVN', 'Caps silent frames and centers each band'],
+      source: 'audiollm-repo',
+      where: 'audiollm/features.py',
+    },
+  ]}
+/>
+
+## Reading the visualization: what each term indicates
+
+Once you look at a waveform and spectrogram side by side, every visual pattern maps directly to an acoustic event. Click the feature tags below to highlight where each pattern sits in both representations.
+
+<AudioLab
+  view="anatomy"
+  title="Visual terminology decoder: click a pattern to locate it"
+  caption="Each tag highlights the matching region in the speech waveform and its 80-band-style log-mel spectrogram. Click Listen to hear each pattern as the playhead crosses it."
+/>
+
+<Figure caption="Visual cues in waveforms and spectrograms and the acoustic phenomena they indicate.">
+
+| Visual cue in plot | Acoustic terminology | What it indicates in the signal |
+| --- | --- | --- |
+| **Horizontal stripes** | Harmonics ($f_0, 2f_0, 3f_0\dots$) | Steady periodic vibration (vowels, sustained musical notes); vertical gap between stripes equals pitch $f_0$ |
+| **Brighter belt across stripes** | Formants ($F_1, F_2, F_3$) | Vocal-tract resonances shaping which harmonics sound loudest (distinguishes vowels) |
+| **Thin vertical line** | Transient / plosive burst | Sudden impulse (`/p/`, `/t/`, drum hit) localized in time so energy spans all frequencies |
+| **Speckled cloud above ~2 kHz** | Fricative / broadband noise | Turbulent airflow (`"sh"`, `"s"`, hiss) with random phase and high zero-crossing rate |
+| **Slanted or curved streak** | Chirp / pitch glide / diphthong | Frequency changing smoothly over time; straight on linear Hz if rate is constant, curved on mel |
+| **Uniform dark gap** | Silence / noise floor | Energy below the dB floor (e.g. $-60\text{ dB}$); wave sits near $0$ |
+| **Top border of plot** | Nyquist frequency ($f_s / 2$) | Highest frequency the sample rate can capture without aliasing |
+| **Vertical smear around tones** | Spectral leakage | Sharp frame edges (rectangular window) or tone falling between FFT bin centers |
+
+</Figure>
+
+<Words>
+
+Remember the axis rule when reading any spectrogram: **time always runs left-to-right**, **frequency always runs bottom-to-top** (low bass at the bottom, treble at the top), and **color / brightness shows energy** at that time–frequency cell. Comparing the waveform above it confirms loudness envelope and sudden transients, while the spectrogram reveals pitch structure hidden inside the single 1D curve.
+
+</Words>
+
+## Compute, resolution, and tensor shape tradeoffs
+
+Choosing $f_s$, $N_{\text{FFT}}$, hop $H$, and mel count $F_m$ trades time sharpness against frequency sharpness and sets the exact tensor size `[T_m, F_m]` passed into a neural network.
+
+<Calc
+  title="STFT resolution and output tensor calculator"
+  inputs={[
+    { id: 'dur', label: 'Audio duration D', min: 1, max: 30, step: 1, value: 4, unit: 's' },
+    { id: 'sr', label: 'Sample rate f_s', min: 8000, max: 48000, step: 4000, value: 16000, unit: 'Hz' },
+    { id: 'nfft', label: 'Window N_FFT', min: 128, max: 2048, step: 128, value: 512, unit: 'samples' },
+    { id: 'hop', label: 'Hop size H', min: 64, max: 1024, step: 32, value: 160, unit: 'samples' },
+    { id: 'mels', label: 'Mel bins F_m', min: 20, max: 128, step: 4, value: 80, unit: 'bands' },
+  ]}
+  outputs={[
+    { label: 'Nyquist ceiling (f_s / 2)', expr: 'sr / 2', role: 'op' },
+    { label: 'Window duration (ms)', expr: '(nfft * 1000) / sr', role: 'op' },
+    { label: 'Linear bin spacing Δf (Hz)', expr: 'sr / nfft', role: 'weight' },
+    { label: 'Frames per second (f_s / H)', expr: 'sr / hop', role: 'cache' },
+    { label: 'Total frames T_m', expr: 'Math.floor((dur * sr) / hop)', role: 'activation' },
+    { label: 'Log-mel values (T_m × F_m)', expr: 'Math.floor((dur * sr) / hop) * mels', role: 'activation' },
+    { label: 'Float32 tensor size (bytes)', expr: 'Math.floor((dur * sr) / hop) * mels * 4', format: 'bytes', role: 'route' },
+  ]}
+  note="Standard 16 kHz / 10 ms hop speech settings produce 100 frames/s: a 4 s clip becomes a 400 × 80 float32 tensor (128 KB), which models like AudioLLM downsample further in time."
+/>
+
+<Callout type="pitfall">
+Two common pitfalls trip up audio pipelines. First, **calling something a "log spectrogram" without specifying the axis**: log-magnitude (dB) rescales color brightness, while log-frequency (or mel) rescales the vertical frequency axis; neural speech front-ends almost always apply **both** (`log-mel`). Second, **forgetting phase**: a magnitude or mel spectrogram discards $\phi[m,k]$, so you cannot invert it back to a clean waveform without a vocoder or iterative phase reconstruction.
+</Callout>

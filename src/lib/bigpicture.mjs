@@ -86,10 +86,21 @@ export const PIPELINES = {
       { id: 'test', label: 'Error on new data', link: 'bias-variance-tradeoff' },
     ],
   },
+  audio: {
+    label: 'an audio front-end, from air pressure to log-mel frames',
+    parts: [
+      { id: 'wave', label: 'Waveform x[n]' },
+      { id: 'win', label: 'Window + STFT' },
+      { id: 'spec', label: 'Linear / Log dB' },
+      { id: 'mel', label: 'Mel filterbank' },
+      { id: 'feat', label: 'Log-mel tensor' },
+    ],
+  },
 };
 
 /** slug -> { pipe, at, short, role }. `at` is a part id; role says what the note does there. */
 export const PLACES = {
+  'audio-processing': { pipe: 'audio', at: 'spec', short: 'Audio & spectrograms', role: 'turns waveforms into time–frequency frames' },
   'byte-level-bpe': { pipe: 'llm', at: 'tok', short: 'BPE', role: 'turns text into token ids' },
   'layer-norm': { pipe: 'llm', at: 'norm', short: 'LayerNorm', role: 'keeps every layer’s input the same size' },
   'group-norm': { pipe: 'llm', at: 'norm', short: 'GroupNorm', role: 'normalizes channel groups inside one example' },

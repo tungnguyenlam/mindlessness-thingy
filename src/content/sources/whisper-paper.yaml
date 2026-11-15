@@ -1,0 +1,8 @@
+title: "Robust Speech Recognition via Large-Scale Weak Supervision"
+short: Whisper paper
+authors: Alec Radford, Jong Wook Kim, Tao Xu, Greg Brockman, Christine McLeavey, Ilya Sutskever
+year: 2022
+url: https://arxiv.org/abs/2212.04356
+type: paper
+accessed: 2026-11-15
+notes: Standardizes 16 kHz resampling and 80-channel log-magnitude mel spectrograms on 25 ms windows with a 10 ms stride for large-scale speech recognition.

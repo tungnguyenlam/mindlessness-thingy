@@ -150,6 +150,28 @@ async function scenario(mode) {
     })()`);
     check('scene animation reopens on the same beat', sceneBack.beat === scene.beat, `${sceneBack.beat} vs ${scene.beat}`);
     check('scene animation is paused on return', sceneBack.paused === true);
+
+    // ---- 1e. <AudioLab> keeps its selected preset and format tab ----
+    await goto('/notes/audio-processing/');
+    await evaluate(`(() => {
+      const lab = document.querySelector('x-audiolab[data-view="spectrogram"]');
+      lab.querySelector('[data-preset="chirp"]').click();
+      lab.querySelector('[data-format="lin-db"]').click();
+      const a = [...document.querySelectorAll('.prose a.wikilink')].find((l) => l.checkVisibility());
+      a.setAttribute('data-test-audio', '');
+    })()`);
+    await click('[data-test-audio]', { navigates: true });
+    await click('.trail-back');
+    await backAt('/notes/audio-processing/');
+    const audioBack = await evaluate(`(() => {
+      const lab = document.querySelector('x-audiolab[data-view="spectrogram"]');
+      return {
+        preset: lab.querySelector('[data-preset="chirp"]')?.getAttribute('aria-selected'),
+        format: lab.querySelector('[data-format="lin-db"]')?.getAttribute('aria-selected'),
+      };
+    })()`);
+    check('audio lab restores preset and spectrogram format', audioBack.preset === 'true' && audioBack.format === 'true', `${audioBack.preset}/${audioBack.format}`);
+
     await goto('/notes/mla/');
 
     // ---- 2. Two hops deep (prose, then side panel), unwind with the B key ----
