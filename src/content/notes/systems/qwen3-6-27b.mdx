@@ -9,7 +9,7 @@ contrasts_with: [qwen3-5-397b-a17b]
 related: [qwen3-5-tokenizer, qwen3-8-2-4t-a95b, mtp]
 sources: [qwen3-6-27b-card, qwen3-6-27b-config, qwen3-6-blog, qwen3-5-modeling, qwen3-5-tokenizer]
 status: draft
-updated: 2026-10-21
+updated: 2026-11-19
 ---
 
 Qwen3.6-27B is a dense hybrid on the same mixer recipe as [[qwen3-5-397b-a17b]], without the MoE. Sixty-four layers repeat three [[gated-deltanet]] blocks then one gated [[gqa]] block, each with a SwiGLU feed-forward <Cite id="qwen3-6-27b-card" where="Hidden Layout" />. The blog's emphasis is coding agents and keeping a think span across turns; the architecture is the Qwen3.5 dense stack at 27B <Cite id="qwen3-6-blog" />.
@@ -45,6 +45,34 @@ Qwen3.6-27B is a dense hybrid on the same mixer recipe as [[qwen3-5-397b-a17b]],
 />
 
 The 3-then-1 layout is unchanged: 48 linear-attention layers and 16 full-attention layers (`full_attention_interval: 4`) <Cite id="qwen3-6-27b-config" where="text_config.layer_types" />. What this size drops is the expert pool, so every token pays for the whole feed-forward. Attention still uses QK-Norm, an output gate, and 25% partial M-RoPE, as in Qwen3.5 <Cite id="qwen3-5-modeling" where="Qwen3_5Attention" /> <Cite id="qwen3-6-27b-config" where="text_config.attn_output_gate, rope_parameters" />. [[mtp]] is trained with one extra block.
+
+### What the hybrid keeps per sequence
+
+Only the 16 [[gqa]] layers write a [[kv-cache]] that grows with the context. The 48 [[gated-deltanet]] layers each keep a fixed matrix state instead, so at the 256K window the hybrid stores far less than a 64-layer GQA stack would.
+
+<Calc
+  title="Qwen3.6-27B: state that grows, and state that does not"
+  inputs={[
+    { id: 'T', label: 'Context length T', min: 4096, max: 262144, step: 4096, value: 65536, unit: 'tokens' },
+  ]}
+  outputs={[
+    { label: '16 GQA layers: BF16 KV cache, grows with T', expr: '16 * 2 * 4 * 256 * 2 * T', format: 'bytes', role: 'cache' },
+    { label: '48 DeltaNet layers: FP32 state + BF16 conv window, fixed', expr: '48 * (48 * 128 * 128 * 4 + 10240 * 3 * 2)', format: 'bytes', role: 'activation' },
+    { label: 'Hybrid total', expr: '16 * 2 * 4 * 256 * 2 * T + 48 * (48 * 128 * 128 * 4 + 10240 * 3 * 2)', format: 'bytes', role: 'op' },
+    { label: 'If all 64 layers were GQA', expr: '64 * 2 * 4 * 256 * 2 * T', format: 'bytes', role: 'op' },
+    { label: 'Hybrid saves', expr: '(64 * 2 * 4 * 256 * 2 * T) / (16 * 2 * 4 * 256 * 2 * T + 48 * (48 * 128 * 128 * 4 + 10240 * 3 * 2))', format: 'ratio' },
+  ]}
+  bars
+  note="One sequence. A GQA layer stores K and V for 4 heads of width 256: 64 KB per token over the 16 layers. A DeltaNet layer keeps a 48 × 128 × 128 state and the last 3 inputs of its kernel-4 conv over 10,240 channels, about 147 MB over all 48 layers, whatever T is. The FP32 state is an assumption about the kernel, not a config value."
+/>
+
+<Words>
+
+The KV numbers come straight from the config: 4 key/value heads of width $d_h = 256$ in 16 layers <Cite id="qwen3-6-27b-config" where="text_config.num_key_value_heads, head_dim, layer_types" />. Each DeltaNet layer has $n_v = 48$ value heads with $d_v = d_{qk} = 128$, so its state is $48 \times 128 \times 128$. Its conv runs over the concatenated Q, K and V channels: $2 \cdot 16 \cdot 128 + 48 \cdot 128 = 10{,}240$ <Cite id="qwen3-6-27b-config" where="text_config.linear_num_key_heads, linear_num_value_heads, linear_key_head_dim, linear_value_head_dim, linear_conv_kernel_dim" />.
+
+At short contexts the fixed state is the bigger part. It stops mattering as T grows, and the hybrid tends toward a quarter of the all-GQA cache, because only one layer in four keeps one.
+
+</Words>
 
 The checkpoint is also a vision-language model: a 27-layer ViT of width 1,152, the same tower shape as Qwen3.5, projects into hidden size 5,120 <Cite id="qwen3-6-27b-config" where="vision_config" />. Native context is 262,144 tokens, extensible to 1,010,000 <Cite id="qwen3-6-27b-card" where="Context Length" />.
 

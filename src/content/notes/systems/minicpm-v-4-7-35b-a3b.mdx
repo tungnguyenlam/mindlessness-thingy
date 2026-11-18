@@ -18,7 +18,7 @@ sources:
   - llava-uhd-v4-paper
   - minicpm-v-4-7-1b-config
 status: draft
-updated: 2026-10-18
+updated: 2026-11-19
 ---
 
 MiniCPM-V 4.7 (`openbmb/MiniCPM-V-4.7-35B-A3B`) is the flagship checkpoint of OpenBMB's MiniCPM-V 4.7 multimodal series, pairing a 553M-parameter vision encoder with a 34.7B-parameter (`Qwen3.5-35B-A3B`) hybrid [[gated-deltanet]] and [[moe]] language backbone that activates 3.45B language parameters per token <Cite id="minicpm-v-4-7-35b-a3b-card" where="Overview; model.safetensors.index.json" />. Its sister model (`openbmb/MiniCPM-V-4.7-1B`) shares the identical vision encoder and two-stage compression pipeline on top of a dense 28-layer `Qwen3-0.6B` language model <Cite id="minicpm-v-4-7-1b-config" where="vision_config; text_config" />.
@@ -100,18 +100,17 @@ By delegating 30 of its 40 layers to [[gated-deltanet]] (`Qwen3_5MoeGatedDeltaNe
 
 <Calc
   title="Per-layer and total state memory across 40 hybrid layers"
-  caption="Drag the sequence length T. The 30 Gated DeltaNet layers keep a constant FP32 recurrent state (S_t plus a 3-step conv buffer) totaling 61.9 MB regardless of context length, while only the 10 GQA layers grow with T (20 KB per token in BF16)."
   inputs={[
-    { id: 'T', label: 'Context length T (tokens)', min: 4096, max: 262144, step: 4096, default: 65536 },
-  ]}
-  bars={[
-    { label: '10 GQA layers: BF16 KV cache (grows with T)', role: 'cache', expr: '10 * 2 * 2 * 256 * 2 * T / (1024 * 1024)', unit: 'MiB' },
-    { label: '30 Gated DeltaNet layers: FP32 state + BF16 conv (fixed)', role: 'activation', expr: '30 * (32 * 128 * 128 * 4 + 8192 * 3 * 2) / (1024 * 1024)', unit: 'MiB' },
-    { label: 'If all 40 layers were GQA (4× larger KV cache)', role: 'op', expr: '40 * 2 * 2 * 256 * 2 * T / (1024 * 1024)', unit: 'MiB' },
+    { id: 'T', label: 'Context length T', min: 4096, max: 262144, step: 4096, value: 65536, unit: 'tokens' },
   ]}
   outputs={[
-    { label: 'Hybrid total state (10 GQA + 30 DeltaNet)', expr: '(10 * 2 * 2 * 256 * 2 * T + 30 * (32 * 128 * 128 * 4 + 8192 * 3 * 2)) / (1024 * 1024)', unit: 'MiB' },
+    { label: '10 GQA layers: BF16 KV cache, grows with T', expr: '10 * 2 * 2 * 256 * 2 * T', format: 'bytes', role: 'cache' },
+    { label: '30 DeltaNet layers: FP32 state + BF16 conv window, fixed', expr: '30 * (32 * 128 * 128 * 4 + 8192 * 3 * 2)', format: 'bytes', role: 'activation' },
+    { label: 'Hybrid total', expr: '10 * 2 * 2 * 256 * 2 * T + 30 * (32 * 128 * 128 * 4 + 8192 * 3 * 2)', format: 'bytes', role: 'op' },
+    { label: 'If all 40 layers were GQA', expr: '40 * 2 * 2 * 256 * 2 * T', format: 'bytes', role: 'op' },
   ]}
+  bars
+  note="One sequence. The 30 Gated DeltaNet layers keep a fixed FP32 state (S_t plus a 3-step conv buffer), 61.4 MB in all whatever the context length. Only the 10 GQA layers grow with T, by 20 KB per token in BF16."
 />
 
 In each Gated DeltaNet layer, $h_t \in \mathbb{R}^{2048}$ projects to $n_{qk} = 16$ query and key heads of width $d_{qk} = 128$ ($2048$ each, L2-normalized and repeated $2\times$ to match $32$ value heads) and $n_v = 32$ value heads of width $d_v = 128$ ($4096$), passes through a causal depthwise $\text{Conv1d}$ of kernel $k = 4$ over all $8192$ channels, and updates the FP32 matrix state $S_t \in \mathbb{R}^{32 \times 128 \times 128}$ via $S_t = \alpha_t S_{t-1} + \beta_t (v_t - S_{t-1} k_t) k_t^\top$ before gated normalization $\text{RMSNorm}(S_t q_t) \odot \text{SiLU}(z_t)$ <Cite id="qwen3-5-moe-modeling" where="Qwen3_5MoeGatedDeltaNet.forward" />.

@@ -25,6 +25,24 @@ interface Props {
 }
 
 const { title, inputs, outputs, bars = false, note } = Astro.props;
+// Fail the build on props this component doesn't read (e.g. `default` for `value`, `caption` for `note`),
+// so a misspelt calculator can't ship with its sliders at random and its rows missing.
+const allowed = {
+  props: ['title', 'inputs', 'outputs', 'bars', 'note'],
+  input: ['id', 'label', 'min', 'max', 'step', 'value', 'unit'],
+  output: ['label', 'expr', 'format', 'role'],
+};
+const unknown = (o: object, keys: string[]) => Object.keys(o).filter((k) => !keys.includes(k));
+const bad = [
+  ...unknown(Astro.props, allowed.props).map((k) => `prop "${k}"`),
+  ...(typeof bars === 'boolean' ? [] : ['"bars" must be true or false (bar rows go in outputs)']),
+  ...inputs.flatMap((i) => [
+    ...unknown(i, allowed.input).map((k) => `input "${i.id}" key "${k}"`),
+    ...(typeof i.value === 'number' ? [] : [`input "${i.id}" needs a numeric "value"`]),
+  ]),
+  ...outputs.flatMap((o) => unknown(o, allowed.output).map((k) => `output "${o.label}" key "${k}"`)),
+];
+if (bad.length) throw new Error(`<Calc title="${title}">: unsupported ${bad.join('; ')}. Supported: ${JSON.stringify(allowed)}`);
 const ids = inputs.map((i) => i.id);
 for (const o of outputs) {
   try {

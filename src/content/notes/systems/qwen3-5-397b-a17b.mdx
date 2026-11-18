@@ -14,7 +14,7 @@ sources:
   - qwen3-5-moe-modeling
   - qwen3-5-tokenizer
 status: draft
-updated: 2026-10-21
+updated: 2026-11-19
 ---
 
 Qwen3.5-397B-A17B rebuilds [[qwen3-235b-a22b]] around a cheaper long context: most mixers are [[gated-deltanet]], whose state does not grow with $T$, and [[gqa]] appears only every fourth layer as a global anchor. The feed-forward is still [[moe]], now 512 experts with a shared one, and the checkpoint is a native vision-language model <Cite id="qwen3-5-397b-a17b-card" />. This note is that hybrid. [[minicpm-v-4-7-35b-a3b]] reuses the same language block at a smaller size.
@@ -37,18 +37,18 @@ Sixty layers in fifteen repeats of three Gated DeltaNet blocks then one gated-at
 
 <Calc
   title="State that grows, and state that does not"
-  caption="Fifteen GQA layers grow a KV cache with T. Forty-five Gated DeltaNet layers keep a fixed matrix state plus a length-4 conv window. Drag T to see when the cache dominates."
   inputs={[
-    { id: 'T', label: 'Context length T (tokens)', min: 4096, max: 262144, step: 4096, default: 65536 },
-  ]}
-  bars={[
-    { label: '15 GQA layers, BF16 KV cache', role: 'cache', expr: '15 * 2 * 2 * 256 * 2 * T / (1024 * 1024)', unit: 'MiB' },
-    { label: '45 DeltaNet layers, FP32 state + BF16 conv', role: 'activation', expr: '45 * (64 * 128 * 128 * 4 + 12288 * 3 * 2) / (1024 * 1024)', unit: 'MiB' },
-    { label: 'If all 60 layers were GQA', role: 'op', expr: '60 * 2 * 2 * 256 * 2 * T / (1024 * 1024)', unit: 'MiB' },
+    { id: 'T', label: 'Context length T', min: 4096, max: 262144, step: 4096, value: 65536, unit: 'tokens' },
   ]}
   outputs={[
-    { label: 'Hybrid total (15 GQA + 45 DeltaNet)', expr: '(15 * 2 * 2 * 256 * 2 * T + 45 * (64 * 128 * 128 * 4 + 12288 * 3 * 2)) / (1024 * 1024)', unit: 'MiB' },
+    { label: '15 GQA layers: BF16 KV cache, grows with T', expr: '15 * 2 * 2 * 256 * 2 * T', format: 'bytes', role: 'cache' },
+    { label: '45 DeltaNet layers: FP32 state + BF16 conv window, fixed', expr: '45 * (64 * 128 * 128 * 4 + 12288 * 3 * 2)', format: 'bytes', role: 'activation' },
+    { label: 'Hybrid total', expr: '15 * 2 * 2 * 256 * 2 * T + 45 * (64 * 128 * 128 * 4 + 12288 * 3 * 2)', format: 'bytes', role: 'op' },
+    { label: 'If all 60 layers were GQA', expr: '60 * 2 * 2 * 256 * 2 * T', format: 'bytes', role: 'op' },
+    { label: 'Hybrid saves', expr: '(60 * 2 * 2 * 256 * 2 * T) / (15 * 2 * 2 * 256 * 2 * T + 45 * (64 * 128 * 128 * 4 + 12288 * 3 * 2))', format: 'ratio' },
   ]}
+  bars
+  note="One sequence. Each GQA layer stores K and V for 2 heads of width 256 per token. Each DeltaNet layer keeps a 64 × 128 × 128 matrix state and the last 3 inputs of its kernel-4 conv over 12,288 channels, whatever T is. Short contexts: the fixed state dominates. Drag T up and the KV cache takes over, but at a quarter of the all-GQA size."
 />
 
 The 45 linear-attention layers bound decode memory: each keeps $S_t \in \mathbb{R}^{64 \times 128 \times 128}$ and a kernel-4 conv buffer, independent of context length <Cite id="qwen3-5-397b-a17b-config" where="text_config.linear_num_value_heads, linear_key_head_dim, linear_conv_kernel_dim" />. How that state updates is in [[gated-deltanet]]. The 15 [[gqa]] layers still write a [[kv-cache]], but only every fourth layer, with 2 key/value heads of width 256 <Cite id="qwen3-5-397b-a17b-config" where="text_config.num_key_value_heads, head_dim" />.

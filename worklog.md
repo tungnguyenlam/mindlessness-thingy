@@ -421,3 +421,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: Added <AudioLab> component (live Web Audio playback, PCM sampling/quantization/clipping inspector, STFT linear-vs-log spectrogram explorer, visual terminology decoder), pure-JS DSP engine (audiolab.mjs), three <Scene> animations (audio-sampling, audio-stft, audio-linear-vs-log), five sources, and /notes/audio-processing/
 - files: src/content/notes/concepts/audio-processing.mdx src/components/viz/AudioLab.astro src/lib/audiolab.mjs src/lib/scenes/audio-*.mjs src/content/sources/{shannon-1949-paper,harris-1978-windows,stevens-1937-mel,davis-1980-mfcc,whisper-paper}.yaml AGENTS.md scripts/test-place.mjs scripts/checks/visual.mjs src/lib/bigpicture.mjs src/components/viz/index.ts
 - open: none
+
+## 2026-11-19 · fix(calc): repair two broken calculators, add cache calcs to Qwen notes
+- did: Calc now fails the build on unsupported props; rewrote Qwen3.5-397B and MiniCPM-V 4.7 hybrid-state calcs (default/caption/bars-array/unit were ignored, so comparison rows never rendered; MiniCPM caption 61.9 MB -> 61.4); added KV-cache-vs-weights calc to qwen2-5-72b and hybrid-state calc to qwen3-6-27b; Nemotron 3 Super precision list -> sourced Spec table (clears 362-word prose run)
+- files: src/components/viz/Calc.astro src/content/notes/systems/{qwen2-5-72b,qwen3-6-27b,qwen3-5-397b-a17b,minicpm-v-4-7-35b-a3b,nemotron-3-super}.mdx
+- open: DeltaNet state assumed FP32 (kernel behaviour, not a config value); nemotron-3-super still has no model data/ModelOverview

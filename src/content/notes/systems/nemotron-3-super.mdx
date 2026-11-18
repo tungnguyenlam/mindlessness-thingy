@@ -9,7 +9,7 @@ contrasts_with: []
 related: [aux-loss-free-balancing, deepseek-v3]
 sources: [nemotron-3-super-report, nemotron-3-super-config, nemotron-3-nano-report, nemotron-3-ultra-report, latentmoe-paper, primer-paper]
 status: draft
-updated: 2026-11-14
+updated: 2026-11-19
 ---
 
 Nemotron 3 Super "scales up the hybrid Mamba-Attention MoE architecture introduced in Nemotron-3 Nano" <Cite id="nemotron-3-super-report" where="§2.1" />. The layer recipe is the one described in [[hybrid-ssm-attention]]: mostly Mamba-2 layers, a few attention layers, and MoE feed-forward layers between them. It is also the first Nemotron model with three additions: [[latent-moe]], [[mtp]] and pretraining in [[nvfp4]] <Cite id="nemotron-3-super-report" where="Abstract, §1" />. This note covers those three and the scale-up. Follow the links for everything else.
@@ -86,7 +86,20 @@ Like [[deepseek-v3]], Super trains with [[mtp]]. Here the MTP module's weights a
 
 ### Pretraining in 4 bits
 
-Super is pretrained in [[nvfp4]]. Elements are E2M1 floats in 16-element blocks, each block has an E4M3 scale, and each tensor has an FP32 scale. Some parts stay in higher precision: the final 15% of the network, the latent projections, the MTP layers, the QKV and attention parts in BF16, and the Mamba output projection in MXFP8 <Cite id="nemotron-3-super-report" where="§2.2, Table 3" />. Nano 3 was trained in BF16 <Cite id="nemotron-3-super-report" where="§2.2, Fig. 7" />.
+Super is pretrained in [[nvfp4]], while Nano 3 was trained in BF16 <Cite id="nemotron-3-super-report" where="§2.2, Fig. 7" />. Not every part goes down to 4 bits:
+
+<Spec
+  title="Which parts of Super train in which format"
+  rows={[
+    { label: 'Most GEMMs', value: 'NVFP4', source: 'nemotron-3-super-report', where: '§2.2' },
+    { label: 'Final 15% of the network', value: 'BF16', source: 'nemotron-3-super-report', where: '§2.2, Table 3' },
+    { label: 'LatentMoE latent projections', value: 'BF16', source: 'nemotron-3-super-report', where: '§2.2, Table 3' },
+    { label: 'MTP layers', value: 'BF16', source: 'nemotron-3-super-report', where: '§2.2, Table 3' },
+    { label: 'QKV and attention', value: 'BF16', source: 'nemotron-3-super-report', where: '§2.2, Table 3' },
+    { label: 'Mamba output projection', value: 'MXFP8', source: 'nemotron-3-super-report', where: '§2.2, Table 3' },
+  ]}
+  note="NVFP4 stores E2M1 values in 16-element blocks, with an E4M3 scale per block and an FP32 scale per tensor."
+/>
 
 ## Shared with the rest of the family
 

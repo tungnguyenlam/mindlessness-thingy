@@ -9,7 +9,7 @@ contrasts_with: []
 related: [qwen3-235b-a22b, qwen2-5-tokenizer]
 sources: [qwen2-5-report, qwen2-5-72b-card, qwen2-5-72b-config, qwen2-modeling]
 status: draft
-updated: 2026-10-21
+updated: 2026-11-19
 ---
 
 Qwen2.5-72B is the dense open-weight flagship of Qwen2.5. Every layer is a pre-norm [[transformer-block]] with [[gqa]] and a SwiGLU feed-forward, trained on 18T tokens after Qwen2's 7T <Cite id="qwen2-5-report" where="Abstract; §2; §3" />. [[qwen3-235b-a22b]] later keeps the attention layout and replaces the feed-forward with [[moe]].
@@ -41,6 +41,34 @@ Eighty identical layers. Attention is 64 query heads sharing 8 key/value heads; 
 The report's Table 1 writes the 72B context as 128K <Cite id="qwen2-5-report" where="Table 1" />. The released config and card both say 131,072, which is the number in the table above <Cite id="qwen2-5-72b-config" where="max_position_embeddings" />. Sliding-window attention is present in the config (`sliding_window: 131072`) but switched off (`use_sliding_window: false`), so every layer is full [[gqa]] over the whole context <Cite id="qwen2-5-72b-config" where="use_sliding_window" />.
 
 The mix that grew to 18T is heavier on knowledge, code and mathematics than Qwen2's, and pre-training is staged so the mixture can change <Cite id="qwen2-5-report" where="§3" />. Post-training (SFT, DPO, GRPO) is described in the report; this page is the base 72B architecture <Cite id="qwen2-5-72b-card" where="Training Stage: Pretraining" />.
+
+## How big the cache gets
+
+A dense model with a 131K window has to keep a [[kv-cache]] entry for every token, in every one of its 80 layers. Drag the context length and the number of sequences, and compare the cache with the weights.
+
+<Calc
+  title="Qwen2.5-72B: KV cache against the weights"
+  inputs={[
+    { id: 'T', label: 'Context length T', min: 1024, max: 131072, step: 1024, value: 32768, unit: 'tokens' },
+    { id: 'B', label: 'Sequences served at once', min: 1, max: 32, value: 1 },
+  ]}
+  outputs={[
+    { label: 'Weights, BF16 (fixed)', expr: '72.7e9 * 2', format: 'bytes', role: 'weight' },
+    { label: 'KV cache, 8 KV heads (GQA)', expr: '80 * 2 * 8 * 128 * 2 * T * B', format: 'bytes', role: 'cache' },
+    { label: 'KV cache if all 64 heads kept K and V (MHA)', expr: '80 * 2 * 64 * 128 * 2 * T * B', format: 'bytes', role: 'op' },
+    { label: 'GQA cache as a share of the weights', expr: '(80 * 2 * 8 * 128 * 2 * T * B) / (72.7e9 * 2)', format: 'percent' },
+  ]}
+  bars
+  note="BF16, 2 bytes per number. Each token stores K and V for 8 heads of width 128 in each of 80 layers: 320 KB per token. One full 131K sequence needs 40 GB, so three or four of them weigh as much as the model."
+/>
+
+<Words>
+
+Per token the cache holds $2 \cdot L \cdot n_{kv} \cdot d_h$ numbers: $L = 80$ layers, $n_{kv} = 8$ key/value heads and $d_h = 128$, the hidden size 8,192 split over 64 query heads <Cite id="qwen2-5-72b-config" where="num_hidden_layers, num_key_value_heads, hidden_size, num_attention_heads" />. That is 163,840 numbers, or 320 KB in BF16. The weights are a fixed 135 GB (72.7B parameters at 2 bytes each) <Cite id="qwen2-5-72b-card" where="Number of Parameters" />.
+
+So the cache, not the weights, decides how many long requests fit on a server. With full [[mha]] every one of the 64 heads would keep its own K and V. The cache would then be eight times larger, and one 131K sequence alone would need 320 GB, more than twice the weights. (GB here means $2^{30}$ bytes, as in the calculator.) Sharing 8 key/value heads among 64 query heads is what keeps long contexts servable. What that sharing gives up is explained in [[gqa]].
+
+</Words>
 
 ## What it reuses
 
