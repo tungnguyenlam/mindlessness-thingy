@@ -426,3 +426,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: Calc now fails the build on unsupported props; rewrote Qwen3.5-397B and MiniCPM-V 4.7 hybrid-state calcs (default/caption/bars-array/unit were ignored, so comparison rows never rendered; MiniCPM caption 61.9 MB -> 61.4); added KV-cache-vs-weights calc to qwen2-5-72b and hybrid-state calc to qwen3-6-27b; Nemotron 3 Super precision list -> sourced Spec table (clears 362-word prose run)
 - files: src/components/viz/Calc.astro src/content/notes/systems/{qwen2-5-72b,qwen3-6-27b,qwen3-5-397b-a17b,minicpm-v-4-7-35b-a3b,nemotron-3-super}.mdx
 - open: DeltaNet state assumed FP32 (kernel behaviour, not a config value); nemotron-3-super still has no model data/ModelOverview
+
+## 2026-11-19 · content(gated-deltanet): write draft with delta-rule scene
+- did: filled the gated-deltanet stub: gated-delta-update scene (write / blend under linear attention / delta-rule replace / gate fade on a 3x4 state), sourced update-rule table (paper §2.1, §2.2, Eq. 10), per-token layer diagram from the Qwen3.5 code, cost diagram vs KV cache; cited mamba_ssm_dtype float32 in qwen3-6-27b and qwen3-5-397b-a17b (FP32 state no longer an assumption); added ModelDiagram to lfm2-5-2-6b-base (clears visual-first warning)
+- files: src/content/notes/concepts/gated-deltanet.mdx src/lib/scenes/gated-delta-update.mjs src/content/sources/gated-deltanet-paper.yaml src/content/notes/systems/{lfm2-5-2-6b-base,qwen3-6-27b,qwen3-5-397b-a17b}.mdx
+- open: paper §3.4/App. B (conv + output-gate ablations, H1/H2 hybrids) not read verbatim, so left out; layer details cited from the Qwen3.5 code instead

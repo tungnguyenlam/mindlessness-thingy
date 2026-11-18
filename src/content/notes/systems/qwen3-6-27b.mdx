@@ -63,12 +63,12 @@ Only the 16 [[gqa]] layers write a [[kv-cache]] that grows with the context. The
     { label: 'Hybrid saves', expr: '(64 * 2 * 4 * 256 * 2 * T) / (16 * 2 * 4 * 256 * 2 * T + 48 * (48 * 128 * 128 * 4 + 10240 * 3 * 2))', format: 'ratio' },
   ]}
   bars
-  note="One sequence. A GQA layer stores K and V for 4 heads of width 256: 64 KB per token over the 16 layers. A DeltaNet layer keeps a 48 × 128 × 128 state and the last 3 inputs of its kernel-4 conv over 10,240 channels, about 147 MB over all 48 layers, whatever T is. The FP32 state is an assumption about the kernel, not a config value."
+  note="One sequence. A GQA layer stores K and V for 4 heads of width 256: 64 KB per token over the 16 layers. A DeltaNet layer keeps a 48 × 128 × 128 state and the last 3 inputs of its kernel-4 conv over 10,240 channels, about 147 MB over all 48 layers, whatever T is."
 />
 
 <Words>
 
-The KV numbers come straight from the config: 4 key/value heads of width $d_h = 256$ in 16 layers <Cite id="qwen3-6-27b-config" where="text_config.num_key_value_heads, head_dim, layer_types" />. Each DeltaNet layer has $n_v = 48$ value heads with $d_v = d_{qk} = 128$, so its state is $48 \times 128 \times 128$. Its conv runs over the concatenated Q, K and V channels: $2 \cdot 16 \cdot 128 + 48 \cdot 128 = 10{,}240$ <Cite id="qwen3-6-27b-config" where="text_config.linear_num_key_heads, linear_num_value_heads, linear_key_head_dim, linear_value_head_dim, linear_conv_kernel_dim" />.
+The KV numbers come straight from the config: 4 key/value heads of width $d_h = 256$ in 16 layers <Cite id="qwen3-6-27b-config" where="text_config.num_key_value_heads, head_dim, layer_types" />. Each DeltaNet layer has $n_v = 48$ value heads with $d_v = d_{qk} = 128$, so its state is $48 \times 128 \times 128$. Its conv runs over the concatenated Q, K and V channels: $2 \cdot 16 \cdot 128 + 48 \cdot 128 = 10{,}240$ <Cite id="qwen3-6-27b-config" where="text_config.linear_num_key_heads, linear_num_value_heads, linear_key_head_dim, linear_value_head_dim, linear_conv_kernel_dim" />. The state is kept in FP32 (`mamba_ssm_dtype: "float32"`) <Cite id="qwen3-6-27b-config" where="text_config.mamba_ssm_dtype" />.
 
 At short contexts the fixed state is the bigger part. It stops mattering as T grows, and the hybrid tends toward a quarter of the all-GQA cache, because only one layer in four keeps one.
 

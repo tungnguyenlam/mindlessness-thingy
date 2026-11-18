@@ -7,9 +7,105 @@ prerequisites: [kv-cache, mha]
 builds_on: []
 contrasts_with: [mamba-2, gated-short-conv, gqa]
 related: [hybrid-ssm-attention]
-sources: [qwen3-5-moe-modeling]
-status: stub
-updated: 2026-10-18
+sources: [gated-deltanet-paper, qwen3-5-moe-modeling, qwen3-6-27b-config]
+status: draft
+updated: 2026-11-19
 ---
 
-This note is a stub. It exists so other notes can link to it.
+Attention keeps every past key and value in a [[kv-cache]] that grows with the text. [[mamba-2]] keeps one fixed-size state instead, but its only way to forget is to shrink every stored memory by the same factor. Gated DeltaNet keeps that fixed state and adds a second tool: it can edit what one key stores without touching the rest. In the authors' words, "gating enables rapid memory erasure while the delta rule facilitates targeted updates" <Cite id="gated-deltanet-paper" where="Abstract" />.
+
+## The idea in one picture
+
+<Scene
+  name="gated-delta-update"
+  title="Writing, overwriting and forgetting in one fixed matrix"
+  caption="Watch the readout on the right when key A gets a new value. Adding blends old and new; the delta rule replaces the old value; the gate fades everything at once."
+/>
+
+The state is a matrix $S$ with one column per key dimension and one row per value dimension. A token stores its value $v$ under its key $k$ by adding the outer product $v k^\top$. A later query $q$ reads $o = S q$. When $q$ points the same way as a stored key, it gets back that key's value.
+
+The trouble starts when a key comes back with a new value. Adding again leaves both values in $S$, so the readout is a blend. The delta rule first reads what $S$ already stores under $k$, then writes only the difference. The gate $\alpha$ is the other tool: it scales the whole matrix down, which forgets every memory at once.
+
+## The update rule
+
+<Spec
+  title="Three ways to update the state"
+  rows={[
+    { label: 'Mamba-2: fade all, then add', value: 'Sₜ = αₜ Sₜ₋₁ + vₜ kₜᵀ', source: 'gated-deltanet-paper', where: '§2.1' },
+    { label: 'DeltaNet: replace the value under kₜ', value: 'Sₜ = Sₜ₋₁ (I − βₜ kₜ kₜᵀ) + βₜ vₜ kₜᵀ', source: 'gated-deltanet-paper', where: '§2.2' },
+    { label: 'Gated DeltaNet: fade, then replace', value: 'Sₜ = Sₜ₋₁ αₜ (I − βₜ kₜ kₜᵀ) + βₜ vₜ kₜᵀ', source: 'gated-deltanet-paper', where: '§3.1, Eq. 10' },
+  ]}
+  note="Sₜ is the state after token t, αₜ ∈ (0, 1) the gate, βₜ ∈ (0, 1) the write strength. Each layer reads its output as oₜ = Sₜ qₜ."
+/>
+
+The delta rule is easier to see when it is split into a read and a write. First read the value currently stored under the key, $S_{t-1} k_t$. Then move the stored value a step $\beta_t$ toward the new value $v_t$:
+
+$$S_t = S_{t-1} + \beta_t \,(v_t - S_{t-1} k_t)\, k_t^\top$$
+
+Multiplying this out gives the DeltaNet row of the table. With $\beta_t = 1$ and a unit-length key, $S_t k_t = v_t$ exactly: the old value is gone and the new one is in its place. Keys at right angles to $k_t$ read the same values as before. The paper reads this as one step of gradient descent on $\tfrac12 \lVert S k_t - v_t \rVert^2$, with $\beta_t$ as the learning rate <Cite id="gated-deltanet-paper" where="§3.1" />.
+
+Gated DeltaNet multiplies the old state by $\alpha_t$ before that step. With $\alpha_t \to 0$ the layer can "promptly clear memory", and with $\alpha_t \to 1$ it edits single keys "without affecting other information" <Cite id="gated-deltanet-paper" where="§1" />. Both $\alpha_t$ and $\beta_t$ are computed from the current token, so the model decides at every step how much to forget and how hard to write.
+
+## Inside one layer
+
+<ArchDiagram
+  title="One Gated DeltaNet layer, per token"
+  caption="Only the state and the conv window are kept between decoding steps (dashed edges). The gate α and the write strength β are one number per value head, computed from the token."
+  blocks={[
+    { id: 'h', label: 'Input h_t', sub: 'd', role: 'activation' },
+    { id: 'proj', label: 'Input projections', sub: 'd → q, k, v, z, a, b', role: 'weight' },
+    { id: 'conv', label: 'Causal conv + SiLU', sub: 'kernel k, on q, k, v', role: 'op', link: 'gated-short-conv' },
+    { id: 'win', label: 'Conv window', sub: 'last inputs, per channel', role: 'cache' },
+    { id: 'gates', label: 'Gate α, strength β', sub: 'n_v each', role: 'route' },
+    { id: 'qk', label: 'q, k: L2-normalised', sub: 'n_qk × d_qk', role: 'activation' },
+    { id: 'S', label: 'State S', sub: 'n_v × d_qk × d_v', role: 'cache' },
+    { id: 'norm', label: 'RMSNorm(o) ⊙ SiLU(z)', sub: 'n_v × d_v', role: 'op' },
+    { id: 'out', label: 'Output projection', sub: 'n_v·d_v → d', role: 'weight' },
+  ]}
+  edges={[
+    { from: 'h', to: 'proj' },
+    { from: 'proj', to: 'conv' },
+    { from: 'win', to: 'conv', dashed: true },
+    { from: 'proj', to: 'gates' },
+    { from: 'conv', to: 'qk' },
+    { from: 'qk', to: 'S' },
+    { from: 'gates', to: 'S' },
+    { from: 'S', to: 'norm' },
+    { from: 'norm', to: 'out' },
+  ]}
+/>
+
+The layer around the update rule follows the same plan as the paper's block. Here it is as implemented in the Qwen3.5 code, which Qwen3.5, Qwen3.6 and MiniCPM-V 4.7 all use <Cite id="qwen3-5-moe-modeling" where="Qwen3_5MoeGatedDeltaNet" />:
+
+- **A short causal convolution** first. The concatenated q, k and v channels pass through a depthwise convolution of kernel $k$ followed by SiLU, so each one mixes in the few tokens before it. This is the same trick as [[gated-short-conv]], and it is why the layer also keeps a small window of past inputs.
+- **Unit-length queries and keys.** q and k are L2-normalised before the update, which keeps the delta rule's read-then-write exact. The query is also divided by $\sqrt{d_{qk}}$.
+- **The gate and the write strength.** $\beta_t = \sigma(b_t)$. The gate is $\alpha_t = \exp(-A \cdot \text{softplus}(a_t + \delta))$, where $A > 0$ and the bias $\delta$ are learned per value head. Both $a_t$ and $b_t$ are one number per head, projected from the token.
+- **A gated output.** The read $o_t$ is RMS-normalised, multiplied by $\text{SiLU}(z_t)$ from a separate projection of the token, and projected back to width $d$.
+
+<Callout type="pitfall">
+The number of value heads $n_v$ can be larger than the number of query/key heads $n_{qk}$. The code repeats each q and k head to serve $n_v / n_{qk}$ value heads: 3 in [[qwen3-6-27b]] (48 / 16) and 4 in [[qwen3-5-397b-a17b]] (64 / 16) <Cite id="qwen3-5-moe-modeling" where="torch_recurrent_gated_delta_rule" />. It is the reverse of [[gqa]], where key/value heads are the ones shared. The state has one matrix per value head, so its size is $n_v \times d_{qk} \times d_v$, not $n_{qk} \times \dots$
+</Callout>
+
+## What it costs
+
+<ArchDiagram
+  title="What each kind of layer keeps while decoding"
+  caption="Attention appends a row for every token. A Gated DeltaNet layer overwrites the same matrix in place, so its memory is the same at token 10 and token 1,000,000."
+  blocks={[
+    { id: 'tok', label: 'New token', sub: 'h_t: d', role: 'activation' },
+    { id: 'kv', label: 'KV cache', sub: 'T × n_kv × d_h, grows', role: 'cache', link: 'kv-cache' },
+    { id: 'st', label: 'DeltaNet state', sub: 'n_v × d_qk × d_v, fixed', role: 'cache' },
+    { id: 'att', label: 'Attention read', sub: 'reads all T rows', role: 'op', link: 'mha' },
+    { id: 'dn', label: 'Read S q', sub: 'one matrix product', role: 'op' },
+  ]}
+  edges={[
+    { from: 'tok', to: 'kv', label: 'append' },
+    { from: 'tok', to: 'st', label: 'edit in place', dashed: true },
+    { from: 'kv', to: 'att' },
+    { from: 'st', to: 'dn' },
+  ]}
+/>
+
+Decoding one token costs the same at every position, and the state is a fixed size. In the Qwen models it is kept in FP32 <Cite id="qwen3-6-27b-config" where="text_config.mamba_ssm_dtype" />. With $n_v = 48$ and $d_{qk} = d_v = 128$, as in [[qwen3-6-27b]], that is $48 \cdot 128 \cdot 128$ numbers, or 3 MB per layer, whatever the context length <Cite id="qwen3-6-27b-config" where="text_config.linear_num_value_heads, linear_key_head_dim, linear_value_head_dim" />. The calculators in [[qwen3-6-27b]] and [[qwen3-5-397b-a17b]] set this against their KV caches. For training, the recurrence also has a chunkwise form that runs as matrix products over blocks of tokens <Cite id="gated-deltanet-paper" where="§3.3" />. The Qwen code uses that form for prefill and the token-by-token loop for decoding <Cite id="qwen3-5-moe-modeling" where="Qwen3_5MoeGatedDeltaNet.forward" />.
+
+The price is the same as for [[mamba-2]]: a fixed matrix can only hold so many separate key–value pairs, and nothing can be re-read once it is overwritten. This suggests why every model on this site that uses Gated DeltaNet keeps some full attention layers: three DeltaNet layers to one [[gqa]] layer in the Qwen3.5 family. [[hybrid-ssm-attention]] explains that trade with Mamba-2 layers, and the same reasoning applies here.

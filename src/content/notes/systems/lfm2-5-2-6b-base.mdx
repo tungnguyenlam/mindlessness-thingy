@@ -9,7 +9,7 @@ contrasts_with: []
 related: [lfm2-5-1-2b-instruct, lfm2-5-2-6b]
 sources: [lfm2-5-2-6b-base-card, lfm2-5-2-6b-base-config, lfm2-5-2-6b-blog, lfm2-report]
 status: draft
-updated: 2026-10-16
+updated: 2026-11-19
 ---
 
 LFM2.5-2.6B-Base is the pretrained 2.6B hybrid that [[lfm2-5-2-6b]] is post-trained from. It is still [[hybrid-conv-attention]], but deeper than the 16-layer 350M/1.2B models: 22 [[gated-short-conv]] blocks and 8 [[gqa]] blocks <Cite id="lfm2-5-2-6b-base-card" where="Number of layers" />. Pretraining is about 34T tokens, the vocabulary is doubled to 128K, and mid-training extends context to 128K <Cite id="lfm2-5-2-6b-blog" />. The card is for further fine-tuning, not chat out of the box <Cite id="lfm2-5-2-6b-base-card" />.
@@ -22,6 +22,8 @@ LFM2.5-2.6B-Base is the pretrained 2.6B hybrid that [[lfm2-5-2-6b]] is post-trai
 />
 
 <LayerStrip model="lfm2-5-2-6b-base" />
+
+<ModelDiagram model="lfm2-5-2-6b-base" />
 
 <ModelSpec model="lfm2-5-2-6b-base" />
 
