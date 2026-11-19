@@ -32,7 +32,15 @@ export function textWidth(s, kind) {
   return w * size;
 }
 
-const blockTextWidth = (b) => Math.max(textWidth(b.label, 'label'), b.sub ? textWidth(b.sub, 'sub') : 0) + 2 * GRID.TEXT_PAD;
+const slotTextWidth = (s) => Math.max(s.k ? textWidth(s.k, 'edge') : 0, textWidth(s.v, 'sub')) + 20;
+const blockTextWidth = (b) =>
+  Math.max(
+    textWidth(b.label, 'label'),
+    b.sub ? textWidth(b.sub, 'sub') : 0,
+    ...(b.slots ?? []).map(slotTextWidth),
+  ) +
+  2 * GRID.TEXT_PAD;
+const blockHeight = (b) => (b.slots?.length ? 34 + b.slots.length * 40 + (b.sub ? 18 : 6) : GRID.CH);
 
 /**
  * Place blocks on the grid. Blocks without `col`/`row` are placed automatically: rows by longest
@@ -108,50 +116,95 @@ function cells(b) {
   return [...Array(b.span ?? 1).keys()].map((k) => b.col + k);
 }
 
-export function layout({ blocks, edges = [], groups = [] }) {
+export function layout({ blocks, edges = [], groups = [], gx }) {
   const placed = place(blocks, edges);
-  const { CH, GX, GY, PAD } = GRID;
+  const { CH, GY, PAD } = GRID;
+  const GX = gx ?? GRID.GX;
   // Column width grows to fit the widest single-column label.
   const need = Math.max(0, ...placed.filter((b) => (b.span ?? 1) === 1).map(blockTextWidth));
   const CW = Math.ceil(Math.min(GRID.CW_MAX, Math.max(GRID.CW_MIN, need)));
   const cols = Math.max(1, ...placed.map((b) => b.col + (b.span ?? 1)));
   const rows = Math.max(1, ...placed.map((b) => b.row + 1));
+  const rowH = Array.from({ length: rows }, (_, r) => Math.max(CH, ...placed.filter((b) => b.row === r).map(blockHeight)));
+  const rowY = [PAD];
+  for (let r = 0; r < rows - 1; r++) rowY.push(rowY[r] + rowH[r] + GY);
   const width = PAD * 2 + cols * CW + (cols - 1) * GX;
-  const height = PAD * 2 + rows * CH + (rows - 1) * GY + (groups.length ? 6 : 0);
+  const baseHeight = PAD + rowY[rows - 1] + rowH[rows - 1] + (groups.length ? 6 : 0);
 
   const boxes = new Map(
     placed.map((b) => {
       const span = b.span ?? 1;
+      const h = blockHeight(b);
       const x = PAD + b.col * (CW + GX);
-      const y = PAD + b.row * (CH + GY);
+      const y = rowY[b.row] + (rowH[b.row] - h) / 2;
       const w = span * CW + (span - 1) * GX;
-      return [b.id, { ...b, x, y, w, h: CH, cx: x + w / 2, cy: y + CH / 2 }];
+      return [b.id, { ...b, x, y, w, h, cx: x + w / 2, cy: y + h / 2 }];
     }),
   );
 
-  const routes = routeEdges(edges.filter((e) => boxes.has(e.from) && boxes.has(e.to)), boxes);
-  // Right-hand side edges and their labels sit beyond the last column: widen the canvas to keep them.
-  const reach = Math.max(0, ...routes.flatMap((r) => [...r.pts.map((p) => p[0] + 4), r.edge.label ? r.lx + textWidth(r.edge.label, 'edge') + 8 : 0]));
-  const fullWidth = Math.ceil(Math.max(width, reach));
+  const routes = routeEdges(edges.filter((e) => boxes.has(e.from) && boxes.has(e.to)), boxes, GX);
 
   // A group either names its blocks (works with automatic placement) or gives grid corners.
   const groupBoxes = groups.map((g) => {
+    const pos = g.pos ?? 'bottom-right';
+    const topPad = pos.startsWith('top') ? 24 : 12;
     if (Array.isArray(g.blocks) && g.blocks.length) {
       const bs = g.blocks.map((id) => boxes.get(id)).filter(Boolean);
       const x = Math.min(...bs.map((b) => b.x)) - 12;
-      const y = Math.min(...bs.map((b) => b.y)) - 12;
+      const y = Math.min(...bs.map((b) => b.y)) - topPad;
       const x2 = Math.max(...bs.map((b) => b.x + b.w)) + 12;
       const y2 = Math.max(...bs.map((b) => b.y + b.h)) + 12;
-      return { ...g, x, y, w: x2 - x, h: y2 - y };
+      return { ...g, pos, x, y, w: x2 - x, h: y2 - y };
     }
     const x = PAD + g.from[0] * (CW + GX) - 12;
-    const y = PAD + g.from[1] * (CH + GY) - 12;
+    const y = rowY[g.from[1]] - topPad;
     const x2 = PAD + g.to[0] * (CW + GX) + CW + 12;
-    const y2 = PAD + g.to[1] * (CH + GY) + CH + 12;
-    return { ...g, x, y, w: x2 - x, h: y2 - y };
+    const y2 = rowY[g.to[1]] + rowH[g.to[1]] + 12;
+    return { ...g, pos, x, y, w: x2 - x, h: y2 - y };
   });
 
-  return { CW, cols, rows, width: fullWidth, height, boxes, routes, groupBoxes, placed };
+  // Shift right/down if outer-left side edges or top-labelled groups extend past PAD.
+  const minX = Math.min(
+    PAD,
+    ...routes.flatMap((r) => [...r.pts.map((p) => p[0] - 8), r.edge.label && r.edge.side ? r.lx - 8 : PAD]),
+    ...groupBoxes.map((g) => g.x - 4),
+  );
+  const minY = Math.min(PAD, ...groupBoxes.map((g) => g.y - 6));
+  const shiftX = minX < 12 ? Math.ceil(12 - minX) : 0;
+  const shiftY = minY < 10 ? Math.ceil(10 - minY) : 0;
+  if (shiftX || shiftY) {
+    for (const b of boxes.values()) {
+      b.x += shiftX;
+      b.cx += shiftX;
+      b.y += shiftY;
+      b.cy += shiftY;
+    }
+    for (const r of routes) {
+      r.pts = r.pts.map(([x, y]) => [x + shiftX, y + shiftY]);
+      r.d = `M${r.pts.map((p) => p.join(',')).join(' L')}`;
+      r.lx += shiftX;
+      r.ly += shiftY;
+      if (r.vert) r.vert = r.vert.map(([x, y]) => [x + shiftX, y + shiftY]);
+    }
+    for (const g of groupBoxes) {
+      g.x += shiftX;
+      g.y += shiftY;
+    }
+  }
+
+  // Right-hand side edges and bottom return rails sit beyond the base grid: grow canvas to keep them.
+  const reachX = Math.max(
+    width + shiftX,
+    ...routes.flatMap((r) => [...r.pts.map((p) => p[0] + 12), r.edge.label ? r.lx + textWidth(r.edge.label, 'edge') + 12 : 0]),
+    ...groupBoxes.map((g) => g.x + g.w + 12),
+  );
+  const reachY = Math.max(
+    baseHeight + shiftY,
+    ...routes.flatMap((r) => [...r.pts.map((p) => p[1] + 14), r.edge.label ? r.ly + 16 : 0]),
+    ...groupBoxes.map((g) => g.y + g.h + 14),
+  );
+
+  return { CW, cols, rows, width: Math.ceil(reachX), height: Math.ceil(reachY), boxes, routes, groupBoxes, placed };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -180,13 +233,19 @@ function collinearOverlap(aPts, bPts) {
   );
 }
 
-function candidates(a, b) {
-  const { GX, GY } = GRID;
-  if (a.y === b.y) {
+function candidates(a, b, GX, twoWay = false) {
+  const { GY } = GRID;
+  if (a.row === b.row || Math.abs(a.cy - b.cy) < 4) {
     const [x1, x2] = a.cx < b.cx ? [a.x + a.w, b.x] : [a.x, b.x + b.w];
-    const below = a.y + a.h + GY / 2;
+    if (twoWay) {
+      const yLane = a.cx < b.cx ? a.cy - 14 : a.cy + 14;
+      return [[[x1, yLane], [x2, yLane]]];
+    }
+    const below = Math.max(a.y + a.h, b.y + b.h) + GY / 2;
     return [
       [[x1, a.cy], [x2, a.cy]],
+      [[x1, a.cy - 14], [x2, a.cy - 14]],
+      [[x1, a.cy + 14], [x2, a.cy + 14]],
       [[a.cx, a.y + a.h], [a.cx, below], [b.cx, below], [b.cx, b.y + b.h]],
     ];
   }
@@ -209,7 +268,7 @@ function candidates(a, b) {
   ].map(simplify);
 }
 
-function routeEdges(edges, boxes) {
+function routeEdges(edges, boxes, GX = GRID.GX) {
   const all = [...boxes.values()];
   const done = [];
   const cost = (e, pts) => {
@@ -221,7 +280,7 @@ function routeEdges(edges, boxes) {
 
   // Residual (side) edges: give overlapping ones separate lanes, and split the attach point when a
   // block has both an incoming and an outgoing residual on the same side.
-  const side = edges.filter((e) => e.side);
+  const side = edges.filter((e) => e.side === 'left' || e.side === 'right');
   const lanes = { left: [], right: [] };
   const laneOf = new Map();
   for (const e of [...side].sort((p, q) => Math.abs(boxes.get(p.from).cy - boxes.get(p.to).cy) - Math.abs(boxes.get(q.from).cy - boxes.get(q.to).cy))) {
@@ -243,22 +302,34 @@ function routeEdges(edges, boxes) {
     const a = boxes.get(e.from);
     const b = boxes.get(e.to);
     let pts;
-    if (e.side) {
+    let outerLabel = null;
+    if (e.side === 'outer-left') {
+      const outerX = Math.min(...all.map((bx) => bx.x)) - 22;
+      const bottomY = Math.max(...all.map((bx) => bx.y + bx.h)) + 16;
+      pts = [[a.cx, a.y + a.h], [a.cx, bottomY], [outerX, bottomY], [outerX, b.cy], [b.x, b.cy]];
+      if (e.label) outerLabel = { lx: (a.cx + outerX) / 2 - textWidth(e.label, 'edge') / 2, ly: bottomY + 12 };
+    } else if (e.side) {
       const lane = laneOf.get(e) * 10;
-      const out = e.side === 'left' ? Math.min(a.x, b.x) - GRID.PAD * 0.6 - lane : Math.max(a.x + a.w, b.x + b.w) + GRID.PAD * 0.6 + lane;
+      const labelPad = e.label ? textWidth(e.label, 'edge') + 10 : 0;
+      const off = Math.max(GRID.PAD * 0.6 + lane, labelPad ? Math.min(GX - 14, labelPad) : 0);
+      const out = e.side === 'left' ? Math.min(a.x, b.x) - off : Math.max(a.x + a.w, b.x + b.w) + GRID.PAD * 0.6 + lane;
       const ax = e.side === 'left' ? a.x : a.x + a.w;
       const bx = e.side === 'left' ? b.x : b.x + b.w;
       const ay = attach(e.from, e.side, 'out');
       const by = attach(e.to, e.side, 'in');
       pts = [[ax, ay], [out, ay], [out, by], [bx, by]];
     } else {
-      pts = candidates(a, b).reduce((best, c) => (cost(e, c) < cost(e, best) ? c : best));
+      const twoWay = edges.some((o) => o !== e && o.from === e.to && o.to === e.from && !o.side);
+      pts = candidates(a, b, GX, twoWay).reduce((best, c) => (cost(e, c) < cost(e, best) ? c : best));
     }
     // Label next to the last vertical segment (or above a horizontal one).
     const segs = segments(pts);
     const vert = [...segs].reverse().find(([p, q]) => p[0] === q[0] && Math.abs(p[1] - q[1]) > 12);
     let lx, ly;
-    if (vert && !e.side) {
+    if (outerLabel) {
+      lx = outerLabel.lx;
+      ly = outerLabel.ly;
+    } else if (vert && !e.side) {
       lx = vert[0][0] + 6;
       ly = (vert[0][1] + vert[1][1]) / 2;
     } else if (e.side) {
@@ -336,6 +407,14 @@ export function lintDiagram(props) {
         warn('number-in-label', `${where}: block "${b.id}" ${field} "${text}" contains a number`, 'numbers belong in a <Spec>/<ModelSpec> with a source; use a symbol (n, d_c, k) in diagrams', 'sourced-numbers');
       }
     }
+    for (const s of b.slots ?? []) {
+      if (s.role && !ROLES.includes(s.role)) err('bad-role', `${where}: block "${b.id}" slot has role "${s.role}"`, `use one of ${ROLES.join(', ')} (AGENTS.md#components)`);
+      for (const [field, text] of [['slot key', s.k], ['slot value', s.v]]) {
+        if (text && NUMBER.test(String(text))) {
+          warn('number-in-label', `${where}: block "${b.id}" ${field} "${text}" contains a number`, 'numbers belong in a <Spec>/<ModelSpec> with a source; use a symbol (n, d_c, k) in diagrams', 'sourced-numbers');
+        }
+      }
+    }
   }
   for (const e of edges) {
     for (const id of [e.from, e.to]) if (!ids.has(id)) err('unknown-edge-end', `${where}: edge ${e.from} → ${e.to} refers to unknown block "${id}"`, 'fix the id or add the block');
@@ -376,6 +455,13 @@ export function lintDiagram(props) {
       if (!text) continue;
       const w = textWidth(text, kind);
       if (w > room + 0.5) err('label-overflow', `${where}: block "${b.id}" ${kind} "${text}" is ${Math.round(w)}px, box has ${Math.round(room)}px`, `shorten it, move detail into sub or the caption, or give the block span: ${(b.span ?? 1) + 1}`);
+    }
+    for (const s of b.slots ?? []) {
+      for (const [kind, text] of [['edge', s.k], ['sub', s.v]]) {
+        if (!text) continue;
+        const w = textWidth(text, kind);
+        if (w > room - 12 + 0.5) err('label-overflow', `${where}: block "${b.id}" slot "${text}" is ${Math.round(w)}px, slot has ${Math.round(room - 12)}px`, `shorten the slot text or give the block span: ${(b.span ?? 1) + 1}`);
+      }
     }
   }
 
@@ -428,7 +514,12 @@ export function lintDiagram(props) {
     }
     const tw = textWidth(g.label, 'group');
     if (tw > g.w - 16) err('group-label-overflow', `${where}: group label "${g.label}" is wider than the group`, 'shorten it and move detail to the caption');
-    const lr = { x: g.x + g.w - 12 - tw, y: g.y + g.h - 6, w: tw, h: 12 };
+    const lr =
+      g.pos === 'top-left'
+        ? { x: g.x + 12, y: g.y + 6, w: tw, h: 12 }
+        : g.pos === 'top-right'
+          ? { x: g.x + g.w - 12 - tw, y: g.y + 6, w: tw, h: 12 }
+          : { x: g.x + g.w - 12 - tw, y: g.y + g.h - 6, w: tw, h: 12 };
     for (const b of boxes) if (rectsOverlap(lr, b)) err('group-label-overlap', `${where}: group label "${g.label}" overlaps block "${b.id}"`, 'shorten the label');
     for (const r of L.routes) {
       // A few px of slack: the label has a halo and an edge grazing it reads as crossing it.

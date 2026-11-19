@@ -14,7 +14,7 @@ import { requireModel, modelData } from '../../lib/models/load';
 import { overviewParts, symbolRows } from '../../lib/models/overview.mjs';
 import { lintDiagram } from '../../lib/diagram/geometry.mjs';
 import { FIELD, formatValue } from '../../lib/models/fields.mjs';
-import { DERIVED, formatDerived } from '../../lib/models/data.mjs';
+import { DERIVED, formatDerived, parsePattern, isCausal } from '../../lib/models/data.mjs';
 import { noteUrl } from '../../lib/url';
 import { paramBreakdown, sublayerWeights, fmtParams } from '../../lib/models/params.mjs';
 import TokenTrace from '../overview/TokenTrace.astro';
@@ -44,7 +44,7 @@ const z = (key: string, sym: string) => {
   return typeof x === 'number' ? x.toLocaleString('en-US') : sym;
 };
 const CAPTIONS: Record<string, string> = {
-  model: 'From text to the next token. The dashed arrow on the left is decoding: the sampled id is appended and the model runs again, and only the new token passes through the stack because the caches hold the earlier ones.',
+  model: 'Host preprocessing turns text into token ids; the step selector feeds T prompt ids on prefill or 1 sampled id on each decode step. Dashed teal arrows sync per-layer state, and the amber loop feeds each next token back until stop.',
   layer: m.values.hc_streams
     ? `One layer. mHC keeps the residual as ${z('hc_streams', 'n_hc')} copies of width ${z('hidden_size', 'd')}. Input map A mixes them into the sublayer; the left arrows are the mHC add (B mixes the copies, C writes the sublayer output back).`
     : `One layer. Each sublayer reads a normalized copy of the residual stream and adds its result back (the arrows on the left), so the stream keeps shape T × ${z('hidden_size', 'd')} all the way up.`,
@@ -130,6 +130,85 @@ const hasSamples = (() => {
 const tokenTab = !pipeline && !!m.values.layer_pattern && !!tok && hasSamples;
 if (tokenTab) parts.splice(1, 0, { id: 'token', tab: 'Follow a token', props: null } as any);
 
+// Pinned header summary metadata: modality, key dimensions, and linked architectural delta chips.
+const parsedLayers = m.values.layer_pattern ? parsePattern(String(m.values.layer_pattern.v)) : null;
+const codeCount = (c: string) => (parsedLayers ? parsedLayers.filter((l: string[]) => l.includes(c)).length : 0);
+const presentCodes = (codes: string) => [...codes].filter((c) => codeCount(c) > 0);
+const mixPresent = presentCodes('ACMG');
+const ffnPresent = presentCodes('DE');
+const ATTN_CHIP: Record<string, string> = { mla: 'MLA', gqa: 'GQA', mha: 'MHA', mqa: 'MQA', dsa: 'DSA' };
+const modalityBadge = pipeline
+  ? `Pipeline${m.values.objective?.v ? ` · ${String(m.values.objective.v)}` : ''}`
+  : mixPresent.length > 1
+    ? 'Hybrid decoder · text → next token'
+    : ffnPresent.includes('E')
+      ? 'Sparse MoE decoder · text → next token'
+      : 'Dense decoder · text → next token';
+const specSummary = pipeline
+  ? [
+      m.values.layers && `${z('layers', 'L')} backbone blocks`,
+      m.values.hidden_size && `d = ${z('hidden_size', 'd')}`,
+      m.values.sampling_steps && `${z('sampling_steps', 'N')} sampling steps`,
+      m.values.params_total && formatValue(FIELD.params_total, m.values.params_total),
+    ].filter(Boolean).join(' · ')
+  : [
+      m.values.layers && `${z('layers', 'L')} layers`,
+      m.values.hidden_size && `d = ${z('hidden_size', 'd')}`,
+      m.values.vocab_size && `vocab = ${z('vocab_size', 'V')}`,
+      m.values.tie_embeddings?.v === true ? 'tied I/O' : m.values.tie_embeddings?.v === false ? 'untied I/O' : null,
+    ].filter(Boolean).join(' · ');
+
+type DeltaChip = { k: string; items: { text: string; slug?: string }[] };
+const deltas: DeltaChip[] = [];
+if (mixPresent.length) {
+  const CHIP_META: Record<string, { label: string; slug?: string }> = {
+    A: { label: ATTN_CHIP[attn] ?? 'Attention', slug: attn },
+    C: { label: 'Conv', slug: 'gated-short-conv' },
+    G: { label: 'DeltaNet', slug: 'gated-deltanet' },
+    M: { label: 'Mamba-2', slug: 'mamba-2' },
+  };
+  const items = mixPresent.map((c) => {
+    const meta = CHIP_META[c];
+    return {
+      text: `${n(codeCount(c))}× ${meta.label}`,
+      slug: meta.slug && d.notes.has(meta.slug) ? meta.slug : undefined,
+    };
+  });
+  if (codeCount('X') > 0) {
+    items.push({ text: `${n(codeCount('X'))}× Cross-attn`, slug: d.notes.has('dit') ? 'dit' : undefined });
+  }
+  deltas.push({ k: 'Mixers', items });
+} else if (pipeline && m.stages?.length) {
+  deltas.push({ k: 'Pipeline', items: [{ text: `${m.stages.length} stages` }] });
+}
+if (ffnPresent.includes('E')) {
+  const moeSlug = m.values.shared_experts && d.notes.has('deepseek-moe') ? 'deepseek-moe' : d.notes.has('moe') ? 'moe' : undefined;
+  const sh = m.values.shared_experts?.v ? ` + ${z('shared_experts', 'N_s')} shared` : '';
+  deltas.push({ k: 'FFN', items: [{ text: `MoE ${z('active_experts', 'K_r')}/${z('routed_experts', 'N_r')}${sh}`, slug: moeSlug }] });
+} else if (ffnPresent.includes('D')) {
+  deltas.push({ k: 'FFN', items: [{ text: `Dense (${z('ffn_hidden', 'd_ff')})` }] });
+}
+if (m.values.hc_streams) {
+  deltas.push({ k: 'Residual', items: [{ text: `mHC (${z('hc_streams', 'n_hc')} streams)`, slug: d.notes.has('mhc') ? 'mhc' : undefined }] });
+} else if (m.values.rope_theta || m.values.rope_scaling) {
+  const posText = m.values.qk_norm?.v === true ? 'QK-Norm · RoPE' : 'RoPE';
+  deltas.push({ k: 'Position', items: [{ text: posText, slug: d.notes.has('rope') ? 'rope' : undefined }] });
+}
+if (!pipeline && mixPresent.length) {
+  const stateParts = mixPresent.map((c) => (c === 'A' ? (attn === 'mla' ? 'Latent KV' : 'KV cache') : c === 'C' ? 'Conv window' : c === 'G' ? 'DeltaNet state' : 'SSM state'));
+  deltas.push({
+    k: 'State',
+    items: [{ text: stateParts.join(' + '), slug: mixPresent.includes('A') && d.notes.has('kv-cache') ? 'kv-cache' : undefined }],
+  });
+} else if (pipeline && parsedLayers && !isCausal(m)) {
+  deltas.push({ k: 'State', items: [{ text: 'Single pass · no cache' }] });
+}
+
+const VIEW_TABS = new Set(['model', 'token', 'layer', 'params']);
+const viewParts = parts.filter((p) => VIEW_TABS.has(p.id));
+const partTabs = parts.filter((p) => !VIEW_TABS.has(p.id));
+const tabIndex = new Map(parts.map((p, i) => [p.id, i]));
+
 // The matrices behind one tab: mixer-A → A, ffn-E → E; the layer tab sums each sublayer kind.
 const TAB_CODE: Record<string, string> = { 'mixer-A': 'A', 'mixer-X': 'X', 'mixer-C': 'C', 'mixer-G': 'G', 'ffn-D': 'D', 'ffn-E': 'E' };
 const weightTable = (tab: string) => {
@@ -147,13 +226,56 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
 
 <x-modeloverview class="overview ui" data-restorable>
   <script type="application/json" set:html={config} />
-  <div class="tabs" role="tablist" aria-label={`${m.title} architecture views`}>
+  <div class="mhead">
+    <div class="mhead-top">
+      <strong class="mtitle">{m.title}</strong>
+      <span class="mkind">{modalityBadge}</span>
+    </div>
+    {specSummary && <div class="mspecs">{specSummary}</div>}
     {
-      parts.map((p, i) => (
-        <button type="button" role="tab" data-tab={p.id} aria-selected={i === 0 ? 'true' : 'false'}>
-          {p.tab}
-        </button>
-      ))
+      deltas.length > 0 && (
+        <div class="mdeltas">
+          {deltas.map((chip) => (
+            <span class="dchip">
+              <span class="dk">{chip.k}:</span>
+              {chip.items.map((it, idx) => (
+                <>
+                  {idx > 0 && ' + '}
+                  {it.slug ? (
+                    <a href={noteUrl(it.slug)} data-slug={it.slug}>{it.text}</a>
+                  ) : (
+                    it.text
+                  )}
+                </>
+              ))}
+            </span>
+          ))}
+        </div>
+      )
+    }
+  </div>
+  <div class="tabs" role="tablist" aria-label={`${m.title} architecture views`}>
+    <div class="tab-group">
+      <span class="tab-glabel">Views</span>
+      {
+        viewParts.map((p) => (
+          <button type="button" role="tab" data-tab={p.id} aria-selected={tabIndex.get(p.id) === 0 ? 'true' : 'false'}>
+            {p.tab}
+          </button>
+        ))
+      }
+    </div>
+    {
+      partTabs.length > 0 && (
+        <div class="tab-group">
+          <span class="tab-glabel">Components</span>
+          {partTabs.map((p) => (
+            <button type="button" role="tab" class="zoom-tab" data-tab={p.id} aria-selected={tabIndex.get(p.id) === 0 ? 'true' : 'false'}>
+              <span class="tplus" aria-hidden="true">+</span>{p.tab}
+            </button>
+          ))}
+        </div>
+      )
     }
   </div>
   {
@@ -315,26 +437,119 @@ const config = JSON.stringify({ tabs: parts.map((p) => p.id) });
     display: block;
     margin: 2rem 0;
   }
+  .mhead {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-panel);
+    padding: 0.7rem 0.9rem;
+    margin-bottom: 0.7rem;
+    display: grid;
+    gap: 0.32rem;
+  }
+  .mhead-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem 0.8rem;
+  }
+  .mtitle {
+    font-size: var(--step-0);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .mkind {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    background: var(--paper);
+    border: 1px solid var(--rule-soft);
+    border-radius: 3px;
+    padding: 0.1rem 0.45rem;
+  }
+  .mspecs {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    overflow-wrap: anywhere;
+  }
+  .mdeltas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.15rem;
+  }
+  .dchip {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.78rem;
+    padding: 0.12rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid var(--rule-soft);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .dk {
+    color: var(--ink-soft);
+  }
+  .dchip a {
+    color: var(--ink);
+    text-decoration-color: var(--ink-faint);
+  }
+  .dchip a:hover {
+    text-decoration-color: var(--ink);
+  }
   .tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-bottom: 0.2rem;
+    align-items: center;
+    gap: 0.45rem 0.9rem;
+    margin-bottom: 0.25rem;
+  }
+  .tab-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .tab-glabel {
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: var(--ink-soft);
+    margin-right: 0.1rem;
   }
   .tabs button {
     font: inherit;
     font-size: var(--step--1);
-    padding: 0.25rem 0.75rem;
+    padding: 0.22rem 0.68rem;
     border: 1px solid var(--rule);
     border-radius: 999px;
     background: var(--paper);
     color: var(--ink-soft);
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .tabs button.zoom-tab {
+    border-style: dashed;
+  }
+  .tplus {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1;
+    opacity: 0.75;
   }
   .tabs button[aria-selected='true'] {
     background: var(--ink);
     border-color: var(--ink);
+    border-style: solid;
     color: var(--paper-raised);
+  }
+  .tabs button[aria-selected='true'] .tplus {
+    opacity: 1;
   }
   /* Every tab's canvas spans the whole panel, so switching tabs doesn't change the width. */
   .panel :global(figure.arch) {

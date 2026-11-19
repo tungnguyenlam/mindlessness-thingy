@@ -5,12 +5,19 @@ import { layout } from '../../lib/diagram/geometry.mjs';
 
 type Role = 'activation' | 'weight' | 'cache' | 'route' | 'op';
 
+interface Slot {
+  k?: string;
+  v: string;
+  role?: Role;
+}
 interface Block {
   id: string;
   label: string;
   /** Second line, usually a tensor shape like "n × d_c". */
   sub?: string;
   role?: Role;
+  /** Optional nested sub-cards inside the block (e.g. Mixer + FFN slots or dual caches). */
+  slots?: Slot[];
   /** Grid position. Leave both out to let the layout place the block. */
   col?: number;
   row?: number;
@@ -22,16 +29,20 @@ interface Block {
    *  "+" badge; the component handles the click. Takes the place of `link`. */
   open?: string;
 }
+type EdgeKind = 'flow' | 'state' | 'tied' | 'loop';
 interface Edge {
   from: string;
   to: string;
   label?: string;
   dashed?: boolean;
-  /** Route around the left or right of the blocks, for residual connections. */
-  side?: 'left' | 'right';
+  kind?: EdgeKind;
+  /** Route around the left, right, or outer-left of the blocks. */
+  side?: 'left' | 'right' | 'outer-left';
 }
 interface Group {
   label: string;
+  pos?: 'top-left' | 'top-right' | 'bottom-right';
+  tone?: 'zone';
   /** Block ids the group covers (preferred: works with automatic placement)... */
   blocks?: string[];
   /** ...or top-left and bottom-right cells, inclusive, as [col, row]. */
@@ -56,16 +67,17 @@ interface Props {
   blocks: Block[];
   edges?: Edge[];
   groups?: Group[];
+  gx?: number;
   caption?: string;
   /** Turns the diagram into an animation that plays its frames in a loop while it is on screen. */
   frames?: Frame[];
 }
 
-const { title, blocks, edges = [], groups = [], caption, frames = [] } = Astro.props;
+const { title, blocks, edges = [], groups = [], gx, caption, frames = [] } = Astro.props;
 
 // All geometry lives in src/lib/diagram/geometry.mjs, shared with the diagram-geometry check, so
 // what the check approves is exactly what renders. Blocks without col/row are placed automatically.
-const L = layout({ blocks, edges, groups });
+const L = layout({ blocks, edges, groups, gx });
 const { width, height } = L;
 const boxes = blocks.map((b) => L.boxes.get(b.id)!);
 const edgeIndex = new Map(blocks.map((b) => [b.id, true]));
@@ -84,16 +96,23 @@ const minWidth = Math.round(width * 0.72);
 const remWidth = `${+(width / 17).toFixed(3)}rem`;
 
 const markerId = `arrow-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+const isDashedEdge = (e: Edge) => !!(e.dashed || (e.kind && e.kind !== 'flow'));
+const edgeMarker = (e: Edge) => {
+  if (e.kind === 'tied') return { start: `url(#${markerId}-tied)`, end: `url(#${markerId}-tied)` };
+  if (e.kind === 'state') return { end: `url(#${markerId}-state)` };
+  if (e.kind === 'loop') return { end: `url(#${markerId}-loop)` };
+  return { end: `url(#${markerId})` };
+};
 
 // Draw order for the scroll-in reveal (src/scripts/motion.ts): an edge starts once everything
 // feeding its source has arrived, so the picture fills in the way data flows through it.
-// Depth is the longest chain of solid edges into a block; dashed edges (cache writes, loops) are
+// Depth is the longest chain of solid edges into a block; dashed/state/loop edges are
 // ignored for depth so a decoding loop can't make the order circular.
 const depth = new Map(blocks.map((b) => [b.id, 0]));
 for (let pass = 0; pass < blocks.length; pass++) {
   let changed = false;
   for (const e of edges) {
-    if (e.dashed) continue;
+    if (isDashedEdge(e)) continue;
     const d = depth.get(e.from)! + 1;
     if (d > depth.get(e.to)! && d < blocks.length) {
       depth.set(e.to, d);
@@ -140,6 +159,10 @@ const plan = (() => {
 const framed = plan.length > 0;
 const first = plan[0];
 const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: first.hot.includes(k) } : {});
+const ROLE_RX: Record<Role, number> = { activation: 10, weight: 4, cache: 6, route: 2, op: 3 };
+const EDGE_KINDS = (['state', 'tied', 'loop'] as const).filter((k) => edges.some((e) => e.kind === k));
+const EDGE_LABEL: Record<string, string> = { state: 'state R/W', tied: 'tied weights', loop: 'decode loop' };
+const hasEdgeKind = (k: string) => edges.some((e) => e.kind === k);
 ---
 
 <x-frames class:list={['frames-wrap', { framed }]} data-restorable={framed ? '' : undefined} data-frames={framed ? JSON.stringify(plan) : undefined}>
@@ -149,25 +172,47 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
       <title id={`${markerId}-t`}>{title}</title>
       <defs>
         <marker id={markerId} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0,0.8 L7,4 L0,7.2" fill="none" stroke="currentColor" stroke-width="1.3"></path>
+          <path d="M0,0.8 L7,4 L0,7.2" fill="none" stroke="var(--ink-soft)" stroke-width="1.3"></path>
         </marker>
+        {hasEdgeKind('state') && (
+          <marker id={`${markerId}-state`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0.8 L7,4 L0,7.2" fill="none" stroke="var(--role-cache)" stroke-width="1.4"></path>
+          </marker>
+        )}
+        {hasEdgeKind('loop') && (
+          <marker id={`${markerId}-loop`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0.8 L7,4 L0,7.2" fill="none" stroke="var(--role-route)" stroke-width="1.4"></path>
+          </marker>
+        )}
+        {hasEdgeKind('tied') && (
+          <marker id={`${markerId}-tied`} viewBox="0 0 8 8" refX="4" refY="4" markerWidth="6" markerHeight="6">
+            <circle cx="4" cy="4" r="2.6" fill="var(--role-weight)"></circle>
+          </marker>
+        )}
       </defs>
       {
-        L.groupBoxes.map((g, gi) => (
-          <g class:list={['group', framed && { beat: true, off: !first.on.includes(`group:${gi}`) }]} data-k={framed ? `group:${gi}` : undefined}>
-            <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="6" />
-            <text x={g.x + g.w - 12} y={g.y + g.h} text-anchor="end" dominant-baseline="middle">
-              {g.label}
-            </text>
-          </g>
-        ))
+        L.groupBoxes.map((g, gi) => {
+          const lx = g.pos === 'top-left' ? g.x + 12 : g.x + g.w - 12;
+          const ly = g.pos?.startsWith('top') ? g.y + 12 : g.y + g.h;
+          const anchor = g.pos === 'top-left' ? 'start' : 'end';
+          return (
+            <g class:list={['group', g.tone === 'zone' && 'zone', framed && { beat: true, off: !first.on.includes(`group:${gi}`) }]} data-k={framed ? `group:${gi}` : undefined}>
+              <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={g.tone === 'zone' ? 8 : 6} />
+              <text x={lx} y={ly} text-anchor={anchor} dominant-baseline="middle">
+                {g.label}
+              </text>
+            </g>
+          );
+        })
       }
       {
         L.routes.map((r) => {
           const e = r.edge;
+          const dashed = isDashedEdge(e);
+          const mk = edgeMarker(e);
           return (
-            <g class:list={['edge', e.dashed ? 'dashed' : 'solid', stateClass(ekey(e))]} style={`--i:${drawStep(e)}`} data-k={ekey(e)}>
-              <path d={r.d} marker-end={`url(#${markerId})`} pathLength={e.dashed ? undefined : 1} />
+            <g class:list={['edge', dashed ? 'dashed' : 'solid', e.kind ? `kind-${e.kind}` : '', stateClass(ekey(e))]} style={`--i:${drawStep(e)}`} data-k={ekey(e)}>
+              <path d={r.d} marker-start={mk.start} marker-end={mk.end} pathLength={dashed ? undefined : 1} />
               {e.label && (
                 <text x={r.lx} y={r.ly} dominant-baseline="middle">
                   {e.label}
@@ -181,16 +226,58 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
         boxes.map((b) => {
           const block = (el: any) => (framed ? <g class:list={['beat', stateClass(b.id)]} data-k={b.id}>{el}</g> : el);
           const r = b;
+          const role = (b.role ?? 'op') as Role;
+          const rx = ROLE_RX[role] ?? 3;
+          const hasSlots = Array.isArray(b.slots) && b.slots.length > 0;
           const inner = (
-            <g class:list={['block', `role-${b.role ?? 'op'}`]}>
-              <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="3" />
-              <text x={r.cx} y={b.sub ? r.cy - 7 : r.cy} class="label">
-                {b.label}
-              </text>
-              {b.sub && (
-                <text x={r.cx} y={r.cy + 10} class="sub">
-                  {b.sub}
-                </text>
+            <g class:list={['block', `role-${role}`, { slotted: hasSlots }]}>
+              <rect class="box" x={r.x} y={r.y} width={r.w} height={r.h} rx={rx} />
+              {role === 'weight' && <rect class="wbar" x={r.x + 1} y={r.y + 1} width="5" height={r.h - 2} rx="2" />}
+              {role === 'route' && (
+                <path
+                  class="route-mark"
+                  d={`M${r.x + 1},${r.y + 8} L${r.x + 8},${r.y + 1} M${r.x + r.w - 8},${r.y + r.h - 1} L${r.x + r.w - 1},${r.y + r.h - 8}`}
+                  aria-hidden="true"
+                />
+              )}
+              {hasSlots ? (
+                <>
+                  <text x={r.cx} y={r.y + 17} class="label">
+                    {b.label}
+                  </text>
+                  {b.slots!.map((s: Slot, si: number) => {
+                    const sy = r.y + 30 + si * 40;
+                    return (
+                      <g class:list={['slot', s.role ? `slot-${s.role}` : '']}>
+                        <rect class="slot-box" x={r.x + 8} y={sy} width={r.w - 16} height="36" rx="4" />
+                        {s.k && (
+                          <text x={r.cx} y={sy + 11} class="slot-k">
+                            {s.k}
+                          </text>
+                        )}
+                        <text x={r.cx} y={s.k ? sy + 25 : sy + 18} class="slot-v">
+                          {s.v}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {b.sub && (
+                    <text x={r.cx} y={r.y + r.h - 10} class="sub">
+                      {b.sub}
+                    </text>
+                  )}
+                </>
+              ) : (
+                <>
+                  <text x={r.cx} y={b.sub ? r.cy - 7 : r.cy} class="label">
+                    {b.label}
+                  </text>
+                  {b.sub && (
+                    <text x={r.cx} y={r.cy + 10} class="sub">
+                      {b.sub}
+                    </text>
+                  )}
+                </>
               )}
             </g>
           );
@@ -249,13 +336,21 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
     <span class="legend" aria-hidden="true">
       {
         (['activation', 'weight', 'cache', 'route'] as const)
-          .filter((role) => blocks.some((b) => b.role === role))
+          .filter((role) => blocks.some((b) => b.role === role || b.slots?.some((s) => s.role === role)))
           .map((role) => (
             <span class:list={['key', `role-${role}`]}>
               <i />
               {{ activation: 'activations', weight: 'weights', cache: 'cached', route: 'routing' }[role]}
             </span>
           ))
+      }
+      {
+        EDGE_KINDS.map((k) => (
+          <span class:list={['key', `edge-key-${k}`]}>
+            <i class="line" />
+            {EDGE_LABEL[k]}
+          </span>
+        ))
       }
     </span>
   </figcaption>
@@ -417,12 +512,20 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
     stroke: var(--ink-faint);
     stroke-dasharray: 4 3;
   }
+  .group.zone rect {
+    fill: color-mix(in srgb, var(--paper) 60%, transparent);
+    stroke: var(--rule);
+    stroke-dasharray: none;
+  }
   .group text {
     font-size: 11px;
     fill: var(--ink-soft);
     paint-order: stroke;
     stroke: var(--paper-raised);
     stroke-width: 5px;
+  }
+  .group.zone text {
+    font-weight: 500;
   }
   .edge path {
     fill: none;
@@ -432,6 +535,12 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
   .edge.dashed path {
     stroke-dasharray: 4 3;
   }
+  .edge.kind-state { color: var(--role-cache); }
+  .edge.kind-state path { stroke-dasharray: 4 2.5; stroke-width: 1.5; }
+  .edge.kind-tied { color: var(--role-weight); }
+  .edge.kind-tied path { stroke-dasharray: 2 3; stroke-width: 1.6; }
+  .edge.kind-loop { color: var(--role-route); }
+  .edge.kind-loop path { stroke-dasharray: 5 3; stroke-width: 1.5; }
   .edge text {
     font-family: var(--font-mono);
     font-size: 10.5px;
@@ -440,7 +549,7 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
     stroke: var(--paper-raised);
     stroke-width: 4px;
   }
-  .block rect {
+  .block .box {
     stroke-width: 1.5;
   }
   .block text {
@@ -457,17 +566,63 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
     font-size: 10.5px;
     fill: var(--ink-soft);
   }
-  .role-activation rect { fill: var(--role-activation-wash); stroke: var(--role-activation); }
-  .role-weight rect { fill: var(--role-weight-wash); stroke: var(--role-weight); }
-  .role-cache rect { fill: var(--role-cache-wash); stroke: var(--role-cache); stroke-width: 2.2; }
-  .role-route rect { fill: var(--role-route-wash); stroke: var(--role-route); }
-  .role-op rect { fill: var(--paper-raised); stroke: var(--role-op); }
+  .block .wbar {
+    fill: var(--role-weight);
+    stroke: none;
+    pointer-events: none;
+  }
+  .block .route-mark {
+    fill: none;
+    stroke: var(--role-route);
+    stroke-width: 1.4;
+    pointer-events: none;
+  }
+  .slot .slot-box {
+    fill: var(--paper);
+    stroke: var(--rule);
+    stroke-width: 1;
+  }
+  .role-cache .slot .slot-box {
+    fill: var(--paper-raised);
+    stroke: var(--role-cache);
+  }
+  .slot-route .slot-box {
+    fill: var(--role-route-wash);
+    stroke: var(--role-route);
+  }
+  .slot-weight .slot-box {
+    fill: var(--role-weight-wash);
+    stroke: var(--role-weight);
+  }
+  .slot-activation .slot-box {
+    fill: var(--role-activation-wash);
+    stroke: var(--role-activation);
+  }
+  .slot-cache .slot-box {
+    fill: var(--role-cache-wash);
+    stroke: var(--role-cache);
+  }
+  .block .slot-k {
+    font-size: 10px;
+    font-weight: 500;
+    fill: var(--ink-soft);
+  }
+  .block .slot-v {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    fill: var(--ink);
+  }
+  .role-activation .box { fill: var(--role-activation-wash); stroke: var(--role-activation); }
+  .role-weight .box { fill: var(--role-weight-wash); stroke: var(--role-weight); }
+  .role-cache .box { fill: var(--role-cache-wash); stroke: var(--role-cache); stroke-width: 2; stroke-dasharray: 6 2.5; }
+  .role-route .box { fill: var(--role-route-wash); stroke: var(--role-route); stroke-dasharray: 3 2; }
+  .role-op .box { fill: var(--paper-raised); stroke: var(--role-op); }
   .block-link,
   .block-open {
     cursor: pointer;
   }
-  .block-open:hover rect,
-  .block-open:focus-visible rect {
+  .block-open:hover .box,
+  .block-open:focus-visible .box {
     stroke-width: 2.6;
   }
   .block-open:focus-visible {
@@ -492,8 +647,8 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
   .block-open:focus-visible .badge path {
     stroke: var(--paper-raised);
   }
-  .block-link:hover rect,
-  .block-link:focus-visible rect {
+  .block-link:hover .box,
+  .block-link:focus-visible .box {
     stroke-width: 2.6;
   }
   .block-link:hover .label {
@@ -510,7 +665,8 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
   }
   .legend {
     display: flex;
-    gap: 0.9rem;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.9rem;
   }
   .key {
     display: inline-flex;
@@ -523,10 +679,20 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
     border: 1.5px solid;
     border-radius: 2px;
   }
-  .key.role-activation i { background: var(--role-activation-wash); border-color: var(--role-activation); }
-  .key.role-weight i { background: var(--role-weight-wash); border-color: var(--role-weight); }
-  .key.role-cache i { background: var(--role-cache-wash); border-color: var(--role-cache); }
-  .key.role-route i { background: var(--role-route-wash); border-color: var(--role-route); }
+  .key i.line {
+    width: 1.15rem;
+    height: 0;
+    border: 0;
+    border-top: 2px dashed var(--ink-soft);
+    border-radius: 0;
+  }
+  .key.role-activation i { background: var(--role-activation-wash); border-color: var(--role-activation); border-radius: 5px; }
+  .key.role-weight i { background: var(--role-weight-wash); border-color: var(--role-weight); border-left-width: 3.5px; }
+  .key.role-cache i { background: var(--role-cache-wash); border-color: var(--role-cache); border-style: dashed; border-radius: 3px; }
+  .key.role-route i { background: var(--role-route-wash); border-color: var(--role-route); border-style: dotted; border-radius: 1px; }
+  .key.edge-key-state i.line { border-top-color: var(--role-cache); border-top-style: dashed; }
+  .key.edge-key-tied i.line { border-top-color: var(--role-weight); border-top-style: dotted; }
+  .key.edge-key-loop i.line { border-top-color: var(--role-route); border-top-style: dashed; }
 
   /* Animated diagrams: things fade in as they join the story, lit ones stand out, dots carry data. */
   .framed .beat,
@@ -537,7 +703,7 @@ const stateClass = (k: string) => (framed ? { off: !first.on.includes(k), hot: f
     opacity: 0;
     pointer-events: none;
   }
-  .framed .beat.hot .block rect {
+  .framed .beat.hot .block .box {
     stroke-width: 2.8;
   }
   .framed .beat.hot .block {

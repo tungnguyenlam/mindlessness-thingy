@@ -19,8 +19,8 @@
 // Hand-drawn concept diagrams do the opposite: symbols only (rule diagram-geometry).
 import { parsePattern, DERIVED, formatDerived, isCausal } from './data.mjs';
 
-const ATTN_SHORT = { mla: 'MLA', gqa: 'GQA', mha: 'MHA', mqa: 'MQA' };
-const ATTN_LABEL = { mla: 'Latent attention (MLA)', gqa: 'Grouped-query attn', mha: 'Multi-head attn', mqa: 'Multi-query attn' };
+const ATTN_SHORT = { mla: 'MLA', gqa: 'GQA', mha: 'MHA', mqa: 'MQA', dsa: 'DSA' };
+const ATTN_LABEL = { mla: 'Latent attention (MLA)', gqa: 'Grouped-query attn', mha: 'Multi-head attn', mqa: 'Multi-query attn', dsa: 'Compressed sparse attn' };
 
 const n = (x) => (typeof x === 'number' ? x.toLocaleString('en-US') : String(x));
 
@@ -225,11 +225,13 @@ function runs(layers) {
   return out;
 }
 
-/** Text to logits: tokenizer, embedding, the layer stack, final norm, output head, sampling. */
+/** Text to logits: host preprocessing, step selector, embedding, layer stack + state, decoding loop. */
 function wholeModel(m, ctx) {
-  const { v, z, layers, present } = access(m);
+  const { v, z, count, layers, present } = access(m);
   const C = 1;
   const [V, d] = [z('vocab_size', 'V'), z('hidden_size', 'd')];
+  const hc = v('hc_streams') != null;
+  const nhc = z('hc_streams', 'n_hc');
   const blocks = [];
   const edges = [];
   let row = 0;
@@ -239,73 +241,149 @@ function wholeModel(m, ctx) {
   };
   const chain = (...ids) => ids.slice(1).forEach((id, i) => edges.push({ from: ids[i], to: id }));
   const tok = ctx.tokenizer;
-  add({ id: 'text', label: 'Input text', sub: 'a string', role: 'op' });
-  add({ id: 'tok', label: 'Tokenizer', sub: String(tok?.algorithm ?? 'splits text into ids'), role: 'op', link: tok?.note && ctx.has(tok.note) ? tok.note : undefined });
-  add({ id: 'ids', label: 'Token ids', sub: 'T integers', role: 'activation' });
+
+  // Zone 1: host preprocessing (discrete text → prompt token ids)
+  blocks.push(
+    { id: 'text', label: 'Input text', sub: 'a string', role: 'activation', col: 0, row },
+    { id: 'tok', label: 'Tokenizer', sub: String(tok?.algorithm ?? 'splits text into ids'), role: 'op', col: 1, row, link: tok?.note && ctx.has(tok.note) ? tok.note : undefined },
+    { id: 'ids', label: 'Prompt token ids', sub: 'T integers', role: 'activation', col: 2, row },
+  );
+  edges.push({ from: 'text', to: 'tok' }, { from: 'tok', to: 'ids' });
+  row++;
+
+  // Prefill / decode step selector + forward pass entry
+  add({ id: 'selector', label: 'Step input selector', sub: 'prefill: T · decode: 1', role: 'route' });
   add({ id: 'emb', label: 'Embedding table', sub: `${V} × ${d}`, role: 'weight' });
   add({
     id: 'h0',
-    label: v('hc_streams') ? 'mHC residual' : 'Hidden states',
-    sub: v('hc_streams') ? `T × ${z('hc_streams', 'n_hc')} · ${d}` : `T × ${d}`,
+    label: hc ? 'mHC residual' : 'Hidden states',
+    sub: hc ? `T×${nhc}·${d} · step 1×${nhc}·${d}` : `T×${d} · decode 1×${d}`,
     role: 'activation',
-    ...(v('hc_streams') ? { open: 'mhc' } : {}),
+    ...(hc ? { open: 'mhc' } : {}),
   });
-  chain('text', 'tok', 'ids', 'emb', 'h0');
+  chain('ids', 'selector', 'emb', 'h0');
+
+  const ffnSlot = (ff) => {
+    const info = ffnInfo(m, ctx, ff);
+    if (info.role === 'route') {
+      return {
+        k: 'Norm → Route → FFN',
+        v: `${z('active_experts', 'K_r')}/${z('routed_experts', 'N_r')} experts${v('shared_experts') ? ' + shared' : ''}`,
+        role: 'route',
+      };
+    }
+    return { k: 'Norm → FFN', v: `Dense FFN (${z('ffn_hidden', 'd_ff')})` };
+  };
 
   const stack = [];
   const rs = layers ? runs(layers) : [];
   if (rs.length && rs.length <= 3) {
     for (const r of rs) {
       const [mx, ff] = [r.codes[0], r.codes[1]];
-      const label = `${mixerInfo(m, ctx, mx).short} + ${ff ? ffnInfo(m, ctx, ff).short : ''}`.trim();
-      stack.push(add({ id: `run-${r.from}`, label, sub: r.from === r.to ? `layer ${r.from}` : `layers ${r.from}–${r.to}`, role: 'op', open: 'layer' }));
+      const mi = mixerInfo(m, ctx, mx);
+      const slots = [{ k: 'Norm → Mixer', v: mi.label }];
+      if (ff) slots.push(ffnSlot(ff));
+      const label = rs.length === 1 ? 'Layer stack' : r.from === r.to ? `Layer ${r.from}` : `Layers ${r.from}–${r.to}`;
+      const sub = rs.length === 1 ? (hc ? '+ mHC residual' : '+ residual per sublayer') : undefined;
+      stack.push(add({ id: `run-${r.from}`, label, slots, sub, role: 'op', open: 'layer' }));
     }
+  } else if (layers) {
+    const mix = present('ACMG').map((c) => `${count(c)}× ${mixerInfo(m, ctx, c).short}`);
+    const ffs = present('DE');
+    const slots = [{ k: 'Norm → Mixer', v: mix.join(' · ') }];
+    if (ffs.length === 1) slots.push(ffnSlot(ffs[0]));
+    else if (ffs.length > 1) slots.push({ k: 'Norm → FFN', v: ffs.map((c) => ffnInfo(m, ctx, c).label).join(' / ') });
+    stack.push(add({ id: 'stack', label: 'Layer stack', slots, sub: 'interleaved · + residual', role: 'op', open: 'layer' }));
   } else {
-    const mix = present('ACMG').map((c) => `${access(m).count(c)} ${mixerInfo(m, ctx, c).short}`);
-    const mixSub = `${mix.join(' · ')}, interleaved`;
-    stack.push(add({ id: 'stack', label: 'Layer stack', sub: layers ? (mixSub.length <= 28 ? mixSub : mix.join(' · ')) : `${z('layers', 'L')} layers`, role: 'op', ...(layers ? { open: 'layer' } : {}) }));
+    stack.push(add({ id: 'stack', label: 'Layer stack', sub: `${z('layers', 'L')} layers`, role: 'op' }));
   }
   chain('h0', ...stack);
-  // What decoding keeps between steps, beside the stack.
-  const caches = present('ACMG').map((c) => mixerInfo(m, ctx, c).cache);
-  // Bytes per token across all layers (derived, 16-bit), when the data gives it.
+
+  // Per-layer caches beside the first stack block with bidirectional Write / Read arrows.
+  const mixCodes = present('ACMG');
   const kv = m.derived?.kv_bytes_per_token?.v;
   const kvPerToken = kv ? formatDerived(DERIVED.find((x) => x.key === 'kv_bytes_per_token'), kv) : null;
-  if (caches.length) {
-    blocks.push({ id: 'cache', label: caches.length > 1 ? 'Per-layer caches' : caches[0], sub: caches.length > 1 ? caches.join(' + ') : kvPerToken ? `${kvPerToken} per token` : 'kept between steps', role: 'cache', col: 2, row: blocks.find((b) => b.id === stack[0]).row, link: present('A').length ? linkIf(ctx, 'kv-cache') : undefined });
-    edges.push({ from: stack[0], to: 'cache', dashed: true });
+  const attn = String(v('attention') ?? '');
+  if (mixCodes.length) {
+    const stackRow = blocks.find((b) => b.id === stack[0]).row;
+    const cacheSlots = mixCodes.map((c) => {
+      const mi = mixerInfo(m, ctx, c);
+      if (c === 'A') {
+        const prefix = attn === 'mla' ? 'Latent KV' : 'KV cache';
+        return {
+          k: `${count(c)}× ${mi.short} · O(t)`,
+          v: kvPerToken ? `${prefix} (${kvPerToken}/tok)` : `${prefix} [t × kv]`,
+        };
+      }
+      if (c === 'C') return { k: `${count(c)}× Conv · O(1)`, v: `Conv window (k=${z('conv_window', 'k')})` };
+      if (c === 'G') return { k: `${count(c)}× DeltaNet · O(1)`, v: `State ${z('linear_v_heads', 'n_v')}×${z('linear_k_dim', 'd_qk')}×${z('linear_v_dim', 'd_v')}` };
+      return { k: `${count(c)}× ${mi.short} · O(1)`, v: 'Fixed SSM state' };
+    });
+    blocks.push({
+      id: 'cache',
+      label: mixCodes.length > 1 ? 'Per-layer caches' : mixerInfo(m, ctx, mixCodes[0]).cache,
+      slots: cacheSlots,
+      sub: mixCodes.length > 1 ? 'kept between steps' : undefined,
+      role: 'cache',
+      col: 2,
+      row: stackRow,
+      link: present('A').length ? linkIf(ctx, 'kv-cache') : undefined,
+    });
+    edges.push(
+      { from: stack[0], to: 'cache', kind: 'state', label: 'Write' },
+      { from: 'cache', to: stack[0], kind: 'state', label: 'Read past' },
+    );
   }
-  add({ id: 'fnorm', label: `Final ${normName(m)}`, sub: `T × ${d}`, role: 'op' });
-  add({ id: 'head', label: 'Output head', sub: v('tie_embeddings') === true ? `${d} × ${V}, tied` : `${d} × ${V}`, role: 'weight' });
-  add({ id: 'logits', label: 'Logits', sub: `T × ${V}`, role: 'activation' });
-  add({ id: 'sample', label: 'Softmax, sample', sub: 'next token id', role: 'op' });
-  chain(stack.at(-1), 'fnorm', 'head', 'logits', 'sample');
-  // Decoding loops: the sampled id is appended and the model runs again on one more token.
-  edges.push({ from: 'sample', to: 'ids', side: 'left', dashed: true });
+
+  add({ id: 'fnorm', label: `Final ${normName(m)}`, sub: `last pos (-1) → 1×${d}`, role: 'op' });
+  add({ id: 'head', label: 'Output head', sub: v('tie_embeddings') === true ? `${d}×${V} (tied)` : `${d}×${V}`, role: 'weight' });
+  add({ id: 'logits', label: 'Logits', sub: `1 × ${V}`, role: 'activation' });
+  chain(stack.at(-1), 'fnorm', 'head', 'logits');
+
+  if (v('tie_embeddings') === true) {
+    edges.push({ from: 'emb', to: 'head', side: 'left', kind: 'tied', label: 'tied' });
+  }
+
+  // Zone 3: decoding & control (sample → stop check → detokenize or loop back)
+  blocks.push(
+    { id: 'sample', label: 'Softmax, sample', sub: 'next token id', role: 'op', col: 0, row },
+    { id: 'stop', label: 'Stop check?', sub: 'EOS / max_len', role: 'route', col: 1, row },
+    { id: 'detok', label: 'Detokenizer', sub: 'ids → output text', role: 'op', col: 2, row, link: tok?.note && ctx.has(tok.note) ? tok.note : undefined },
+  );
+  edges.push(
+    { from: 'logits', to: 'sample' },
+    { from: 'sample', to: 'stop' },
+    { from: 'stop', to: 'detok', label: 'yes' },
+    { from: 'stop', to: 'selector', side: 'outer-left', kind: 'loop', label: 'no · next token' },
+  );
+
   if (v('engram_modules')) {
-    // Opposite the KV cache: lookup is from token ids, fused into the stack at selected layers.
-    const row = blocks.find((b) => b.id === stack[0]).row;
-    const free = !blocks.some((b) => b.col === 0 && b.row === row);
+    const stackRow = blocks.find((b) => b.id === stack[0]).row;
+    const free = !blocks.some((b) => b.col === 0 && b.row === stackRow);
     blocks.push({
       id: 'engram',
       label: 'Engram memory',
       sub: `${z('engram_modules', '2')} hashed n-gram tables`,
       role: 'weight',
       col: free ? 0 : 2,
-      row,
+      row: stackRow,
       open: 'engram',
     });
-    edges.push({ from: 'ids', to: 'engram', dashed: true }, { from: 'engram', to: stack[0] });
+    edges.push({ from: 'selector', to: 'engram', dashed: true }, { from: 'engram', to: stack[0] });
   }
   if (v('mtp_depth')) {
-    // Beside the last layer it reads from, so the arrow stays clear of the group label.
-    const row = blocks.find((b) => b.id === stack.at(-1)).row;
-    const free = !blocks.some((b) => b.col === 2 && b.row === row);
-    blocks.push({ id: 'mtp', label: 'MTP module', sub: 'one more token, training', role: 'op', col: free ? 2 : 0, row, open: 'mtp' });
+    const stackRow = blocks.find((b) => b.id === stack.at(-1)).row;
+    const free = !blocks.some((b) => b.col === 2 && b.row === stackRow);
+    blocks.push({ id: 'mtp', label: 'MTP module', sub: 'one more token, training', role: 'op', col: free ? 2 : 0, row: stackRow, open: 'mtp' });
     edges.push({ from: stack.at(-1), to: 'mtp', dashed: true });
   }
-  const groups = [{ label: layers ? `${n(layers.length)} layers` : 'layers', blocks: stack }];
-  return { title: `${m.title}, text to next token`, blocks, edges, groups };
+
+  const groups = [
+    { label: 'Host preprocessing', blocks: ['text', 'tok', 'ids'], pos: 'top-left', tone: 'zone' },
+    { label: layers ? `${n(layers.length)} layers` : 'layers', blocks: stack },
+    { label: 'Decoding & control', blocks: ['sample', 'stop', 'detok'], pos: 'top-right', tone: 'zone' },
+  ];
+  return { title: `${m.title}, text to next token`, blocks, edges, groups, gx: 72 };
 }
 
 /** Multi-head latent attention: queries and keys/values squeezed through latents, RoPE on a side path. */
