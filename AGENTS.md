@@ -147,6 +147,7 @@ Available in every note without imports. Full props are in each file under `src/
 | `<Cite>` | Inline citation of a source, with an optional location. |
 | `<Callout>` | `note`, `intuition` or `pitfall` asides. Use sparingly. |
 | `<Figure>` | A captioned wrapper for anything else. |
+| `<KernelSvmLab>` | Interactive SVM and kernel-methods lab (`src/lib/svmlab.mjs`): `boundary` view solves soft-margin SMO live on 2D presets or dragged/added points with kernel selector (Linear, Poly, RBF), $C$ and $\gamma$ sliders, margin contours, and support-vector halos; `lift` view shows 2D input space beside an interactive rotatable 3D feature space $\phi(x)$ where a flat plane separates non-linear classes. |
 | `<Words>` | The written explanation folded behind "Read the words", placed right after the picture it explains, so a note reads as pictures first. |
 
 Block roles in `ArchDiagram` (and bar roles in `Calc`) have fixed meanings across the whole site. Use them only for what they mean:

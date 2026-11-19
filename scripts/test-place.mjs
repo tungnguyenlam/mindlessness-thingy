@@ -172,6 +172,27 @@ async function scenario(mode) {
     })()`);
     check('audio lab restores preset and spectrogram format', audioBack.preset === 'true' && audioBack.format === 'true', `${audioBack.preset}/${audioBack.format}`);
 
+    // ---- 1f. <KernelSvmLab> keeps its selected preset and kernel ----
+    await goto('/notes/kernel-methods-and-svm/');
+    await evaluate(`(() => {
+      const lab = document.querySelector('x-kernelsvm[data-view="boundary"]');
+      lab.querySelector('[data-preset="moons"]').click();
+      lab.querySelector('[data-kernel="poly"]').click();
+      const a = [...document.querySelectorAll('.prose a.wikilink')].find((l) => l.checkVisibility());
+      a.setAttribute('data-test-ksvm', '');
+    })()`);
+    await click('[data-test-ksvm]', { navigates: true });
+    await click('.trail-back');
+    await backAt('/notes/kernel-methods-and-svm/');
+    const ksvmBack = await evaluate(`(() => {
+      const lab = document.querySelector('x-kernelsvm[data-view="boundary"]');
+      return {
+        preset: lab.querySelector('[data-preset="moons"]')?.getAttribute('aria-selected'),
+        kernel: lab.querySelector('[data-kernel="poly"]')?.getAttribute('aria-selected'),
+      };
+    })()`);
+    check('kernel-svm lab restores preset and kernel', ksvmBack.preset === 'true' && ksvmBack.kernel === 'true', `${ksvmBack.preset}/${ksvmBack.kernel}`);
+
     await goto('/notes/mla/');
 
     // ---- 2. Two hops deep (prose, then side panel), unwind with the B key ----

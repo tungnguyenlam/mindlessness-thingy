@@ -1,0 +1,80 @@
+---
+title: Kernel methods and support vector machines
+kind: concept
+summary: "Support vector machines find the widest street between classes using only boundary points, and the kernel trick lets that linear street bend in input space by computing dot products in a higher-dimensional feature space."
+domains: [ml-fundamentals, generalization]
+prerequisites: []
+builds_on: []
+contrasts_with: []
+related: [bias-variance-tradeoff]
+sources: [boser-guyon-vapnik-1992, cortes-vapnik-1995, esl-book]
+status: draft
+updated: 2026-11-19
+---
+
+Many lines can separate two clusters of points, but most sit dangerously close to one side. A **support vector machine** (SVM) picks the line that leaves the widest empty street between the classes <Cite id="cortes-vapnik-1995" where="§1" />. When no straight line can separate the data, **kernel methods** lift the points into a richer feature space where a flat hyperplane can, without ever writing down the lifted coordinates <Cite id="boser-guyon-vapnik-1992" where="§2" />.
+
+## Maximum margin and support vectors
+
+<KernelSvmLab
+  title="Interactive SVM: drag points, switch datasets, and tune C and γ"
+  view="boundary"
+  preset="linear"
+  kernel="linear"
+  C={2}
+  gamma={1.5}
+  caption="Only points with a teal ring (support vectors, α_i > 0) hold up the boundary. Drag a non-ringed point and the line stays put; drag a support vector and the street shifts."
+/>
+
+A linear classifier predicts the sign of $f(x) = w^\top x + b$, where $w$ is the normal vector to the boundary and $b$ is the offset. Rescaling $w$ and $b$ together does not change the line, so we pin the closest points on each side to lie at $y_i (w^\top x_i + b) = 1$, where $y_i \in \{+1, -1\}$ is the class label. With that convention, the perpendicular distance between the two dashed margin lines is $2 / \|w\|$ <Cite id="esl-book" where="§4.5.2" />.
+
+Real datasets overlap, so we allow each point $i$ a slack $\xi_i \ge 0$ that measures how far it crosses its margin boundary <Cite id="cortes-vapnik-1995" where="§2" />. Training minimizes a balance between a wide street and few violations:
+
+$$\min_{w, b, \xi} \; \frac{1}{2}\|w\|^2 + C \sum_{i=1}^{n} \xi_i \qquad \text{subject to} \quad y_i(w^\top x_i + b) \ge 1 - \xi_i, \quad \xi_i \ge 0$$
+
+Here $C > 0$ is the margin penalty. A small $C$ tolerates margin violations to keep $\|w\|$ small and the street wide. A large $C$ punishes every violation, which shrinks the street and chases individual points.
+
+Points that sit safely outside the margin have $\alpha_i = 0$ in the dual solution and exert zero pull on the boundary. Only the **support vectors**—points on the margin edge or inside it, with $0 < \alpha_i \le C$—determine $w$ and $b$ <Cite id="esl-book" where="§12.2.1" />.
+
+## The dual form and the kernel trick
+
+<KernelSvmLab
+  title="The kernel trick: a flat plane in 3D becomes a curved boundary in 2D"
+  view="lift"
+  preset="circles"
+  caption="In 2D (left), no straight line separates the inner circle from the outer ring. Lifting each point to φ(x) in 3D (right) lets a flat plane slice cleanly between them. Drag the 3D plot to rotate it."
+/>
+
+If you switch the dataset above to **Circles** or **XOR**, a linear kernel fails because no straight line in 2D can separate the classes. Yet a simple quadratic map $\phi(x_1, x_2) = (x_1^2, \sqrt{2} x_1 x_2, x_2^2)$ turns concentric circles into different heights along $x_1^2 + x_2^2$, where a flat 3D plane separates them effortlessly.
+
+You do not need to compute $\phi(x)$ explicitly. In the dual formulation of the SVM, training points enter only through inner products $\langle \phi(x_i), \phi(x_j) \rangle$ <Cite id="boser-guyon-vapnik-1992" where="§2" />. Replacing every dot product with a **kernel function** $K(x_i, x_j) = \langle \phi(x_i), \phi(x_j) \rangle$ lets the algorithm operate in high-dimensional or even infinite-dimensional spaces at the cost of evaluating $K$ on pairs of inputs.
+
+<Stepper title="From linear dot products to a kernelized classifier">
+  <Step title="Write w as a sum of training points">
+    At the optimum, the primal weight vector is a weighted sum of the lifted training inputs: $w = \sum_{i=1}^{n} \alpha_i y_i \phi(x_i)$, where $\alpha_i \ge 0$ is zero for every non-support vector <Cite id="esl-book" where="§12.2.1" />.
+  </Step>
+  <Step title="Substitute w into the prediction rule">
+    Plugging $w$ into $f(x) = w^\top \phi(x) + b$ turns the feature-space dot product into a sum over training points: $f(x) = \sum_{i=1}^{n} \alpha_i y_i \langle \phi(x_i), \phi(x) \rangle + b$.
+  </Step>
+  <Step title="Swap the inner product for K(x_i, x)">
+    Define $K(x_i, x) = \langle \phi(x_i), \phi(x) \rangle$. For example, $(\langle x_i, x \rangle)^2$ equals $\langle \phi(x_i), \phi(x) \rangle$ for the 3D quadratic map above, using only a 2D dot product and a square. Any symmetric positive-semidefinite function $K$ corresponds to a valid inner product in a reproducing kernel Hilbert space <Cite id="esl-book" where="§5.8; §12.3" />.
+  </Step>
+</Stepper>
+
+## Common kernels and their knobs
+
+<Spec
+  title="Standard kernels and their parameters"
+  columns={['Kernel', 'K(x, x\')', 'Knobs', 'Boundary shape']}
+  rows={[
+    { label: 'Linear', values: ['xᵀx′', 'C', 'Flat hyperplane'], source: 'esl-book', where: '§12.2' },
+    { label: 'Polynomial', values: ['(γ xᵀx′ + r)^d', 'd, γ, C', 'Degree-d curve'], source: 'esl-book', where: '§12.3' },
+    { label: 'RBF', values: ['exp(−γ ‖x − x′‖²)', 'γ, C', 'Local bumps'], source: 'esl-book', where: '§12.3' },
+  ]}
+/>
+
+In the RBF kernel, $\gamma = 1 / (2\ell^2)$ sets the width of each point's neighborhood. A small $\gamma$ gives a wide kernel that averages over broad regions, producing a smooth, higher-bias boundary. A large $\gamma$ shrinks each point's influence to a tight island, letting the boundary wrap around individual dots and raising variance—the same knob explored in [[bias-variance-tradeoff]] <Cite id="esl-book" where="§12.3" />.
+
+<Callout type="pitfall">
+Because linear, polynomial, and RBF kernels all measure Euclidean dot products or distances $\|x - x'\|^2$, one feature with a large numeric range will dominate the kernel. Standardize input features to comparable scale before fitting an SVM, and tune $C$ and $\gamma$ together on a validation set.
+</Callout>

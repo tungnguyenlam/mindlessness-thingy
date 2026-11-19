@@ -140,6 +140,7 @@ export const PLACES = {
   'contrastive-world-models': { pipe: 'world', at: 'signal', short: 'Contrastive', role: 'learns without drawing pixels' },
   'bias-variance-tradeoff': { pipe: 'learn', at: 'test', short: 'Bias–variance', role: 'splits test error into its parts' },
   'double-descent': { pipe: 'learn', at: 'model', short: 'Double descent', role: 'how error moves as the model grows' },
+  'kernel-methods-and-svm': { pipe: 'learn', at: 'fit', short: 'Kernels & SVM', role: 'finds a max-margin boundary in a kernel feature space' },
 };
 
 /** Tokenizer notes sit on the tokenizer part. */

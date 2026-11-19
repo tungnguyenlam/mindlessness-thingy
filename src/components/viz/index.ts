@@ -10,6 +10,7 @@ import Compare from './Compare.astro';
 import ConvTokens from './ConvTokens.astro';
 import DecodeGrid from './DecodeGrid.astro';
 import Figure from './Figure.astro';
+import KernelSvmLab from './KernelSvmLab.astro';
 import LayerStrip from './LayerStrip.astro';
 import MaskGrid from './MaskGrid.astro';
 import ModelDiagram from './ModelDiagram.astro';
@@ -28,4 +29,4 @@ import TokenizerCompare from './TokenizerCompare.astro';
 import TokenizerFlow from './TokenizerFlow.astro';
 import Words from './Words.astro';
 
-export const vizComponents = { ArchDiagram, AudioLab, BiasVariance, Calc, Callout, Cite, Compare, ConvTokens, DecodeGrid, Figure, LayerStrip, MaskGrid, ModelDiagram, ModelOverview, ModelSpec, NgramLookup, NormLab, Scene, ShapeFlow, Spec, Step, Stepper, Timeline, Tokenizer, TokenizerCompare, TokenizerFlow, Words };
+export const vizComponents = { ArchDiagram, AudioLab, BiasVariance, Calc, Callout, Cite, Compare, ConvTokens, DecodeGrid, Figure, KernelSvmLab, LayerStrip, MaskGrid, ModelDiagram, ModelOverview, ModelSpec, NgramLookup, NormLab, Scene, ShapeFlow, Spec, Step, Stepper, Timeline, Tokenizer, TokenizerCompare, TokenizerFlow, Words };

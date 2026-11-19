@@ -1,0 +1,994 @@
+---
+// Interactive Kernel Methods & Support Vector Machine lab (src/lib/svmlab.mjs).
+// Two views:
+//   view="boundary": 2D SVM decision boundary, margin gutters, support vectors, live drag/add points,
+//                    kernel selector (linear / poly / rbf), C and gamma sliders.
+//   view="lift":     2D input space -> 3D lifted feature space (phi(x)) with interactive 3D orbit
+//                    showing a flat hyperplane separating non-linearly-separable classes.
+interface Props {
+  title: string;
+  view?: 'boundary' | 'lift';
+  preset?: 'linear' | 'circles' | 'moons' | 'xor';
+  kernel?: 'linear' | 'poly' | 'rbf';
+  C?: number;
+  gamma?: number;
+  caption?: string;
+}
+
+const {
+  title,
+  view = 'boundary',
+  preset = view === 'lift' ? 'circles' : 'linear',
+  kernel = view === 'lift' ? 'poly' : 'linear',
+  C = 2,
+  gamma = 1.5,
+  caption,
+} = Astro.props;
+
+const config = JSON.stringify({ view, preset, kernel, C, gamma });
+---
+
+<figure class="ksvm-fig">
+  <x-kernelsvm class="ksvm ui" data-view={view} data-restorable>
+    <script type="application/json" set:html={config} />
+    <div class="ksvm-head">
+      <p class="ksvm-title">{title}</p>
+      <div class="ksvm-presets" role="tablist" aria-label="Dataset preset">
+        <button type="button" role="tab" data-preset="linear" aria-selected={preset === 'linear' ? 'true' : 'false'}>Linear</button>
+        <button type="button" role="tab" data-preset="circles" aria-selected={preset === 'circles' ? 'true' : 'false'}>Circles</button>
+        <button type="button" role="tab" data-preset="moons" aria-selected={preset === 'moons' ? 'true' : 'false'}>Moons</button>
+        <button type="button" role="tab" data-preset="xor" aria-selected={preset === 'xor' ? 'true' : 'false'}>XOR</button>
+      </div>
+    </div>
+
+    {view === 'boundary' ? (
+      <div class="ksvm-body">
+        <div class="ksvm-stage">
+          <div class="ksvm-plot-wrap">
+            <canvas class="ksvm-heat" width="180" height="180" aria-hidden="true"></canvas>
+            <svg class="ksvm-svg" viewBox="0 0 360 360" role="img" aria-label="2D SVM decision boundary and margin"></svg>
+          </div>
+          <div class="ksvm-toolbar">
+            <div class="ksvm-brush" role="group" aria-label="Click-to-add class">
+              <span class="ksvm-lbl">Click plot to add:</span>
+              <button type="button" class="ksvm-pill is-pos" data-brush="1" aria-pressed="true">+1</button>
+              <button type="button" class="ksvm-pill is-neg" data-brush="-1" aria-pressed="false">-1</button>
+            </div>
+            <button type="button" class="ksvm-reset" data-action="reset">Reset points</button>
+          </div>
+        </div>
+
+        <div class="ksvm-side">
+          <div class="ksvm-group">
+            <span class="ksvm-lbl">Kernel</span>
+            <div class="ksvm-segs" role="tablist" aria-label="Kernel function">
+              <button type="button" role="tab" data-kernel="linear" aria-selected={kernel === 'linear' ? 'true' : 'false'}>Linear</button>
+              <button type="button" role="tab" data-kernel="poly" aria-selected={kernel === 'poly' ? 'true' : 'false'}>Poly (d=2)</button>
+              <button type="button" role="tab" data-kernel="rbf" aria-selected={kernel === 'rbf' ? 'true' : 'false'}>RBF</button>
+            </div>
+          </div>
+
+          <label class="ksvm-slider">
+            <span class="ksvm-slider-row">
+              <span>Margin penalty <em>C</em></span>
+              <output data-for="C">{C}</output>
+            </span>
+            <input type="range" name="C" min="-1.3" max="2" step="0.05" value={Math.log10(C).toFixed(2)} />
+            <span class="ksvm-ends"><span>wide street (soft)</span><span>strict fit (hard)</span></span>
+          </label>
+
+          <label class="ksvm-slider" data-gamma-wrap>
+            <span class="ksvm-slider-row">
+              <span>Kernel width <em>γ</em></span>
+              <output data-for="gamma">{gamma}</output>
+            </span>
+            <input type="range" name="gamma" min="-1" max="1" step="0.05" value={Math.log10(gamma).toFixed(2)} />
+            <span class="ksvm-ends"><span>broad / smooth</span><span>tight / local</span></span>
+          </label>
+
+          <dl class="ksvm-stats">
+            <div><dt>Support vectors</dt><dd data-stat="sv">—</dd></div>
+            <div><dt>Margin 2/||w||</dt><dd data-stat="margin">—</dd></div>
+            <div><dt>Accuracy</dt><dd data-stat="acc">—</dd></div>
+            <div><dt>Inside margin</dt><dd data-stat="viol">—</dd></div>
+          </dl>
+
+          <ul class="ksvm-legend">
+            <li><i class="dot-pos"></i>class +1</li>
+            <li><i class="dot-neg"></i>class -1</li>
+            <li><i class="dot-sv"></i>support vector (α &gt; 0)</li>
+            <li><i class="line-bound"></i>f(x) = 0</li>
+            <li><i class="line-margin"></i>margin f(x) = ±1</li>
+          </ul>
+          <p class="ksvm-hint">Drag any dot to move it, or click empty space to add a point.</p>
+        </div>
+      </div>
+    ) : (
+      <div class="ksvm-body ksvm-body-lift">
+        <div class="ksvm-lift-grid">
+          <div class="ksvm-panel">
+            <p class="ksvm-subhead">1. Input space (2D): curved boundary</p>
+            <svg class="ksvm-lift-2d" viewBox="0 0 280 280" role="img" aria-label="2D input space"></svg>
+          </div>
+          <div class="ksvm-panel">
+            <p class="ksvm-subhead">2. Feature space φ(x) (3D): flat plane</p>
+            <svg class="ksvm-lift-3d" viewBox="0 0 320 280" role="img" aria-label="3D lifted feature space"></svg>
+          </div>
+        </div>
+        <div class="ksvm-lift-controls">
+          <div class="ksvm-segs" role="tablist" aria-label="Feature map">
+            <button type="button" role="tab" data-lift="quad" aria-selected="true">Quadratic φ(x) = (x₁², √2 x₁x₂, x₂²)</button>
+            <button type="button" role="tab" data-lift="rbf" aria-selected="false">Radial bump (x₁, x₂, exp(-γ||x||²))</button>
+          </div>
+          <div class="ksvm-orbit-btns">
+            <button type="button" data-orbit="side">3D view</button>
+            <button type="button" data-orbit="top">Top (2D)</button>
+            <span class="ksvm-hint">Drag 3D plot to rotate · hover a dot to link 2D ↔ 3D</span>
+          </div>
+        </div>
+      </div>
+    )}
+  </x-kernelsvm>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .ksvm-fig {
+    margin: 1.5rem auto;
+    max-width: var(--wide);
+  }
+  .ksvm-fig figcaption {
+    margin-top: 0.55rem;
+    font-family: var(--font-ui);
+    font-size: var(--step--1);
+    color: var(--ink-soft);
+    line-height: 1.45;
+  }
+  .ksvm {
+    display: block;
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-panel);
+    padding: 0.9rem 1rem 1rem;
+    font-family: var(--font-ui);
+    color: var(--ink);
+  }
+  .ksvm-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 1px solid var(--rule-soft);
+    margin-bottom: 0.85rem;
+  }
+  .ksvm-title {
+    margin: 0;
+    font-weight: 600;
+    font-size: var(--step-0);
+    color: var(--ink);
+  }
+  .ksvm-presets,
+  .ksvm-segs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    background: var(--paper);
+    padding: 0.2rem;
+    border-radius: var(--radius-block);
+    border: 1px solid var(--rule-soft);
+  }
+  .ksvm-presets button,
+  .ksvm-segs button,
+  .ksvm-pill,
+  .ksvm-reset,
+  .ksvm-orbit-btns button {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ink-soft);
+    font-family: var(--font-ui);
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.25rem 0.55rem;
+    border-radius: var(--radius-block);
+    cursor: pointer;
+    line-height: 1.2;
+  }
+  .ksvm-presets button[aria-selected='true'],
+  .ksvm-segs button[aria-selected='true'] {
+    background: var(--paper-raised);
+    color: var(--ink);
+    border-color: var(--rule);
+    box-shadow: 0 1px 2px rgba(20, 33, 61, 0.06);
+  }
+  .ksvm-body {
+    display: grid;
+    grid-template-columns: minmax(250px, 360px) minmax(220px, 1fr);
+    gap: 1rem 1.25rem;
+    align-items: start;
+  }
+  .ksvm-body-lift {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .ksvm-lift-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+  }
+  .ksvm-panel {
+    background: var(--paper);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-block);
+    padding: 0.5rem;
+  }
+  .ksvm-subhead {
+    margin: 0 0 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ink-soft);
+  }
+  .ksvm-plot-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-block);
+    overflow: hidden;
+    touch-action: none;
+  }
+  .ksvm-heat {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    pointer-events: none;
+  }
+  .ksvm-svg,
+  .ksvm-lift-2d,
+  .ksvm-lift-3d {
+    position: relative;
+    width: 100%;
+    height: auto;
+    display: block;
+    user-select: none;
+  }
+  .ksvm-lift-3d {
+    cursor: grab;
+    touch-action: none;
+  }
+  .ksvm-lift-3d:active {
+    cursor: grabbing;
+  }
+  .ksvm-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    margin-top: 0.5rem;
+  }
+  .ksvm-brush {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .ksvm-lbl {
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+  .ksvm-pill {
+    border-color: var(--rule);
+    background: var(--paper);
+  }
+  .ksvm-pill.is-pos[aria-pressed='true'] {
+    background: var(--role-activation-wash);
+    border-color: var(--role-activation);
+    color: var(--role-activation);
+    font-weight: 600;
+  }
+  .ksvm-pill.is-neg[aria-pressed='true'] {
+    background: #fbe6dc;
+    border-color: var(--series-bias);
+    color: var(--series-bias);
+    font-weight: 600;
+  }
+  .ksvm-reset,
+  .ksvm-orbit-btns button {
+    border-color: var(--rule);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .ksvm-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .ksvm-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .ksvm-slider {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.82rem;
+  }
+  .ksvm-slider[hidden] {
+    display: none;
+  }
+  .ksvm-slider-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .ksvm-slider-row output {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--ink);
+  }
+  .ksvm-slider input[type='range'] {
+    width: 100%;
+    accent-color: var(--role-activation);
+  }
+  .ksvm-ends {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+  }
+  .ksvm-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem 0.6rem;
+    margin: 0;
+    padding: 0.55rem 0.65rem;
+    background: var(--paper);
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-block);
+  }
+  .ksvm-stats dt {
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+  }
+  .ksvm-stats dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .ksvm-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.85rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.76rem;
+    color: var(--ink-soft);
+  }
+  .ksvm-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+  }
+  .ksvm-legend i {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .dot-pos { background: var(--role-activation); }
+  .dot-neg { background: var(--series-bias); }
+  .dot-sv { border: 2px solid var(--role-cache); background: transparent; }
+  .ksvm-legend i.line-bound {
+    width: 14px;
+    height: 2px;
+    border-radius: 0;
+    background: var(--ink);
+  }
+  .ksvm-legend i.line-margin {
+    width: 14px;
+    height: 0;
+    border-radius: 0;
+    border-top: 2px dashed var(--ink-soft);
+  }
+  .ksvm-hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--ink-faint);
+  }
+  .ksvm-lift-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .ksvm-orbit-btns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  @media (max-width: 680px) {
+    .ksvm-body,
+    .ksvm-lift-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  import { PRESETS, solveSVM, liftPoint, solveLinear3D } from '../../lib/svmlab.mjs';
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag: string, attrs: Record<string, string | number> = {}) => {
+    const node = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+    return node;
+  };
+
+  // Marching squares for a scalar field grid[iy][ix] at threshold `level`.
+  function contourPaths(grid: number[][], level: number, W: number, H: number): string {
+    const rows = grid.length - 1;
+    const cols = grid[0].length - 1;
+    const dx = W / cols;
+    const dy = H / rows;
+    const segs: string[] = [];
+    const interp = (a: number, b: number) => {
+      const d = b - a;
+      if (Math.abs(d) < 1e-9) return 0.5;
+      return Math.max(0, Math.min(1, (level - a) / d));
+    };
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v0 = grid[r][c];
+        const v1 = grid[r][c + 1];
+        const v2 = grid[r + 1][c + 1];
+        const v3 = grid[r + 1][c];
+        const idx =
+          (v0 >= level ? 8 : 0) |
+          (v1 >= level ? 4 : 0) |
+          (v2 >= level ? 2 : 0) |
+          (v3 >= level ? 1 : 0);
+        if (idx === 0 || idx === 15) continue;
+        const top = [(c + interp(v0, v1)) * dx, r * dy];
+        const right = [(c + 1) * dx, (r + interp(v1, v2)) * dy];
+        const bottom = [(c + interp(v3, v2)) * dx, (r + 1) * dy];
+        const left = [c * dx, (r + interp(v0, v3)) * dy];
+        const add = (p: number[], q: number[]) =>
+          segs.push(`M${p[0].toFixed(1)},${p[1].toFixed(1)}L${q[0].toFixed(1)},${q[1].toFixed(1)}`);
+        switch (idx) {
+          case 1: case 14: add(left, bottom); break;
+          case 2: case 13: add(bottom, right); break;
+          case 3: case 12: add(left, right); break;
+          case 4: case 11: add(top, right); break;
+          case 5: add(top, left); add(bottom, right); break;
+          case 6: case 9: add(top, bottom); break;
+          case 7: case 8: add(top, left); break;
+          case 10: add(top, right); add(bottom, left); break;
+        }
+      }
+    }
+    return segs.join('');
+  }
+
+  class KernelSvmLab extends HTMLElement {
+    cfg: { view: 'boundary' | 'lift'; preset: string; kernel: string; C: number; gamma: number };
+    preset: string;
+    kernel: string;
+    C: number;
+    gamma: number;
+    brush: 1 | -1;
+    liftMode: 'quad' | 'rbf';
+    yaw: number;
+    pitch: number;
+    points: Array<{ x: number; y: number; c: 1 | -1 }>;
+    hoverIdx: number;
+    pendingState: unknown;
+    readyFlag: boolean;
+
+    constructor() {
+      super();
+      this.cfg = JSON.parse(this.querySelector('script[type="application/json"]')?.textContent || '{}');
+      this.preset = this.cfg.preset || 'linear';
+      this.kernel = this.cfg.kernel || 'linear';
+      this.C = this.cfg.C ?? 2;
+      this.gamma = this.cfg.gamma ?? 1.5;
+      this.brush = 1;
+      this.liftMode = 'quad';
+      this.yaw = 0.65;
+      this.pitch = 0.48;
+      this.points = (PRESETS[this.preset as keyof typeof PRESETS]?.points || PRESETS.linear.points).map((p) => ({ ...p }));
+      this.hoverIdx = -1;
+      this.pendingState = null;
+      this.readyFlag = false;
+    }
+
+    connectedCallback() {
+      this.bindEvents();
+      if (this.pendingState) {
+        this.applyState(this.pendingState);
+        this.pendingState = null;
+      }
+      this.render();
+      this.readyFlag = true;
+    }
+
+    snapshot() {
+      const def = this.cfg;
+      const changed =
+        this.preset !== def.preset ||
+        this.kernel !== def.kernel ||
+        Math.abs(this.C - def.C) > 1e-4 ||
+        Math.abs(this.gamma - def.gamma) > 1e-4 ||
+        this.liftMode !== 'quad' ||
+        this.brush !== 1 ||
+        Math.abs(this.yaw - 0.65) > 0.01 ||
+        Math.abs(this.pitch - 0.48) > 0.01;
+      if (!changed) return null;
+      return {
+        preset: this.preset,
+        kernel: this.kernel,
+        C: this.C,
+        gamma: this.gamma,
+        liftMode: this.liftMode,
+        yaw: this.yaw,
+        pitch: this.pitch,
+        brush: this.brush,
+        points: this.points,
+      };
+    }
+
+    restore(state: unknown) {
+      if (!state || typeof state !== 'object') return;
+      if (!this.readyFlag) {
+        this.pendingState = state;
+        return;
+      }
+      this.applyState(state);
+      this.render();
+    }
+
+    applyState(s: Record<string, any>) {
+      if (s.preset && s.preset in PRESETS) this.preset = s.preset;
+      if (s.kernel) this.kernel = s.kernel;
+      if (typeof s.C === 'number') this.C = s.C;
+      if (typeof s.gamma === 'number') this.gamma = s.gamma;
+      if (s.liftMode === 'quad' || s.liftMode === 'rbf') this.liftMode = s.liftMode;
+      if (typeof s.yaw === 'number') this.yaw = s.yaw;
+      if (typeof s.pitch === 'number') this.pitch = s.pitch;
+      if (s.brush === 1 || s.brush === -1) this.brush = s.brush;
+      if (Array.isArray(s.points)) this.points = s.points.map((p) => ({ x: p.x, y: p.y, c: p.c }));
+      this.syncControls();
+    }
+
+    syncControls() {
+      this.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((b) =>
+        b.setAttribute('aria-selected', String(b.dataset.preset === this.preset))
+      );
+      this.querySelectorAll<HTMLButtonElement>('[data-kernel]').forEach((b) =>
+        b.setAttribute('aria-selected', String(b.dataset.kernel === this.kernel))
+      );
+      this.querySelectorAll<HTMLButtonElement>('[data-lift]').forEach((b) =>
+        b.setAttribute('aria-selected', String(b.dataset.lift === this.liftMode))
+      );
+      this.querySelectorAll<HTMLButtonElement>('[data-brush]').forEach((b) =>
+        b.setAttribute('aria-pressed', String(Number(b.dataset.brush) === this.brush))
+      );
+      const cIn = this.querySelector<HTMLInputElement>('input[name="C"]');
+      const cOut = this.querySelector<HTMLOutputElement>('output[data-for="C"]');
+      if (cIn && cOut) {
+        cIn.value = Math.log10(this.C).toFixed(2);
+        cOut.textContent = this.C < 1 ? this.C.toFixed(2) : this.C.toFixed(1);
+      }
+      const gIn = this.querySelector<HTMLInputElement>('input[name="gamma"]');
+      const gOut = this.querySelector<HTMLOutputElement>('output[data-for="gamma"]');
+      if (gIn && gOut) {
+        gIn.value = Math.log10(this.gamma).toFixed(2);
+        gOut.textContent = this.gamma.toFixed(2);
+      }
+    }
+
+    bindEvents() {
+      this.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const p = btn.dataset.preset!;
+          this.preset = p;
+          this.points = PRESETS[p as keyof typeof PRESETS].points.map((pt) => ({ ...pt }));
+          if (this.cfg.view === 'boundary' && p !== 'linear' && this.kernel === 'linear') {
+            this.kernel = 'rbf';
+          }
+          this.syncControls();
+          this.render();
+        });
+      });
+
+      this.querySelectorAll<HTMLButtonElement>('[data-kernel]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.kernel = btn.dataset.kernel!;
+          this.syncControls();
+          this.render();
+        });
+      });
+
+      this.querySelectorAll<HTMLButtonElement>('[data-brush]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.brush = Number(btn.dataset.brush) as 1 | -1;
+          this.syncControls();
+        });
+      });
+
+      this.querySelector<HTMLButtonElement>('[data-action="reset"]')?.addEventListener('click', () => {
+        this.points = PRESETS[this.preset as keyof typeof PRESETS].points.map((pt) => ({ ...pt }));
+        this.render();
+      });
+
+      this.querySelector<HTMLInputElement>('input[name="C"]')?.addEventListener('input', (e) => {
+        this.C = Math.pow(10, Number((e.target as HTMLInputElement).value));
+        this.syncControls();
+        this.render();
+      });
+
+      this.querySelector<HTMLInputElement>('input[name="gamma"]')?.addEventListener('input', (e) => {
+        this.gamma = Math.pow(10, Number((e.target as HTMLInputElement).value));
+        this.syncControls();
+        this.render();
+      });
+
+      this.querySelectorAll<HTMLButtonElement>('[data-lift]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.liftMode = btn.dataset.lift as 'quad' | 'rbf';
+          this.syncControls();
+          this.render();
+        });
+      });
+
+      this.querySelectorAll<HTMLButtonElement>('[data-orbit]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (btn.dataset.orbit === 'top') {
+            this.yaw = 0;
+            this.pitch = 1.54;
+          } else {
+            this.yaw = 0.65;
+            this.pitch = 0.48;
+          }
+          this.render();
+        });
+      });
+
+      // Interactive 2D drag/add on boundary SVG
+      const svg2d = this.querySelector<SVGSVGElement>('.ksvm-svg');
+      if (svg2d) {
+        let dragIdx = -1;
+        let moved = false;
+        const toData = (ev: PointerEvent) => {
+          const rect = svg2d.getBoundingClientRect();
+          const px = ((ev.clientX - rect.left) / rect.width) * 360;
+          const py = ((ev.clientY - rect.top) / rect.height) * 360;
+          return {
+            x: ((px / 360) * 3.2 - 1.6),
+            y: (1.6 - (py / 360) * 3.2),
+          };
+        };
+        svg2d.addEventListener('pointerdown', (ev) => {
+          const target = ev.target as Element;
+          const idxAttr = target?.getAttribute('data-idx');
+          if (idxAttr !== null && idxAttr !== undefined) {
+            dragIdx = Number(idxAttr);
+            moved = false;
+            svg2d.setPointerCapture(ev.pointerId);
+          } else {
+            const pt = toData(ev);
+            if (Math.abs(pt.x) <= 1.52 && Math.abs(pt.y) <= 1.52) {
+              this.points.push({ x: +pt.x.toFixed(3), y: +pt.y.toFixed(3), c: this.brush });
+              this.render();
+            }
+          }
+        });
+        svg2d.addEventListener('pointermove', (ev) => {
+          if (dragIdx < 0) return;
+          moved = true;
+          const pt = toData(ev);
+          this.points[dragIdx].x = Math.max(-1.5, Math.min(1.5, pt.x));
+          this.points[dragIdx].y = Math.max(-1.5, Math.min(1.5, pt.y));
+          this.render();
+        });
+        const endDrag = () => {
+          dragIdx = -1;
+          if (moved) this.render();
+        };
+        svg2d.addEventListener('pointerup', endDrag);
+        svg2d.addEventListener('pointercancel', endDrag);
+      }
+
+      // Interactive 3D orbit on lift-3d SVG
+      const svg3d = this.querySelector<SVGSVGElement>('.ksvm-lift-3d');
+      if (svg3d) {
+        let dragging = false;
+        let lx = 0;
+        let ly = 0;
+        svg3d.addEventListener('pointerdown', (ev) => {
+          dragging = true;
+          lx = ev.clientX;
+          ly = ev.clientY;
+          svg3d.setPointerCapture(ev.pointerId);
+        });
+        svg3d.addEventListener('pointermove', (ev) => {
+          if (!dragging) return;
+          const dx = ev.clientX - lx;
+          const dy = ev.clientY - ly;
+          lx = ev.clientX;
+          ly = ev.clientY;
+          this.yaw += dx * 0.012;
+          this.pitch = Math.max(-1.54, Math.min(1.54, this.pitch + dy * 0.012));
+          this.renderLift();
+        });
+        svg3d.addEventListener('pointerup', () => (dragging = false));
+        svg3d.addEventListener('pointercancel', () => (dragging = false));
+      }
+
+      this.syncControls();
+    }
+
+    render() {
+      if (this.cfg.view === 'boundary') this.renderBoundary();
+      else this.renderLift();
+    }
+
+    renderBoundary() {
+      const gWrap = this.querySelector<HTMLElement>('[data-gamma-wrap]');
+      if (gWrap) gWrap.hidden = this.kernel === 'linear';
+
+      const svm = solveSVM(this.points, {
+        kernel: this.kernel,
+        C: this.C,
+        gamma: this.gamma,
+        degree: 2,
+      });
+
+      // Update stats
+      const setStat = (k: string, v: string) => {
+        const node = this.querySelector(`[data-stat="${k}"]`);
+        if (node) node.textContent = v;
+      };
+      setStat('sv', `${svm.svCount} / ${this.points.length}`);
+      setStat('margin', svm.marginWidth ? svm.marginWidth.toFixed(2) : '—');
+      setStat('acc', `${Math.round(svm.accuracy * 100)}%`);
+      setStat('viol', String(svm.violations));
+
+      // Draw heatmap on canvas
+      const canvas = this.querySelector<HTMLCanvasElement>('.ksvm-heat');
+      if (canvas) {
+        const ctx = canvas.getContext('2d')!;
+        const W = canvas.width;
+        const H = canvas.height;
+        const img = ctx.createImageData(W, H);
+        const d = img.data;
+        for (let py = 0; py < H; py++) {
+          const y = 1.6 - (py / (H - 1)) * 3.2;
+          for (let px = 0; px < W; px++) {
+            const x = (px / (W - 1)) * 3.2 - 1.6;
+            const f = svm.predict(x, y);
+            const idx = (py * W + px) * 4;
+            const t = Math.tanh(f * 0.85);
+            const inMargin = Math.abs(f) < 1;
+            if (t >= 0) {
+              // soft blue wash (#2e5bdb)
+              const a = 0.08 + 0.22 * t + (inMargin ? 0.05 : 0);
+              d[idx] = Math.round(238 * (1 - a) + 46 * a);
+              d[idx + 1] = Math.round(242 * (1 - a) + 91 * a);
+              d[idx + 2] = Math.round(245 * (1 - a) + 219 * a);
+            } else {
+              // soft orange wash (#e0662f)
+              const a = 0.08 + 0.22 * -t + (inMargin ? 0.05 : 0);
+              d[idx] = Math.round(238 * (1 - a) + 224 * a);
+              d[idx + 1] = Math.round(242 * (1 - a) + 102 * a);
+              d[idx + 2] = Math.round(245 * (1 - a) + 47 * a);
+            }
+            d[idx + 3] = 255;
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+      }
+
+      // Marching squares on 60x60 grid for crisp SVG contours
+      const svg = this.querySelector<SVGSVGElement>('.ksvm-svg');
+      if (!svg) return;
+      svg.innerHTML = '';
+
+      const N = 60;
+      const grid: number[][] = [];
+      for (let r = 0; r <= N; r++) {
+        const y = 1.6 - (r / N) * 3.2;
+        const row: number[] = [];
+        for (let c = 0; c <= N; c++) {
+          const x = (c / N) * 3.2 - 1.6;
+          row.push(svm.predict(x, y));
+        }
+        grid.push(row);
+      }
+
+      // Subtle axes
+      svg.appendChild(el('line', { x1: 0, y1: 180, x2: 360, y2: 180, stroke: 'rgba(20,33,61,0.10)', 'stroke-width': 1 }));
+      svg.appendChild(el('line', { x1: 180, y1: 0, x2: 180, y2: 360, stroke: 'rgba(20,33,61,0.10)', 'stroke-width': 1 }));
+
+      const pPlus = contourPaths(grid, 1, 360, 360);
+      const pMinus = contourPaths(grid, -1, 360, 360);
+      const pZero = contourPaths(grid, 0, 360, 360);
+
+      if (pPlus) svg.appendChild(el('path', { d: pPlus, fill: 'none', stroke: '#2e5bdb', 'stroke-width': 1.5, 'stroke-dasharray': '5 4', opacity: 0.75 }));
+      if (pMinus) svg.appendChild(el('path', { d: pMinus, fill: 'none', stroke: '#e0662f', 'stroke-width': 1.5, 'stroke-dasharray': '5 4', opacity: 0.75 }));
+      if (pZero) svg.appendChild(el('path', { d: pZero, fill: 'none', stroke: '#14213d', 'stroke-width': 2.2 }));
+
+      // Points
+      this.points.forEach((pt, i) => {
+        const cx = ((pt.x + 1.6) / 3.2) * 360;
+        const cy = ((1.6 - pt.y) / 3.2) * 360;
+        const isSV = svm.alphas[i] > 1e-4;
+        const color = pt.c === 1 ? '#2e5bdb' : '#e0662f';
+
+        if (isSV) {
+          svg.appendChild(el('circle', {
+            cx, cy, r: 9.5,
+            fill: 'none', stroke: '#0f8b8d', 'stroke-width': 2,
+          }));
+        }
+        svg.appendChild(el('circle', {
+          cx, cy, r: isSV ? 5.8 : 4.6,
+          fill: color, stroke: '#f8fafb', 'stroke-width': 1.5,
+          'data-idx': i,
+          style: 'cursor: grab;',
+        }));
+      });
+    }
+
+    renderLift() {
+      const svg2d = this.querySelector<SVGSVGElement>('.ksvm-lift-2d');
+      const svg3d = this.querySelector<SVGSVGElement>('.ksvm-lift-3d');
+      if (!svg2d || !svg3d) return;
+
+      const lifted = this.points.map((pt, idx) => ({
+        idx,
+        x: pt.x,
+        y: pt.y,
+        c: pt.c,
+        z: liftPoint(this.liftMode, pt.x, pt.y, 1.25),
+      }));
+
+      // Center 3D coordinates for clean rotation
+      const mean = [0, 0, 0];
+      for (const p of lifted) {
+        mean[0] += p.z[0]; mean[1] += p.z[1]; mean[2] += p.z[2];
+      }
+      mean[0] /= lifted.length; mean[1] /= lifted.length; mean[2] /= lifted.length;
+
+      const sol3 = solveLinear3D(lifted, 12);
+
+      // Draw 2D input space
+      svg2d.innerHTML = '';
+      svg2d.appendChild(el('line', { x1: 0, y1: 140, x2: 280, y2: 140, stroke: '#dde4ea', 'stroke-width': 1 }));
+      svg2d.appendChild(el('line', { x1: 140, y1: 0, x2: 140, y2: 280, stroke: '#dde4ea', 'stroke-width': 1 }));
+
+      // 2D decision boundary contour induced by the 3D plane w . phi(x) + b = 0
+      const N = 48;
+      const grid: number[][] = [];
+      for (let r = 0; r <= N; r++) {
+        const y = 1.5 - (r / N) * 3.0;
+        const row: number[] = [];
+        for (let c = 0; c <= N; c++) {
+          const x = (c / N) * 3.0 - 1.5;
+          const pz = liftPoint(this.liftMode, x, y, 1.25);
+          row.push(sol3.w[0] * pz[0] + sol3.w[1] * pz[1] + sol3.w[2] * pz[2] + sol3.b);
+        }
+        grid.push(row);
+      }
+      const pBound = contourPaths(grid, 0, 280, 280);
+      if (pBound) svg2d.appendChild(el('path', { d: pBound, fill: 'none', stroke: '#14213d', 'stroke-width': 2 }));
+
+      lifted.forEach((p) => {
+        const cx = ((p.x + 1.5) / 3.0) * 280;
+        const cy = ((1.5 - p.y) / 3.0) * 280;
+        const isHov = p.idx === this.hoverIdx;
+        const cNode = el('circle', {
+          cx, cy, r: isHov ? 7 : 5,
+          fill: p.c === 1 ? '#2e5bdb' : '#e0662f',
+          stroke: isHov ? '#14213d' : '#f8fafb',
+          'stroke-width': isHov ? 2.2 : 1.4,
+          style: 'cursor: pointer;',
+        });
+        cNode.addEventListener('pointerenter', () => { this.hoverIdx = p.idx; this.renderLift(); });
+        cNode.addEventListener('pointerleave', () => { this.hoverIdx = -1; this.renderLift(); });
+        svg2d.appendChild(cNode);
+      });
+
+      // Project 3D -> 2D
+      const cyaw = Math.cos(this.yaw), syaw = Math.sin(this.yaw);
+      const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+      const scale = this.liftMode === 'quad' ? 88 : 96;
+      const proj = (z: number[]) => {
+        const x0 = z[0] - mean[0];
+        const y0 = z[1] - mean[1];
+        const z0 = z[2] - mean[2];
+        const x1 = x0 * cyaw - y0 * syaw;
+        const y1 = x0 * syaw + y0 * cyaw;
+        const y2 = y1 * cp - z0 * sp;
+        const z2 = y1 * sp + z0 * cp;
+        return {
+          sx: 160 + x1 * scale,
+          sy: 145 - z2 * scale,
+          depth: y2,
+        };
+      };
+
+      svg3d.innerHTML = '';
+
+      // Draw translucent separating plane patch w . z + b = 0
+      const w = sol3.w;
+      const wNorm = Math.hypot(w[0], w[1], w[2]);
+      if (wNorm > 1e-4) {
+        // Find two orthonormal tangent vectors u, v perpendicular to w
+        const n = [w[0] / wNorm, w[1] / wNorm, w[2] / wNorm];
+        const ref = Math.abs(n[0]) < 0.8 ? [1, 0, 0] : [0, 1, 0];
+        const u = [
+          n[1] * ref[2] - n[2] * ref[1],
+          n[2] * ref[0] - n[0] * ref[2],
+          n[0] * ref[1] - n[1] * ref[0],
+        ];
+        const uLen = Math.hypot(u[0], u[1], u[2]);
+        u[0] /= uLen; u[1] /= uLen; u[2] /= uLen;
+        const v = [
+          n[1] * u[2] - n[2] * u[1],
+          n[2] * u[0] - n[0] * u[2],
+          n[0] * u[1] - n[1] * u[0],
+        ];
+        // Closest point on plane to `mean`
+        const dist = (w[0] * mean[0] + w[1] * mean[1] + w[2] * mean[2] + sol3.b) / wNorm;
+        const p0 = [mean[0] - dist * n[0], mean[1] - dist * n[1], mean[2] - dist * n[2]];
+        const R = 1.15;
+        const corners = [
+          [p0[0] - R * u[0] - R * v[0], p0[1] - R * u[1] - R * v[1], p0[2] - R * u[2] - R * v[2]],
+          [p0[0] + R * u[0] - R * v[0], p0[1] + R * u[1] - R * v[1], p0[2] + R * u[2] - R * v[2]],
+          [p0[0] + R * u[0] + R * v[0], p0[1] + R * u[1] + R * v[1], p0[2] + R * u[2] + R * v[2]],
+          [p0[0] - R * u[0] + R * v[0], p0[1] - R * u[1] + R * v[1], p0[2] - R * u[2] + R * v[2]],
+        ].map(proj);
+        const ptsAttr = corners.map((c) => `${c.sx.toFixed(1)},${c.sy.toFixed(1)}`).join(' ');
+        svg3d.appendChild(el('polygon', {
+          points: ptsAttr,
+          fill: 'rgba(123, 79, 214, 0.16)',
+          stroke: '#7b4fd6',
+          'stroke-width': 1.2,
+        }));
+      }
+
+      // Depth-sort 3D points back-to-front
+      const projected = lifted.map((p) => ({ ...p, ...proj(p.z) })).sort((a, b) => a.depth - b.depth);
+      for (const p of projected) {
+        const isHov = p.idx === this.hoverIdx;
+        const cNode = el('circle', {
+          cx: p.sx.toFixed(1),
+          cy: p.sy.toFixed(1),
+          r: isHov ? 7.2 : 5.2,
+          fill: p.c === 1 ? '#2e5bdb' : '#e0662f',
+          stroke: isHov ? '#14213d' : '#f8fafb',
+          'stroke-width': isHov ? 2.2 : 1.4,
+          style: 'cursor: pointer;',
+        });
+        cNode.addEventListener('pointerenter', () => { this.hoverIdx = p.idx; this.renderLift(); });
+        cNode.addEventListener('pointerleave', () => { this.hoverIdx = -1; this.renderLift(); });
+        svg3d.appendChild(cNode);
+      }
+    }
+  }
+
+  customElements.define('x-kernelsvm', KernelSvmLab);
+</script>

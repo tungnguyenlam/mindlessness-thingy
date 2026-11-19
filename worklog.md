@@ -436,3 +436,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: upgraded whole-model diagrams with host/decode zones, step input selector, prefill/decode shapes, slotted layer stack and caches, bidirectional state R/W arrows, tied-weight rail, and outer-left decode loop; added pinned model header strip with linked delta chips, grouped view/component tabs, and shape-coded ArchDiagram node/edge styles
 - files: src/lib/diagram/geometry.mjs src/components/viz/ArchDiagram.astro src/lib/models/overview.mjs src/components/viz/ModelOverview.astro
 - open: none
+
+## 2026-11-19 · feat(kernel-svm): add KernelSvmLab and kernel-methods-and-svm note
+- did: Added <KernelSvmLab> (live SMO solver, 2D draggable points/margin/support-vectors/kernels, 2D->3D rotatable feature-lift view), svmlab.mjs, two sources (boser-guyon-vapnik-1992, cortes-vapnik-1995), and /notes/kernel-methods-and-svm/
+- files: src/content/notes/concepts/kernel-methods-and-svm.mdx src/components/viz/KernelSvmLab.astro src/lib/svmlab.mjs src/content/sources/{boser-guyon-vapnik-1992,cortes-vapnik-1995}.yaml AGENTS.md scripts/test-place.mjs scripts/checks/visual.mjs src/lib/bigpicture.mjs src/components/viz/index.ts
+- open: none
