@@ -1,0 +1,113 @@
+---
+title: "Looped transformer"
+kind: concept
+summary: "Reuses a shared stack of transformer layers K times per token, trading extra compute for greater effective depth without storing more weights."
+domains: [llm, architecture]
+prerequisites: [transformer-block, kv-cache]
+builds_on: [transformer-block]
+contrasts_with: []
+related: [dory-1-0-4b, inkling-2-mini, glm-5-4, moe, nvfp4]
+sources: [universal-transformers-paper, ouro-paper, dory-1-0-4b-card, inkling-2-mini-blog, inkling-2-mini-card, glm-5-4-blog]
+status: draft
+updated: 2026-11-23
+---
+
+A standard [[transformer-block|transformer]] sends each token through a stack of $L$ distinct layers once, so increasing depth means storing more weights. A looped transformer breaks that tie by running a shared block of layers $K$ times per token, turning weight memory into sequential computation <Cite id="universal-transformers-paper" where="§2.1" />.
+
+<Scene name="looped-depth" title="Weight-shared depth vs. a flat stack" caption="Left: a standard stack stores one weight matrix per layer. Right: a looped transformer routes the hidden state h(k) back through the same core weights W_R for K passes, reaching 3× depth with 1× core weights." />
+
+Every extra pass lets the model refine its internal representation before emitting a token, rather than writing intermediate steps out as text <Cite id="ouro-paper" where="§1" />. Models such as [[dory-1-0-4b]], [[inkling-2-mini]], and [[glm-5-4]] apply this idea at different scales, from a 4B laptop model to a 750B coding flagship.
+
+## The prelude–loop–output stack
+
+Most modern looped language models do not loop the entire network. Instead, they place a shared recurrent core $R$ between an input prelude $I$ and an output block $O$, because early layers map tokens into internal features and final layers map features back to logits <Cite id="inkling-2-mini-blog" where="Looping design" /> <Cite id="dory-1-0-4b-card" where="Looped LM architecture" />.
+
+<ArchDiagram
+  title="Prelude–loop–output topology"
+  caption="Tokens pass through Prelude I once, iterate through Core R for K passes using a state gate, and exit through Output O once."
+  blocks={[
+    { id: 'x', label: 'Token state', sub: 'T × d', role: 'activation', col: 0, row: 0 },
+    { id: 'pre', label: 'Prelude I', sub: 'L_in · once', role: 'weight', col: 1, row: 0, link: 'transformer-block' },
+    { id: 'gate', label: 'Loop gate', sub: 'mix(h, h_in)', role: 'route', col: 2, row: 0 },
+    { id: 'core', label: 'Shared core R', sub: 'L_loop · × K', role: 'weight', col: 2, row: 1 },
+    { id: 'out', label: 'Output O', sub: 'L_out · once', role: 'weight', col: 1, row: 1 },
+    { id: 'y', label: 'Refined state', sub: 'T × d', role: 'activation', col: 0, row: 1 },
+  ]}
+  edges={[
+    { from: 'x', to: 'pre' },
+    { from: 'pre', to: 'gate' },
+    { from: 'gate', to: 'core' },
+    { from: 'core', to: 'gate', label: 'next pass', dashed: true, side: 'right' },
+    { from: 'core', to: 'out', label: 'exit' },
+    { from: 'out', to: 'y' },
+  ]}
+/>
+
+If $I$ has $L_{\text{in}}$ layers, $R$ has $L_{\text{loop}}$ layers, and $O$ has $L_{\text{out}}$ layers, the stored layer count is $L_{\text{phys}} = L_{\text{in}} + L_{\text{loop}} + L_{\text{out}}$. Running $R$ for $K$ iterations gives an effective depth of:
+
+$$L_{\text{eff}} = L_{\text{in}} + K \cdot L_{\text{loop}} + L_{\text{out}}$$
+
+When $K = 1$, the network reduces to an ordinary transformer. Increasing $K$ adds FLOPs per token in proportion to $L_{\text{eff}}$, while the weight footprint in VRAM stays fixed at $L_{\text{phys}}$ <Cite id="dory-1-0-4b-card" where="Highlights" />.
+
+## Compute, weights, and the KV cache
+
+Looping changes two budgets at once: parameter memory and [[kv-cache|KV cache]] memory. Weight sharing keeps parameter memory constant, because the same weights $W_R$ are loaded for every pass, though decoding still pays the memory-bandwidth cost of reading them $K$ times <Cite id="inkling-2-mini-blog" where="Header chart" />.
+
+<Calc
+  title="Effective depth and KV-cache multiplier"
+  note="Compare physical layers, effective depth, and KV-cache growth as loop count K changes. Hybrid sliding-window sharing assumes a short window W relative to a long context."
+  bars={true}
+  inputs={[
+    { id: 'l_in', label: 'Prelude + Output layers (L_in + L_out)', min: 4, max: 48, step: 2, value: 12 },
+    { id: 'l_loop', label: 'Shared core layers (L_loop)', min: 4, max: 40, step: 2, value: 12 },
+    { id: 'k', label: 'Loop passes (K)', min: 1, max: 6, step: 1, value: 3 },
+  ]}
+  outputs={[
+    { label: 'Physical layers stored', expr: 'l_in + l_loop', format: 'number', role: 'weight' },
+    { label: 'Effective layers executed', expr: 'l_in + k * l_loop', format: 'number', role: 'activation' },
+    { label: 'Effective / physical depth ratio', expr: '(l_in + k * l_loop) / (l_in + l_loop)', format: 'ratio', role: 'op' },
+    { label: 'Per-loop KV layers (e.g. Inkling 2 Mini)', expr: 'l_in + k * l_loop', format: 'number', role: 'cache' },
+    { label: 'Last-loop KV layers (e.g. Dory 1.0-4B)', expr: 'l_in + l_loop', format: 'number', role: 'cache' },
+  ]}
+/>
+
+Naive looping stores a separate [[kv-cache|KV cache]] for every pass through $R$, multiplying context memory by $K$ on the looped layers <Cite id="dory-1-0-4b-card" where="Reducing the KV Cache Memory Overhead" />. At long contexts, that KV growth can erase the VRAM savings from sharing weights.
+
+<Scene name="looped-kv-strategies" title="Three ways to handle the KV cache across loops" caption="Per-loop caching (Inkling 2 Mini) keeps K× caches. Last-loop caching (Dory 1.0-4B) overwrites one cache in place. Hybrid sharing (GLM-5.4) reuses pass 1's sparse KV and adds only a local sliding window." />
+
+Three production designs handle this differently:
+
+- **Per-visit KV cache** ([[inkling-2-mini]]): every one of the 48 layer visits keeps its own KV and short-convolution state, maximizing representational freedom at the cost of extra cache memory <Cite id="inkling-2-mini-card" where="§2" />.
+- **Last-loop overwrite** ([[dory-1-0-4b]]): each recurrent attention layer keeps one cache slot and overwrites it on each pass, keeping KV memory flat at $1\times$ regardless of $K$ <Cite id="dory-1-0-4b-card" where="Reducing the KV Cache Memory Overhead" />.
+- **Global share + sliding window** ([[glm-5-4]]): the second pass reuses the first pass's sparse KV entries and attention indices, and stores only a small local sliding window of new KV pairs <Cite id="glm-5-4-blog" where="Hybrid KV Cache" />.
+
+## Keeping states stable across passes
+
+Feeding a block's output straight back into its input can cause activation norms to grow across passes, pushing later layers out of their trained scale <Cite id="glm-5-4-blog" where="From Pre-Trained Base to Loop Transformer" />.
+
+<Scene name="looped-stability" title="Why loops need state gating" caption="Left: feeding un-gated outputs back into the loop compounds activation norms beyond the trained scale. Right: gating or mixing with the prelude state keeps norms bounded while refining direction." />
+
+Recent models stabilize the loop with explicit state-mixing rules:
+
+- **Input reinjection**: [[dory-1-0-4b]] builds on a normalized-GPT backbone and reinjects the input representation into every loop iteration <Cite id="dory-1-0-4b-card" where="Looped LM architecture" />.
+- **Per-token residual gates**: [[glm-5-4]] adds learned per-token gates that write conservatively on pass 1 to build global context and open wider on pass 2 to refine the prediction <Cite id="glm-5-4-blog" where="From Pre-Trained Base to Loop Transformer" />.
+- **Cross-pass messages**: [[inkling-2-mini]] restarts every pass from the prelude output and uses learned rank-64 gates to read a "message" from the previous pass's outputs <Cite id="inkling-2-mini-blog" where="Looping design" />.
+
+<Callout type="pitfall" title="Looping buys reasoning, not memorized facts">
+Controlled studies on Ouro <Cite id="ouro-paper" where="Abstract" /> and Inkling 2 Mini <Cite id="inkling-2-mini-blog" where="Capabilities" /> show that extra loop passes improve multi-step reasoning and long-context tracking, but do not raise scores on pure fact-recall benchmarks such as AA-Omniscience or SimpleQA. Factual capacity still tracks total unique parameters.
+</Callout>
+
+## Models that use looped transformers
+
+The table below compares three 2026 looped models side by side. Each pairs weight sharing with a different answer to KV memory and pass-to-pass stability.
+
+<Spec
+  title="Looped transformers in practice"
+  note="Inkling 2 Mini has 3.4B unique active parameters and 5.4B effective active across 3 passes, plus a 1–5 pass varloop research checkpoint. Dory 1.0-4B defaults to K = 2 loops (56 effective layers). GLM-5.4 loops 28 layers of the GLM-5 base twice."
+  columns={['Model', 'Total params', 'Layers (phys → eff)', 'Passes', 'KV-cache strategy']}
+  rows={[
+    { label: 'Dory 1.0-4B', values: ['4B', '36 → 56', '1, 2, 4', 'Last-loop overwrite'], source: 'dory-1-0-4b-card', where: 'Model Summary, Quick Start' },
+    { label: 'Inkling 2 Mini', values: ['26.4B', '24 → 48', '3', 'Per-visit KV'], source: 'inkling-2-mini-card', where: '§2 Model properties' },
+    { label: 'GLM-5.4', values: ['~750B', '28 × 2', '2', 'Sparse + window'], source: 'glm-5-4-blog', where: 'From Pre-Trained Base, Hybrid KV Cache' },
+  ]}
+/>

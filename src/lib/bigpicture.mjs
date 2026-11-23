@@ -105,6 +105,7 @@ export const PLACES = {
   'layer-norm': { pipe: 'llm', at: 'norm', short: 'LayerNorm', role: 'keeps every layer’s input the same size' },
   'group-norm': { pipe: 'llm', at: 'norm', short: 'GroupNorm', role: 'normalizes channel groups inside one example' },
   'transformer-block': { pipe: 'llm', at: 'layers', short: 'Block', role: 'the layer that is repeated L times' },
+  'looped-transformer': { pipe: 'llm', at: 'layers', short: 'Looped block', role: 'runs a shared stack of layers K times per token' },
   rope: { pipe: 'llm', at: 'pos', short: 'RoPE', role: 'tells attention where each token is' },
   mha: { pipe: 'llm', at: 'mix', short: 'MHA', role: 'attention with its own K, V per head' },
   mqa: { pipe: 'llm', at: 'mix', short: 'MQA', role: 'attention with one shared K, V' },

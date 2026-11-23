@@ -1,0 +1,57 @@
+---
+title: "Dory 1.0-4B"
+kind: system
+summary: "NVIDIA's 4B looped (latent-recurrent) normalized-GPT model. It runs an 8-layer input block, a 20-layer recurrent block for 1, 2, or 4 elastic loops, and an 8-layer output block, with optional last-loop KV caching."
+domains: [llm, architecture]
+prerequisites: [looped-transformer, nvfp4, kv-cache]
+builds_on: [looped-transformer]
+contrasts_with: [inkling-2-mini, glm-5-4]
+related: []
+sources: [dory-1-0-4b-card]
+status: draft
+updated: 2026-11-23
+---
+
+Dory 1.0-4B is a 4B-parameter [[looped-transformer]] built on a normalized-GPT (nGPT) backbone with interleaved sliding-window attention and full attention <Cite id="dory-1-0-4b-card" where="Model Summary" />. Its two main ideas are **elastic inference depth** (1, 2, or 4 loops from a single checkpoint) and **last-loop KV caching** to keep context memory flat as loops increase <Cite id="dory-1-0-4b-card" where="Highlights" />.
+
+## Elastic loop stack
+
+Dory divides its 36 physical layers into three blocks: an 8-layer Input block ($I$), a 20-layer Recurrent block ($R$), and an 8-layer Output block ($O$) <Cite id="dory-1-0-4b-card" where="Looped LM architecture" />. The input representation is reinjected into $R$ on every pass, and the operator chooses $K \in \{1, 2, 3, 4\}$ at inference time without retraining <Cite id="dory-1-0-4b-card" where="Choosing the Loop Count" />.
+
+<ArchDiagram
+  title="Dory 1.0-4B elastic loop stack"
+  caption="8 Input layers feed a 20-layer Recurrent block applied K times (default K = 2, giving 56 effective layers), followed by 8 Output layers."
+  blocks={[
+    { id: 'in', label: 'Input block I', sub: 'L_in · once', role: 'weight', col: 0, row: 0 },
+    { id: 'inj', label: 'Input reinjection', sub: 'every loop', role: 'route', col: 1, row: 0 },
+    { id: 'rec', label: 'Recurrent block R', sub: 'L_loop · × K', role: 'weight', col: 1, row: 1, link: 'looped-transformer' },
+    { id: 'kv', label: 'KV cache', sub: 'last-loop or per-loop', role: 'cache', col: 2, row: 1, link: 'kv-cache' },
+    { id: 'out', label: 'Output block O', sub: 'L_out · once', role: 'weight', col: 0, row: 1 },
+  ]}
+  edges={[
+    { from: 'in', to: 'inj' },
+    { from: 'inj', to: 'rec' },
+    { from: 'rec', to: 'inj', label: 'loop', dashed: true, side: 'right' },
+    { from: 'rec', to: 'kv', dashed: true },
+    { from: 'rec', to: 'out' },
+  ]}
+/>
+
+NVIDIA recommends 2 loops as the default because most of the accuracy gain arrives on the second pass—for example, SWE-bench Verified rises from 50.3% at 1 loop to 59.5% at 2 loops and 61.8% at 4 loops—while solving tasks in fewer generated output tokens <Cite id="dory-1-0-4b-card" where="Benchmarks, Quick Start Guide" />.
+
+## Last-loop KV caching and specifications
+
+Standard looping stores a separate [[kv-cache]] for every pass, multiplying context VRAM by $K$. Dory supports a `last_loop` mode where each recurrent attention layer overwrites its previous pass's keys and values in place, holding KV memory at the 1-loop size for any loop count with accuracy close to `per_loop` mode <Cite id="dory-1-0-4b-card" where="Reducing the KV Cache Memory Overhead" />.
+
+<Spec
+  title="Dory 1.0-4B specifications"
+  rows={[
+    { label: 'Total parameters', value: '4B', source: 'dory-1-0-4b-card', where: 'Model Summary' },
+    { label: 'Layer blocks (I / R / O)', value: '8 / 20 / 8 (36 physical)', source: 'dory-1-0-4b-card', where: 'Looped LM architecture' },
+    { label: 'Effective layers (at K = 1, 2, 4)', value: '36 / 56 / 96', source: 'dory-1-0-4b-card', where: 'Looped LM architecture' },
+    { label: 'Attention mix', value: 'Interleaved SWA + full attention', source: 'dory-1-0-4b-card', where: 'Model Summary' },
+    { label: 'Context length', value: '256K tokens', source: 'dory-1-0-4b-card', where: 'Model Summary' },
+    { label: 'Pretraining tokens', value: '6T (4.5T NVFP4 + BF16) + 300B ext.', source: 'dory-1-0-4b-card', where: 'Model Design' },
+    { label: 'KV cache modes', value: 'per_loop or last_loop', source: 'dory-1-0-4b-card', where: 'Quick Start Guide' },
+  ]}
+/>

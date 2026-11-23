@@ -1,0 +1,58 @@
+---
+title: "GLM-5.4"
+kind: system
+summary: "Z.ai's ~750B looped transformer, adapted from GLM-5 via continued training. It runs 28 layers twice with per-token residual gates and a hybrid sparse-share plus sliding-window KV cache."
+domains: [llm, architecture]
+prerequisites: [looped-transformer, kv-cache]
+builds_on: [looped-transformer]
+contrasts_with: [dory-1-0-4b, inkling-2-mini]
+related: []
+sources: [glm-5-4-blog]
+status: draft
+updated: 2026-11-23
+---
+
+GLM-5.4 is Z.ai's ~750B-parameter coding flagship built on a [[looped-transformer]] architecture <Cite id="glm-5-4-blog" where="Introduction" />. Rather than training a looped model from scratch, Z.ai adapted an already pre-trained GLM-5 base model through continued training, running 28 layers for two passes with **per-token residual gates** and a **hybrid KV cache** <Cite id="glm-5-4-blog" where="From Pre-Trained Base to Loop Transformer" />.
+
+## Gated two-pass refinement and hybrid KV cache
+
+Directly overwriting hidden states across loops causes activation norms to blow up, so GLM-5.4 adds independent per-token gates for each iteration <Cite id="glm-5-4-blog" where="From Pre-Trained Base to Loop Transformer" />. Pass 1 writes conservatively to build global context (more aggressively on harder tokens), and Pass 2 opens the gates to write full refinements.
+
+<ArchDiagram
+  title="GLM-5.4 two-pass loop and hybrid KV cache"
+  caption="28 shared layers run twice with per-token gates. Pass 2 reuses Pass 1's sparse KV entries and attention indices, adding only a small local sliding-window cache."
+  blocks={[
+    { id: 'in', label: 'Base state', sub: 'T × d', role: 'activation', col: 0, row: 0 },
+    { id: 'gate', label: 'Per-token gate', sub: 'scales write-back', role: 'route', col: 1, row: 0 },
+    { id: 'core', label: 'Looped stack', sub: 'L_loop · × K', role: 'weight', col: 1, row: 1, link: 'looped-transformer' },
+    { id: 'kv1', label: 'Sparse KV', sub: 'shared across passes', role: 'cache', col: 1, row: 2, link: 'kv-cache' },
+    { id: 'kv2', label: 'Window KV', sub: 'local pass-k window', role: 'cache', col: 2, row: 2 },
+    { id: 'out', label: 'Output state', sub: 'T × d', role: 'activation', col: 0, row: 1 },
+  ]}
+  edges={[
+    { from: 'in', to: 'gate' },
+    { from: 'gate', to: 'core' },
+    { from: 'core', to: 'gate', label: 'next pass', dashed: true, side: 'right' },
+    { from: 'core', to: 'kv1', dashed: true },
+    { from: 'core', to: 'kv2', dashed: true },
+    { from: 'core', to: 'out' },
+  ]}
+/>
+
+To avoid doubling [[kv-cache|KV cache]] memory at 1M context lengths, Pass 2 reuses the sparse KV entries and attention indices selected in Pass 1—adding zero indexing overhead—while storing only a small independent sliding window of new Pass-2 KV states <Cite id="glm-5-4-blog" where="Hybrid KV Cache" />.
+
+## Scaling findings and specifications
+
+On controlled 30B iso-parameter ablations, adding the second loop cost ~10% more training compute while cutting average output lengths on GPQA-Diamond and MMLU-Pro by 10–14% as reasoning moved from explicit chain-of-thought tokens into implicit loop depth <Cite id="glm-5-4-blog" where="Scaling Correctness" />.
+
+<Spec
+  title="GLM-5.4 specifications"
+  rows={[
+    { label: 'Total parameters', value: '~750B', source: 'glm-5-4-blog', where: 'Introduction' },
+    { label: 'Looped layers', value: '28 layers × 2 iterations', source: 'glm-5-4-blog', where: 'From Pre-Trained Base' },
+    { label: 'Training recipe', value: 'Continued training from GLM-5 base', source: 'glm-5-4-blog', where: 'From Pre-Trained Base' },
+    { label: 'State stabilization', value: 'Independent per-token residual gates', source: 'glm-5-4-blog', where: 'From Pre-Trained Base' },
+    { label: 'KV cache strategy', value: 'Pass-1 sparse KV reuse + Pass-2 sliding window', source: 'glm-5-4-blog', where: 'Hybrid KV Cache' },
+    { label: 'Served throughput', value: 'Up to 200 tok/s off-peak, 70–80 tok/s peak', source: 'glm-5-4-blog', where: 'Inference Efficiency' },
+  ]}
+/>

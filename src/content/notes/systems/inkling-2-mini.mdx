@@ -1,0 +1,57 @@
+---
+title: "Inkling 2 Mini"
+kind: system
+summary: "Thinking Machines Lab's 26.4B (3.4B active, 5.4B effective) multimodal MoE looped transformer. Its middle 12 layers run three times with cross-pass attention-residual messages and native NVFP4/MXFP8 weights."
+domains: [llm, moe, architecture]
+prerequisites: [looped-transformer, moe, nvfp4, kv-cache]
+builds_on: [looped-transformer]
+contrasts_with: [dory-1-0-4b, glm-5-4]
+related: []
+sources: [inkling-2-mini-blog, inkling-2-mini-card]
+status: draft
+updated: 2026-11-23
+---
+
+Inkling 2 Mini is a 26.4B-parameter multimodal [[moe|Mixture-of-Experts]] [[looped-transformer]] designed to fit in ~20 GB for local devices while matching larger models on agentic coding <Cite id="inkling-2-mini-blog" where="Introduction" />. Its key additions are **cross-pass attention-residual messages** between loops, **per-visit KV caches**, and native [[nvfp4]]/MXFP8 training and deployment <Cite id="inkling-2-mini-blog" where="Architecture and training" />.
+
+## Cross-pass messages across four blocks
+
+The decoder has 24 physical layers arranged in four 6-layer blocks: a prelude (layers 0–5), two middle blocks (layers 6–17), and a final block (layers 18–23) <Cite id="inkling-2-mini-blog" where="Looping design" />. The middle 12 layers run three times, yielding 48 layer visits per token from 24 stored layers <Cite id="inkling-2-mini-card" where="§2 Architecture type" />.
+
+<ArchDiagram
+  title="Inkling 2 Mini cross-pass loop"
+  caption="Every pass through the middle 12 layers starts from the prelude output. Passes 2 and 3 read a cross-pass message from the previous pass via learned rank-64 gates."
+  blocks={[
+    { id: 'pre', label: 'Prelude block', sub: 'L_pre · once', role: 'weight', col: 0, row: 0 },
+    { id: 'gate', label: 'Message gate', sub: 'attention residual', role: 'route', col: 1, row: 0 },
+    { id: 'mid', label: 'Middle core', sub: 'L_mid · × K', role: 'weight', col: 1, row: 1, link: 'looped-transformer' },
+    { id: 'kv', label: 'Per-visit state', sub: 'KV + conv per visit', role: 'cache', col: 2, row: 1, link: 'kv-cache' },
+    { id: 'fin', label: 'Final block', sub: 'L_fin · once', role: 'weight', col: 0, row: 1 },
+  ]}
+  edges={[
+    { from: 'pre', to: 'gate' },
+    { from: 'gate', to: 'mid' },
+    { from: 'mid', to: 'gate', label: 'message', dashed: true, side: 'right' },
+    { from: 'mid', to: 'kv', dashed: true },
+    { from: 'mid', to: 'fin' },
+  ]}
+/>
+
+Rather than feeding pass $k$'s output blindly into pass $k+1$, every pass starts from the prelude output and reads a "message" from the previous pass's residual blocks via a learned gate <Cite id="inkling-2-mini-blog" where="Looping design" />. That gate starts closed during training so each pass initially behaves like a standard model, then opens gradually for stable optimization.
+
+## Attention, MoE, and specifications
+
+Each 6-layer block mixes five sliding-window layers (1,024-token window) and one full-attention layer with 24 query heads and 8 KV heads <Cite id="inkling-2-mini-card" where="§2 Architecture type" />. Each visit routes tokens to 8 of 128 experts; each extra pass adds ~1.0B effective active parameters (3.4B unique active, 5.4B effective active), and all 48 visits keep their own KV and short-convolution state <Cite id="inkling-2-mini-card" where="§2 Parameters" />.
+
+<Spec
+  title="Inkling 2 Mini specifications"
+  rows={[
+    { label: 'Total parameters', value: '26.4B (~20 GB checkpoint)', source: 'inkling-2-mini-card', where: '§2, §3' },
+    { label: 'Active / effective active', value: '3.4B / 5.4B per token', source: 'inkling-2-mini-card', where: '§2 Parameters' },
+    { label: 'Physical → effective layers', value: '24 → 48 (middle 12 × 3)', source: 'inkling-2-mini-card', where: '§2 Architecture type' },
+    { label: 'Experts per layer', value: '8 active of 128 routed', source: 'inkling-2-mini-card', where: '§2 Architecture type' },
+    { label: 'Attention heads (Q / KV)', value: '24 / 8 (5 SWA + 1 full per 6 layers)', source: 'inkling-2-mini-blog', where: 'Looping design' },
+    { label: 'Context length', value: '1M tokens', source: 'inkling-2-mini-card', where: '§2 Input modalities' },
+    { label: 'Precision', value: 'NVFP4 (layers 0–19) + MXFP8 (20–23)', source: 'inkling-2-mini-blog', where: 'NVFP4 and low-bit quantization' },
+  ]}
+/>

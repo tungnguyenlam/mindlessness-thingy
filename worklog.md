@@ -441,3 +441,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: Added <KernelSvmLab> (live SMO solver, 2D draggable points/margin/support-vectors/kernels, 2D->3D rotatable feature-lift view), svmlab.mjs, two sources (boser-guyon-vapnik-1992, cortes-vapnik-1995), and /notes/kernel-methods-and-svm/
 - files: src/content/notes/concepts/kernel-methods-and-svm.mdx src/components/viz/KernelSvmLab.astro src/lib/svmlab.mjs src/content/sources/{boser-guyon-vapnik-1992,cortes-vapnik-1995}.yaml AGENTS.md scripts/test-place.mjs scripts/checks/visual.mjs src/lib/bigpicture.mjs src/components/viz/index.ts
 - open: none
+
+## 2026-11-23 · content(looped-transformer): add concept note, scenes, and Dory/Inkling/GLM-5.4
+- did: added looped-transformer concept note with 3 Scene animations (looped-depth, looped-kv-strategies, looped-stability), depth/KV Calc, and sourced Spec table, plus system notes for dory-1-0-4b, inkling-2-mini, and glm-5-4; iterated with Neon until satisfied
+- files: src/content/notes/concepts/looped-transformer.mdx src/content/notes/systems/{dory-1-0-4b,inkling-2-mini,glm-5-4}.mdx src/lib/scenes/looped-*.mjs src/content/sources/*.yaml src/lib/bigpicture.mjs
+- open: system notes use <ArchDiagram> + <Spec> without full config.json model YAML
