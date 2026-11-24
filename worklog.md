@@ -446,3 +446,8 @@ Append-only, one entry per finished task, newest at the bottom. Read with `tail 
 - did: added looped-transformer concept note with 3 Scene animations (looped-depth, looped-kv-strategies, looped-stability), depth/KV Calc, and sourced Spec table, plus system notes for dory-1-0-4b, inkling-2-mini, and glm-5-4; iterated with Neon until satisfied
 - files: src/content/notes/concepts/looped-transformer.mdx src/content/notes/systems/{dory-1-0-4b,inkling-2-mini,glm-5-4}.mdx src/lib/scenes/looped-*.mjs src/content/sources/*.yaml src/lib/bigpicture.mjs
 - open: system notes use <ArchDiagram> + <Spec> without full config.json model YAML
+
+## 2026-11-24 · feat(home): upgrade landing page layout, graph controls, and motion
+- did: added hero progress pulse, GlobalGraph kind filters + Reset view + dedicated legend bar + mobile framing + role-colored hover/edge-flow animation, path cards, recent dates, topic clusters, and sticky NoteIndex
+- files: src/pages/index.astro src/components/GlobalGraph.astro
+- open: none
